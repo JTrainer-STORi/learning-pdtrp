@@ -40,7 +40,9 @@ from scipy.spatial.distance import pdist, squareform
 
 def nearest_neighbor_distances_from_graph(nodes_b, graph_b):
 
-    W_val = torch.tensor([squareform(pdist(nodes, metric='euclidean')) for nodes in nodes_b], dtype=torch.float32)
+    nodes_b_cpu = nodes_b.cpu().numpy()
+
+    W_val = torch.tensor([squareform(pdist(nodes, metric='euclidean')) for nodes in nodes_b_cpu], dtype=torch.float32, device=nodes_b.device)
 
     W_val[graph_b == 0] = 0
 
