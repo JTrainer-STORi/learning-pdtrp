@@ -15,7 +15,6 @@ from utils.data_utils import BatchedRandomSampler
 from utils import move_to
 
 
-
 def get_inner_model(model):
     return model.module if isinstance(model, DataParallel) else model
 
@@ -31,7 +30,7 @@ def validate(model, dataset, problem, opts):
     print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')
     cost = rollout(model, dataset, opts)
     gt_cost = rollout_groundtruth(problem, dataset, opts)
-    opt_gap = ((cost/gt_cost - 1) * 100)
+    opt_gap = (((cost/gt_cost) - 1) * 100)
     
     print('Validation groundtruth cost: {:.3f} +- {:.3f}'.format(
         gt_cost.mean(), torch.std(gt_cost)))
@@ -40,7 +39,7 @@ def validate(model, dataset, problem, opts):
     print('Validation optimality gap: {:.3f}% +- {:.3f}'.format(
         opt_gap.mean(), torch.std(opt_gap)))
 
-    return cost.mean(), opt_gap.mean()
+    return cost.mean(), opt_gap.mean(), gt_cost.mean()
 
 
 def rollout(model, dataset, opts):
@@ -165,10 +164,11 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         )
 
     for val_idx, val_dataset in enumerate(val_datasets):
-        avg_reward, avg_opt_gap = validate(model, val_dataset, problem, opts)
+        avg_reward, avg_opt_gap, avg_gt_cost = validate(model, val_dataset, problem, opts)
         if not opts.no_tensorboard:
             tb_logger.log_value('val{}/avg_reward'.format(val_idx+1), avg_reward, step)
             tb_logger.log_value('val{}/opt_gap'.format(val_idx+1), avg_opt_gap, step)
+            tb_logger.log_value('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
 
     baseline.epoch_callback(model, epoch)
 
