@@ -137,9 +137,9 @@ class statePDTSPReal(NamedTuple):
         visited_ = torch.cat((self.visited_, torch.zeros((batch_size,1,1), device=self.loc.device, dtype=torch.bool)), 2)
         cpu_stops = self.stop_coords.cpu()
         cpu_dist = self.dist.cpu()
-        distance_matrices = torch.tensor(return_distance_matrix(np.array(cpu_locs), np.array(cpu_stops), np.array(cpu_dist)), dtype=torch.float, device=self.loc.device)
-        graph = ~torch.BoolTensor(np.array([nearest_neighbor_graph_realDTSP(np.array(distance_matrices[i]), neighbors=0.2, knn_strat='percentage') for i in range(len(loc))]))
-        return self._replace(visited_=visited_, loc=loc, graph=graph, distance_matrices=torch.FloatTensor(distance_matrices).to(self.loc.device))
+        distance_matrices = return_distance_matrix(np.array(cpu_locs), np.array(cpu_stops), np.array(cpu_dist))
+        graph = ~torch.BoolTensor(np.array([nearest_neighbor_graph_realDTSP(distance_matrices[i], neighbors=0.2, knn_strat='percentage') for i in range(len(loc))]))
+        return self._replace(visited_=visited_, loc=loc, graph=graph, distance_matrices=torch.FloatTensor(distance_matrices, device=loc.device))
     
     def all_finished(self):
         return self.visited_.all()

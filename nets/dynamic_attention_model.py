@@ -307,7 +307,7 @@ class DynamicAttentionModel(nn.Module):
                     edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))
                 elif self.problem.NAME == 'pdtsp-rd':
                     nearest_neighbor_distances = state.distance_matrices
-                    nearest_neighbor_distances[move_to(state.graph, device=nodes.device) ==0] = 0
+                    nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
                     edge_features = self.edge_embed(nearest_neighbor_distances.unsqueeze(-1))
                 embeddings = self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), edge_features, move_to(state.graph, device=nodes.device))
                 fixed = self._precompute(embeddings)
