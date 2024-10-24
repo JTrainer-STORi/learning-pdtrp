@@ -109,8 +109,7 @@ class StatePDTSP(NamedTuple):
 
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
-        return self._replace(first_a=first_a, prev_a=prev_a, visited_=visited_,
-                            lengths=lengths, cur_coord=cur_coord, i=self.i + 1)
+        return self._replace(first_a=first_a, prev_a=prev_a, visited_=visited_, lengths=lengths, cur_coord=cur_coord, i=self.i + 1)
                 
     
     def arrivals(self, new_node_locs):
@@ -134,7 +133,7 @@ class StatePDTSP(NamedTuple):
     def get_graph_mask(self):
         batch_size, n_loc, _ = self.loc.size()
         if self.i.item() == 0:
-            return torch.zeros(batch_size, 1, n_loc, dtype=torch.uint8, device=self.loc.device)
+            return torch.zeros(batch_size, 1, n_loc, dtype=torch.bool, device=self.loc.device)
         else:
             return self.graph.gather(1, self.prev_a.unsqueeze(-1).expand(-1, -1, n_loc))
             

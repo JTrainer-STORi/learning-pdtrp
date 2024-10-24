@@ -15,7 +15,7 @@ def truncated_bivariate_normal(alimits, blimits, mean, cov, n_samples):
     samples = samples[:n_samples, :]
     return samples
 
-class PDTSPRealData(object):
+class PDTSP(object):
     """
     Class representing the PDTSP problem.
     """

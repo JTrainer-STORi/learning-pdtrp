@@ -1,165 +1,164 @@
-from tqdm import tqdm
 import torch
 import numpy as np
-from torch.utils.data import Dataset
+from typing import NamedTuple
 
+def return_distances(nodes_a, nodes_b, stop_coords, distance_matrix):
 
-class PDTSPRealData(object):
-    """Class for the Partially Dynamic Travelling Salesman Problem when we have real data"""
+    indices_a = torch.where((nodes_a[:, :, None] == stop_coords).all(-1))[-1].view(nodes_a.shape[0], -1)
+    indices_b = torch.where((nodes_b[:, :, None] == stop_coords).all(-1))[-1].view(nodes_b.shape[0], -1)
 
-    NAME = 'rdtsp'
+    return distance_matrix[indices_a, indices_b]
 
-    def __init__(self):
-        pass
+def return_distance_matrix(nodes, stop_coords, distance_matrix):
+    """
+    Takes a batch of nodes and creates a distance matrix for them which is a submatrix of the distance matrix for every node in the problem
 
-    def get_route_info(self, route_name, device):
-        stop_coords = []
-        distance_matrix = []
-        route_name = 'route03'
+    inputs: 
+    nodes: array of nodes to produce the distance matrix for
+    stop_coords: The array of all possible stop locations
+    distance_matrix: Array containing all possible distances
 
-        print('\nLoading from {}...'.format(route_name))
-        for line in tqdm(open('data/routes/' + route_name + '_nodes.txt', "r").readlines(), ascii=True):
-            line = line.split(" ")
-            stop_coords.append(
-                [float(line[0]), float(line[1])]
-            )
+    outputs:
+    distance matrix for nodes, in the order of nodes. i.e. row 1 of distance matrix corresponds to distances from the first node in nodes to all other nodes in nodes.
+    """
 
-        for line in tqdm(open('data/routes/' + route_name + '_distance_matrix.txt', "r").readlines(), ascii=True):
-            line = line.split(" ")
-            distance_matrix.append(
-                [float(x) for x in line]
-            )
+    indices = np.array([np.where((stop_coords == x[:, None]).all(-1))[1] for x in nodes])
 
-        self.route_name = route_name
-        self.stop_coords = torch.tensor(stop_coords, dtype=torch.float, device=device)
-        self.distance_matrix = torch.tensor(distance_matrix, dtype=torch.float, device=device)
+    return np.array([distance_matrix[x, :][:, x] for x in indices])
 
-        # Normalize distance matrix to stop costs from being too massive
-        self.distance_matrix -= self.distance_matrix.min(1, keepdim=True)[0]
-        self.distance_matrix /= self.distance_matrix.max(1, keepdim=True)[0]
+def nearest_neighbor_graph_realDTSP(distance_matrix, neighbors, knn_strat):
 
-    def get_costs(self, dataset, pi):
-        """Returns DTSP tour length for given graph nodes and tour permutations
-            This should remain fine provided that it is only used to find the cost of completed DTSP tours
-
-        Args:
-            dataset: graph nodes (torch.Tensor)
-            pi: node permutations representing tours (torch.Tensor)
-            
-        Returns:
-            TSP tour length, None
-        """
-
-        # Check that tours are valid, i.e. contain 0 to n -1
-        assert (
-            torch.arange(pi.size(1), out=pi.data.new()).view(1, -1).expand_as(pi) ==
-            pi.data.sort(1)[0]
-        ).all(), "Invalid tour:\n{}\n{}".format(dataset, pi)
-
-        # Gather dataset in order of tour
-
-        d = dataset.gather(1, pi.unsqueeze(-1).expand_as(dataset))
+    """Returns k-Nearest Neighbor graph as a **NEGATIVE** adjacency matrix
+    """
+    num_nodes = distance_matrix.shape[0]
+    # If `neighbors` is a percentage, convert to int
+    if knn_strat == 'percentage':
+        neighbors = int(num_nodes * neighbors)
+    
+    if neighbors >= num_nodes-1 or neighbors == -1:
+        W = np.zeros((num_nodes, num_nodes))
+    else:
+        # Compute distance matrix
+        W = np.ones((num_nodes, num_nodes))
         
-        d2 = torch.roll(d, 1, 1)
+        # Determine k-nearest neighbors for each node
+        knns = np.argpartition(distance_matrix, kth=neighbors, axis=-1)[:, neighbors::-1]
+        # Make connections
+        for idx in range(num_nodes):
+            W[idx][knns[idx]] = 0
+    
+    # Remove self-connections
+    np.fill_diagonal(W, 1)
+    return W
 
-        distances = return_distances(d, d2, self.stop_coords, self.distance_matrix)
+class statePDTSPReal(NamedTuple):
+    """class for keeping track of the PDTSP state when using real instances"""
 
-        costs = torch.sum(distances, axis=1)
-        
-        return costs, None
+    # Fixed input
+    loc: torch.Tensor
+    dist: torch.Tensor
+    stop_coords: torch.Tensor
+    distance_matrices: torch.Tensor
 
-    def make_dataset(self, *args, **kwargs):
-        return realDTSPDataset(self.route_name, *args, **kwargs)
+    ids: torch.Tensor # keeps track of original fixed data index of rows
 
-    def make_state(self, *args, **kwargs):
-        return staterealDTSP.initialize(stop_coords=self.stop_coords, distance_matrix=self.distance_matrix, *args, **kwargs)
+    # State
+    first_a: torch.Tensor
+    prev_a: torch.Tensor
+    visited_: torch.Tensor # keeps track of nodes that have been visited
+    cur_coord: torch.Tensor
+    i: torch.Tensor  # Keeps track of step
+    graph: torch.Tensor
 
-class realDTSPDataset(Dataset):
+    def __getitem__(self, key):
+        assert torch.is_tensor(key) or isinstance(key, slice)  # If tensor, idx all tensors by this tensor:
+        return self._replace(
+            ids=self.ids[key],
+            first_a=self.first_a[key],
+            prev_a=self.prev_a[key],
+            visited_=self.visited_[key],
+            cur_coord=self.cur_coord[key] if self.cur_coord is not None else None,
+            loc = self.loc[key],
+            graph = self.graph[key],
+        )
 
-    def __init__(self, route_name, filename=None, min_size=40, max_size=100, min_new=None, max_new=None, batch_size=128, num_samples=128000, offset=0, distribution=None, neighbors=20, knn_strat=None, eval=False):
-            
-        super(realDTSPDataset, self).__init__()
+    @staticmethod
+    def initialize(loc, graph, stop_coords, distance_matrix, visited_dtype=torch.uint8):
 
-        self.batch_size = batch_size
-        self.num_samples = num_samples
-        self.offset = offset
-        self.neighbors = neighbors
-        self.knn_strat = knn_strat
-        self.eval = eval
-        self.filename = filename
-
-        self.nodes_coords = []
-        self.static_nodes_coords = []
-        self.dynamic_nodes_coords = []
-        self.times = []
-        self.distance_matrix = []
-
-
-        print('\nLoading from {}...'.format(route_name))
-        for line in tqdm(open('data/routes/' + route_name + '_nodes.txt', "r").readlines(), ascii=True):
-            line = line.split(" ")
-            self.nodes_coords.append(
-                [float(line[0]), float(line[1])]
-            )
-
-        for line in tqdm(open('data/routes/' + route_name + '_distance_matrix.txt', "r").readlines(), ascii=True):
-            line = line.split(" ")
-            self.distance_matrix.append(
-                [float(x) for x in line]
-            )
-        
-        if filename is not None:
-            self.tour_nodes = []
-
-            print('\nLoading from {}...'.format(filename))
-            for line in tqdm(open(filename, "r").readlines()[offset:offset+num_samples], ascii=True):
-                line = line.split(" ")
-                num_old_nodes = int(line.index('new_nodes')//2)
-                num_new_nodes = int(line.index('times')//2) - num_old_nodes
-                self.static_nodes_coords.append(
-                    [[float(line[idx]), float(line[idx + 1])] for idx in range(0, 2 * num_old_nodes, 2)]
+        batch_size, n_loc, _ = loc.size()
+        prev_a = torch.zeros(batch_size, 1, dtype=torch.long, device=loc.device)
+        cpu_locs = loc.cpu()
+        cpu_stops = stop_coords.cpu()
+        cpu_dist = distance_matrix.cpu()
+        return statePDTSPReal(
+            loc=loc,
+            stop_coords=stop_coords,
+            dist=distance_matrix,
+            distance_matrices=torch.tensor(return_distance_matrix(np.array(cpu_locs), np.array(cpu_stops), np.array(cpu_dist)), dtype=torch.float, device=loc.device),
+            ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],  # Add steps dimension
+            first_a=prev_a,
+            prev_a=prev_a,
+            # Keep visited with depot so we can scatter efficiently (if there is an action for depot)
+            visited_=(  # Visited as mask is easier to understand, as long more memory efficient
+                torch.zeros(
+                    batch_size, 1, n_loc,
+                    dtype=torch.bool, device=loc.device
                 )
-                self.dynamic_nodes_coords.append(
-                    [[float(line[idx]), float(line[idx + 1])] for idx in range(2 * num_old_nodes + 1, 2*(num_new_nodes + num_old_nodes) + 1,2)]
-                )
-                self.times.append(
-                    [int(time) for time in line[line.index('times') + 1:line.index('output')]]
-                )
-                if self.supervised:
-                    # Convert tour nodes to required format
-                    # Don't add final connection for tour/cycle
-                    tour_nodes = [int(node) - 1 for node in line[line.index('output') + 1:-1]][:-1]
-                    self.tour_nodes.append(tour_nodes)
+            ),
+            cur_coord=None,
+            i=torch.zeros(1, dtype=torch.int64, device=loc.device),  # Vector with length num_steps
+            graph=graph,
+        )
+    
+    def update(self, selected):
 
+        prev_a = self.prev_a
+
+        for j, action in enumerate(selected):
+            if action is not None:
+                # Update the state
+                prev_a[j] = selected[j]  # Add dimension for step
+
+        cur_coord = self.loc[self.ids, prev_a]
+
+        # Update should only be called with just 1 parallel step,
+        # in which case we can check this way if we should update
+        first_a = prev_a if self.i.item() == 0 else self.first_a
+
+        visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
+
+        return self._replace(first_a=first_a, prev_a=prev_a, visited_=visited_, cur_coord=cur_coord, i=self.i + 1)
+    
+    def arrivals(self, new_node_locs):
+        # For now, this will just add the new node to the list of nodes and update the mask. Later the graph will need to be updated.
+        loc = torch.cat((self.loc, new_node_locs), 1)
+        cpu_locs = loc.cpu()
+        batch_size, _, _ = loc.size()
+        visited_ = torch.cat((self.visited_, torch.zeros((batch_size,1,1), device=self.loc.device, dtype=torch.bool)), 2)
+        cpu_stops = self.stop_coords.cpu()
+        cpu_dist = self.dist.cpu()
+        distance_matrices = torch.tensor(return_distance_matrix(np.array(cpu_locs), np.array(cpu_stops), np.array(cpu_dist)), dtype=torch.float, device=self.loc.device)
+        graph = ~torch.BoolTensor(np.array([nearest_neighbor_graph_realDTSP(np.array(distance_matrices[i]), neighbors=0.2, knn_strat='percentage') for i in range(len(loc))]))
+        return self._replace(visited_=visited_, loc=loc, graph=graph, distance_matrices=torch.FloatTensor(distance_matrices).to(self.loc.device))
+    
+    def all_finished(self):
+        return self.visited_.all()
+
+    def get_current_node(self):
+        return self.prev_a
+
+    def get_mask(self):
+        return self.visited_
+    
+    def get_graph_mask(self):
+        batch_size, n_loc, _ = self.loc.size()
+        if self.i.item() == 0:
+            return torch.zeros(batch_size, 1, n_loc, dtype=torch.bool, device=self.loc.device)
         else:
-            print('\nGenerating {} samples of realDTSP from the {} dataset'.format(
-                    num_samples, route_name))
-            for _ in tqdm(range(num_samples//batch_size), ascii=True):
-                static_nodes_coords, dynamic_nodes_coords, times = generate_instance(np.array(self.nodes_coords), batch_size, min_size, max_size)
-                self.static_nodes_coords += static_nodes_coords
-                self.dynamic_nodes_coords += dynamic_nodes_coords
-                self.times += times
-
-        self.size = len(self.static_nodes_coords)
-        assert self.size % batch_size == 0, \
-            "Number of samples ({}) must be divisible by batch size ({})".format(self.size, batch_size)
-                
+            return self.graph.gather(1, self.prev_a.unsqueeze(-1).expand(-1, -1, n_loc))
+            
+    def get_graph(self):
+        return self.graph
     
-    def __len__(self):
-        return self.size
-    
-    def __getitem__(self, idx):
-        nodes = self.static_nodes_coords[idx]
-        new_nodes = self.dynamic_nodes_coords[idx]
-        time = self.times[idx]
-
-        item = {
-            'nodes': torch.FloatTensor(nodes),
-            'new_nodes': torch.FloatTensor(new_nodes),
-            'times': torch.LongTensor(np.array(time)),
-            'graph': ~torch.BoolTensor(nearest_neighbor_graph_realDTSP(return_distance_matrix(np.array(nodes)[None,...], self.nodes_coords, np.array(self.distance_matrix))[0], self.neighbors, self.knn_strat)),
-        }
-        if self.eval:
-            tour_nodes = self.tour_nodes[idx]
-            item['tour_nodes'] = torch.LongTensor(tour_nodes)
-        return item
+    def construct_solutions(self, actions):
+        return actions

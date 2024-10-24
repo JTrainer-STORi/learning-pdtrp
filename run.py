@@ -48,6 +48,10 @@ def run_rl(opts) -> None:
     # Load the problem
     problem = load_problem(opts.problem)
 
+    if problem.NAME == 'pdtsp-rd':
+        problem = problem()
+        problem.get_route_info(opts.route_name, opts.device)
+
     # load data from load path
     load_data = {}
     assert opts.load_path is None or opts.resume is None, "Only one of load path and resume can be given"
@@ -189,5 +193,10 @@ def run_rl(opts) -> None:
         )
 
 if __name__ == "__main__":
+
+    import debugpy
+    debugpy.listen(5678)  # 5678 is port
+    print("Waiting for debugger attach")
+    debugpy.wait_for_client()
 
     run_rl(get_options())

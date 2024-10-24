@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-RUN_NAME="rl-ar-var-20pnn-gnn-max-dtsp"
+RUN_NAME="rl-ar-var-20pnn-gnn-max-dtsp-rd"
 
-PROBLEM="pdtsp"
+PROBLEM="pdtsp-rd"
 
 DEVICES="0"
 NUM_WORKERS=0
@@ -19,8 +19,8 @@ TD1="equal"
 MEAN_1=(0.2 0.2)
 COV_1=(0.1 0 0 0.1)
 
-VAL_DATASET1="data/pdtsp/tsp2020_test_conc_insertion.txt"
-VAL_DATASET2="data/pdtsp/tsp5050_test_conc_insertion.txt"
+VAL_DATASET1="data/pdtsp/realdtsp2020val.txt"
+VAL_DATASET2="data/pdtsp/realdtsp5050val.txt"
 # VAL_DATASET3="data/tsp/tsp100_test_concorde.txt"
 
 N_EPOCHS=100
@@ -51,7 +51,6 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --min_static "$MIN_STATIC" --max_static "$MAX_STATIC" \
     --min_dyna "$MIN_DYNA" --max_dyna "$MAX_DYNA" \
     --neighbors "$NEIGHBORS" --knn_strat "$KNN_STRAT" \
-    --spatial_distribution "$SPATIAL_DISTRIBUTION" \
     --val_datasets "$VAL_DATASET1" "$VAL_DATASET2" \
     --epoch_size "$EPOCH_SIZE" \
     --batch_size "$BATCH_SIZE" --accumulation_steps "$ACCUMULATION_STEPS" \
@@ -64,7 +63,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --lr_model "$LR_MODEL" --max_grad_norm "$MAX_NORM" \
     --num_workers "$NUM_WORKERS" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
-    --run_name "$RUN_NAME" --set_start "$SET_START" \
-    --mean1 "${MEAN_1[0]}" "${MEAN_1[1]}" \
-    --cov1 "${COV_1[0]}" "${COV_1[1]}" "${COV_1[2]}" "${COV_1[3]}" \
-    --td1  "$TD1"
+    --run_name "$RUN_NAME" --set_start "$SET_START" 

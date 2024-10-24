@@ -14,29 +14,6 @@ from utils import move_to
 
 from scipy.spatial.distance import pdist, squareform
 
-# def nearest_neighbor_distances(nodes, neighbors, knn_strat):
-
-#     num_nodes = len(nodes)
-#     # If `neighbors` is a percentage, convert to int
-#     if knn_strat == 'percentage':
-#         neighbors = int(num_nodes * neighbors)
-    
-#     if neighbors >= num_nodes-1 or neighbors == -1:
-#         W = np.zeros((num_nodes, num_nodes))
-#     else:
-#         # Compute distance matrix
-#         W_val = squareform(pdist(nodes, metric='euclidean'))
-#         W = np.ones((num_nodes, num_nodes))
-        
-#         # Determine k-nearest neighbors for each node
-#         knns = np.argpartition(W_val, kth=neighbors, axis=-1)[:, neighbors::-1]
-#         # Make connections
-#         for idx in range(num_nodes):
-#             W[idx][knns[idx]] = W_val[idx][knns[idx]]
-    
-#     # Remove self-connections
-#     np.fill_diagonal(W, 0)
-#     return W
 
 def nearest_neighbor_distances_from_graph(nodes_b, graph_b):
 
@@ -148,7 +125,7 @@ class DynamicAttentionModel(nn.Module):
         self.temp = 1.0
 
 
-        assert problem.NAME in ("pdtsp"), "Unsupported problem: {}".format(problem.NAME)
+        assert problem.NAME in ("pdtsp", "pdtsp-rd"), "Unsupported problem: {}".format(problem.NAME)
 
         step_context_dim = 2 * embedding_dim  # Embedding of first and last node
         node_dim = 2  # x, y
@@ -188,7 +165,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, nodes, graph, times, new_nodes, return_pi=False):
+    def forward(self, nodes, graph, times, new_nodes, distance_matrix = None, return_pi=False):
         """
         Args:
             nodes: Input graph nodes (B x V x 2)
@@ -199,22 +176,11 @@ class DynamicAttentionModel(nn.Module):
                        (Not compatible with DataParallel as the results
                         may be of different lengths on different GPUs)
         """
-        # Embed input batch of graph using GNN (B x V x H)
-
-        edge_features = nearest_neighbor_distances_from_graph(nodes, graph)
-
-        if self.checkpoint_encoder:
-            embeddings = checkpoint(self.embedder, self.node_embed(nodes), graph)
-        else:
-            embeddings = self.embedder(self.node_embed(nodes), self.edge_embed(edge_features.unsqueeze(-1)), graph)
-        
-        if self.extra_logging:
-            self.embeddings_batch = embeddings
         
         # Reinforcement learning or inference
         # Run inner function
 
-        log_p, pi = self._inner(nodes, graph, times, new_nodes, embeddings)    
+        log_p, pi = self._inner(nodes, graph, times, new_nodes)    
         
         # Get predicted costs
         _, num_new_nodes, _ = new_nodes.shape
@@ -251,13 +217,29 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, nodes, graph, times, new_nodes, embeddings, supervised=False, targets=None,):
+    def _inner(self, nodes, graph, times, new_nodes):
         # Create lists to track the outputs of the policy and the sequences of node selections 
         outputs = []
         sequences = []
         
         # Create problem state for masking (tracks which nodes have been visited)
         state = self.problem.make_state(nodes, graph)
+
+        # Embed input batch of graph using GNN (B x V x H)
+        if self.problem.NAME == 'pdtsp':
+            edge_features = nearest_neighbor_distances_from_graph(nodes, graph)
+        elif self.problem.NAME == 'pdtsp-rd':
+            nearest_neighbor_distances = state.distance_matrices
+            nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
+            edge_features = nearest_neighbor_distances
+
+        if self.checkpoint_encoder:
+            embeddings = checkpoint(self.embedder, self.node_embed(nodes), graph)
+        else:
+            embeddings = self.embedder(self.node_embed(nodes), self.edge_embed(edge_features.unsqueeze(-1)), graph)
+        
+        if self.extra_logging:
+            self.embeddings_batch = embeddings
 
         # Compute keys, values for the glimpse and keys for the logits for reuse
         fixed = self._precompute(embeddings)
@@ -321,7 +303,13 @@ class DynamicAttentionModel(nn.Module):
                 # update the state to add all of the new arrivals
                 state = state.arrivals(new_nodes[:, embedding_counter].unsqueeze(1))
                 #  create a new embedding here
-                embeddings = self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1)), move_to(state.graph, device=nodes.device))
+                if self.problem.NAME == 'pdtsp':
+                    edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))
+                elif self.problem.NAME == 'pdtsp-rd':
+                    nearest_neighbor_distances = state.distance_matrices
+                    nearest_neighbor_distances[move_to(state.graph, device=nodes.device) ==0] = 0
+                    edge_features = self.edge_embed(nearest_neighbor_distances.unsqueeze(-1))
+                embeddings = self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), edge_features, move_to(state.graph, device=nodes.device))
                 fixed = self._precompute(embeddings)
                 # Increment the arrival counter
                 embedding_counter += 1
