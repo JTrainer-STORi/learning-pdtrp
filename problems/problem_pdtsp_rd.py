@@ -114,7 +114,7 @@ class PDTSPRealDataset(Dataset):
         self.dynamic_nodes_coords = []
         self.times = []
 
-        cpu_distance_matrix = self.distance_matrix.cpu()
+        cpu_nodes_coords = self.nodes_coords.cpu()
         
         if filename is not None:
             self.tour_nodes = []
@@ -142,7 +142,7 @@ class PDTSPRealDataset(Dataset):
         else:
             print('\nGenerating {} samples of real DTSP with {}-{} static nodes and {}-{} dynamic nodes'.format(num_samples, min_static, max_static, min_dyna, max_dyna))
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
-                static_nodes_coords, dynamic_nodes_coords, times = generate_real_instance(np.array(cpu_distance_matrix), batch_size, self.min_static, self.max_static, self.min_dyna, self.max_dyna, allow_multiple_arrivals)
+                static_nodes_coords, dynamic_nodes_coords, times = generate_real_instance(np.array(cpu_nodes_coords), batch_size, self.min_static, self.max_static, self.min_dyna, self.max_dyna, allow_multiple_arrivals)
                 self.static_nodes_coords += static_nodes_coords
                 self.dynamic_nodes_coords += dynamic_nodes_coords
                 self.times += times
