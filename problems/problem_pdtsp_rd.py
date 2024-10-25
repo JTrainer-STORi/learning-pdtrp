@@ -113,6 +113,8 @@ class PDTSPRealDataset(Dataset):
         self.static_nodes_coords = []
         self.dynamic_nodes_coords = []
         self.times = []
+
+        cpu_distance_matrix = self.distance_matrix.cpu()
         
         if filename is not None:
             self.tour_nodes = []
@@ -140,7 +142,7 @@ class PDTSPRealDataset(Dataset):
         else:
             print('\nGenerating {} samples of real DTSP with {}-{} static nodes and {}-{} dynamic nodes'.format(num_samples, min_static, max_static, min_dyna, max_dyna))
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
-                static_nodes_coords, dynamic_nodes_coords, times = generate_real_instance(np.array(self.nodes_coords), batch_size, self.min_static, self.max_static, self.min_dyna, self.max_dyna, allow_multiple_arrivals)
+                static_nodes_coords, dynamic_nodes_coords, times = generate_real_instance(np.array(cpu_distance_matrix), batch_size, self.min_static, self.max_static, self.min_dyna, self.max_dyna, allow_multiple_arrivals)
                 self.static_nodes_coords += static_nodes_coords
                 self.dynamic_nodes_coords += dynamic_nodes_coords
                 self.times += times
@@ -158,11 +160,13 @@ class PDTSPRealDataset(Dataset):
         new_nodes = self.dynamic_nodes_coords[idx]
         time = self.times[idx]
 
+        cpu_distance_matrix = self.distance_matrix.cpu()
+
         item = {
             'nodes': torch.FloatTensor(nodes),
             'new_nodes': torch.FloatTensor(new_nodes),
             'times': torch.LongTensor(np.array(time)),
-            'graph': ~torch.BoolTensor(nearest_neighbor_graph_realDTSP(return_distance_matrix(np.array(nodes, dtype=np.float32)[None,...], self.nodes_coords, np.array(self.distance_matrix))[0], self.neighbors, self.knn_strat)),
+            'graph': ~torch.BoolTensor(nearest_neighbor_graph_realDTSP(return_distance_matrix(np.array(nodes, dtype=np.float32)[None,...], self.nodes_coords, np.array(cpu_distance_matrix))[0], self.neighbors, self.knn_strat)),
         }
         if self.eval:
             tour_nodes = self.tour_nodes[idx]
