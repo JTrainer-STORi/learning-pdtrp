@@ -161,12 +161,13 @@ class PDTSPRealDataset(Dataset):
         time = self.times[idx]
 
         cpu_distance_matrix = self.distance_matrix.cpu()
+        cpu_nodes_coords = self.nodes_coords.cpu()
 
         item = {
             'nodes': torch.FloatTensor(nodes),
             'new_nodes': torch.FloatTensor(new_nodes),
             'times': torch.LongTensor(np.array(time)),
-            'graph': ~torch.BoolTensor(nearest_neighbor_graph_realDTSP(return_distance_matrix(np.array(nodes, dtype=np.float32)[None,...], self.nodes_coords, np.array(cpu_distance_matrix))[0], self.neighbors, self.knn_strat)),
+            'graph': ~torch.BoolTensor(nearest_neighbor_graph_realDTSP(return_distance_matrix(np.array(nodes, dtype=np.float32)[None,...], np.array(cpu_nodes_coords, dtype=np.float32), np.array(cpu_distance_matrix))[0], self.neighbors, self.knn_strat)),
         }
         if self.eval:
             tour_nodes = self.tour_nodes[idx]
