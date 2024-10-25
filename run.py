@@ -194,9 +194,9 @@ def run_rl(opts) -> None:
 
 if __name__ == "__main__":
 
-    # import debugpy
-    # debugpy.listen(5678)  # 5678 is port
-    # print("Waiting for debugger attach")
-    # debugpy.wait_for_client()
+    import debugpy
+    debugpy.listen(5678)  # 5678 is port
+    print("Waiting for debugger attach")
+    debugpy.wait_for_client()
 
     run_rl(get_options())
