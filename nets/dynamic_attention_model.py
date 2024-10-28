@@ -314,7 +314,7 @@ class DynamicAttentionModel(nn.Module):
                 state = state.arrivals(new_nodes[:, embedding_counter].unsqueeze(1))
                 #  create a new embedding here
                 if self.edge_features == 'adjacency':
-                    edge_features = self.edge_embed(state.graph.long())
+                    edge_features = self.edge_embed(move_to(state.graph.long(), device=nodes.device))
                 elif self.edge_features == 'distance':
                     if self.problem.NAME == 'pdtsp':
                         edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))
