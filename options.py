@@ -74,8 +74,8 @@ def get_options(args=None):
                         help="Number of attention heads")
     parser.add_argument('--tanh_clipping', type=float, default=10., 
                         help='Clip the parameters to within +- this value using tanh. Set to 0 to not do clipping.')
-    parser.add_argument('--edge_features', type=str, default='distances',
-                        help='Edge features to use: distances or adjacency')
+    parser.add_argument('--edge_features', type=str, default='distance',
+                        help='Edge features to use: distance or adjacency')
 
     # Training
     parser.add_argument('--lr_model', type=float, default=1e-4, 

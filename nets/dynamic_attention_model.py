@@ -142,7 +142,10 @@ class DynamicAttentionModel(nn.Module):
         self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)  
 
         # Edge embedding layer
-        self.edge_embed = nn.Linear(edge_dim, embedding_dim, bias=True)
+        if self.edge_features == 'adjacency':
+            self.edge_embed = nn.Embedding(2, embedding_dim)
+        elif self.edge_features == 'distance':
+            self.edge_embed = nn.Linear(edge_dim, embedding_dim, bias=True)
         
         # Encoder model
         self.embedder = self.encoder_class(n_layers=n_encode_layers, 
@@ -158,8 +161,6 @@ class DynamicAttentionModel(nn.Module):
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
         self.project_fixed_context = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_step_context = nn.Linear(step_context_dim, embedding_dim, bias=False)
-        if self.edge_features == 'adjacency':
-            self.init_embed_edges = nn.Embedding(2, embedding_dim)
         assert embedding_dim % n_heads == 0
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
         self.project_out = nn.Linear(embedding_dim, embedding_dim, bias=False)
@@ -231,7 +232,7 @@ class DynamicAttentionModel(nn.Module):
 
         # Embed input batch of graph using GNN (B x V x H)
         if self.edge_features == 'adjacency':
-            edge_features = self.init_embed_edges(graph.long())
+            edge_features = graph.long()
         elif self.edge_features == 'distance':             
             if self.problem.NAME == 'pdtsp':
                 edge_features = nearest_neighbor_distances_from_graph(nodes, graph)
@@ -313,7 +314,7 @@ class DynamicAttentionModel(nn.Module):
                 state = state.arrivals(new_nodes[:, embedding_counter].unsqueeze(1))
                 #  create a new embedding here
                 if self.edge_features == 'adjacency':
-                    edge_features = self.init_embed_edges(state.graph.long())
+                    edge_features = self.edge_embed(state.graph.long())
                 elif self.edge_features == 'distance':
                     if self.problem.NAME == 'pdtsp':
                         edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))

@@ -38,6 +38,7 @@ AGGREGATION_GRAPH="mean"
 NORMALIZATION="batch"
 EMBEDDING_DIM=128
 N_ENCODE_LAYERS=3
+EDGE_FEATURES="distance"
 
 BASELINE="rollout"
 
@@ -67,4 +68,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --run_name "$RUN_NAME" --set_start "$SET_START" \
     --mean1 "${MEAN_1[0]}" "${MEAN_1[1]}" \
     --cov1 "${COV_1[0]}" "${COV_1[1]}" "${COV_1[2]}" "${COV_1[3]}" \
-    --td1  "$TD1"
+    --td1  "$TD1" --edge_features "$EDGE_FEATURES"
