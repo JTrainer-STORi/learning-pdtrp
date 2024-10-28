@@ -78,6 +78,7 @@ def run_rl(opts) -> None:
         mask_graph=False,
         checkpoint_encoder=opts.checkpoint_encoder,
         set_start=opts.set_start,
+        edge_features=opts.edge_features,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:

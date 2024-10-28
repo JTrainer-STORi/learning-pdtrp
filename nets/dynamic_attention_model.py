@@ -68,6 +68,7 @@ class DynamicAttentionModel(nn.Module):
                  shrink_size=None,
                  extra_logging=False,
                  set_start=False,
+                 edge_features='distance',
                  *args, **kwargs):
         """
         Models with a GNN/Transformer/MLP encoder and the Autoregressive decoder using attention mechanism
@@ -117,6 +118,7 @@ class DynamicAttentionModel(nn.Module):
         self.checkpoint_encoder = checkpoint_encoder
         self.shrink_size = shrink_size
         self.set_start = set_start
+        self.edge_features = edge_features
         
         # Extra logging updates self variables with batch statistics (without returning them)
         self.extra_logging = extra_logging
@@ -156,6 +158,8 @@ class DynamicAttentionModel(nn.Module):
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
         self.project_fixed_context = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_step_context = nn.Linear(step_context_dim, embedding_dim, bias=False)
+        if self.edge_features == 'adjacency':
+            self.init_embed_edges = nn.Embedding(2, embedding_dim)
         assert embedding_dim % n_heads == 0
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
         self.project_out = nn.Linear(embedding_dim, embedding_dim, bias=False)
@@ -165,7 +169,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, nodes, graph, times, new_nodes, distance_matrix = None, return_pi=False):
+    def forward(self, nodes, graph, times, new_nodes, return_pi=False):
         """
         Args:
             nodes: Input graph nodes (B x V x 2)
@@ -226,17 +230,22 @@ class DynamicAttentionModel(nn.Module):
         state = self.problem.make_state(nodes, graph)
 
         # Embed input batch of graph using GNN (B x V x H)
-        if self.problem.NAME == 'pdtsp':
-            edge_features = nearest_neighbor_distances_from_graph(nodes, graph)
-        elif self.problem.NAME == 'pdtsp-rd':
-            nearest_neighbor_distances = state.distance_matrices
-            nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
-            edge_features = nearest_neighbor_distances
+        if self.edge_features == 'adjacency':
+            edge_features = self.init_embed_edges(graph.long())
+        elif self.edge_features == 'distance':             
+            if self.problem.NAME == 'pdtsp':
+                edge_features = nearest_neighbor_distances_from_graph(nodes, graph)
+                edge_features = edge_features.unsqueeze(-1)
+            elif self.problem.NAME == 'pdtsp-rd':
+                nearest_neighbor_distances = state.distance_matrices
+                nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
+                edge_features = nearest_neighbor_distances
+                edge_features = edge_features.unsqueeze(-1)
 
         if self.checkpoint_encoder:
-            embeddings = checkpoint(self.embedder, self.node_embed(nodes), graph)
+            embeddings = checkpoint(self.embedder, self.node_embed(nodes), self.edge_embed(edge_features), graph)
         else:
-            embeddings = self.embedder(self.node_embed(nodes), self.edge_embed(edge_features.unsqueeze(-1)), graph)
+            embeddings = self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph)
         
         if self.extra_logging:
             self.embeddings_batch = embeddings
@@ -303,12 +312,15 @@ class DynamicAttentionModel(nn.Module):
                 # update the state to add all of the new arrivals
                 state = state.arrivals(new_nodes[:, embedding_counter].unsqueeze(1))
                 #  create a new embedding here
-                if self.problem.NAME == 'pdtsp':
-                    edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))
-                elif self.problem.NAME == 'pdtsp-rd':
-                    nearest_neighbor_distances = state.distance_matrices
-                    nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
-                    edge_features = self.edge_embed(nearest_neighbor_distances.unsqueeze(-1))
+                if self.edge_features == 'adjacency':
+                    edge_features = self.init_embed_edges(state.graph.long())
+                elif self.edge_features == 'distance':
+                    if self.problem.NAME == 'pdtsp':
+                        edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))
+                    elif self.problem.NAME == 'pdtsp-rd':
+                        nearest_neighbor_distances = state.distance_matrices
+                        nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
+                        edge_features = self.edge_embed(nearest_neighbor_distances.unsqueeze(-1))
                 embeddings = self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), edge_features, move_to(state.graph, device=nodes.device))
                 fixed = self._precompute(embeddings)
                 # Increment the arrival counter
@@ -360,7 +372,7 @@ class DynamicAttentionModel(nn.Module):
             graph_embed = embeddings.max(1)[0]
         elif self.aggregation_graph == "mean":
             graph_embed = embeddings.mean(1)
-        else:  # Default: dissable graph embedding
+        else:  # Default: disable graph embedding
             graph_embed = embeddings.sum(1) * 0.0
         
         # fixed context = (batch_size, 1, embed_dim) to make broadcastable with parallel timesteps
@@ -379,7 +391,7 @@ class DynamicAttentionModel(nn.Module):
         return AttentionModelFixed(embeddings, fixed_context, *fixed_attention_node_data)
 
     def _get_log_p(self, fixed, state, normalize=True):
-        # Compute query = context node embedding
+        # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
         query = fixed.context_node_projected + \
                 self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
 
