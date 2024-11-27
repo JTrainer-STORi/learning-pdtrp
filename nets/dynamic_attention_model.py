@@ -193,7 +193,7 @@ class DynamicAttentionModel(nn.Module):
         n_static = torch.sum(~mask, dim=1)
 
         if self.set_start:
-            set_first_selection = torch.stack([torch.tensor(0) for i in range(batch_size)])
+            set_first_selection = torch.stack([torch.tensor(0, device=nodes.device) for i in range(batch_size)])
             state = state.update(set_first_selection)
             sequences.append(set_first_selection) # not sure if this'll work, let's see :)
             outputs.append(torch.zeros((batch_size, num_nodes), dtype=torch.float, device=nodes.device)) # setting log_p of irrelevant actions should not affect the policy...
