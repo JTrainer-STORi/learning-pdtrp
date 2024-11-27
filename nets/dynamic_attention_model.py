@@ -11,7 +11,6 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from torch.nn import DataParallel
-from problems.state_pdtsp_m import nearest_neighbor_graph
 
 from utils.tensor_functions import compute_in_batches
 from utils import move_to
@@ -86,7 +85,7 @@ class DynamicAttentionModel(nn.Module):
             aggregation_graph: Aggregation function for graph embedding
 
         """
-        super(DynamicAttentionModelnew, self).__init__()
+        super(DynamicAttentionModel, self).__init__()
         
         self.problem = problem
         self.embedding_dim = embedding_dim
