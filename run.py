@@ -13,6 +13,7 @@ from train import train_epoch, get_inner_model
 
 from tensorboard_logger import Logger as TbLogger
 from nets.dynamic_attention_model import DynamicAttentionModel
+from nets.dynamic_attention_model_2 import DynamicAttentionModelnew
 from nets.encoders.gnn_encoder import GNNEncoder
 from nets.critic_network import CriticNetwork
 
@@ -24,6 +25,8 @@ def run_rl(opts) -> None:
     """
     Top Level Function for running RL experiments
     """
+
+    torch.autograd.set_detect_anomaly(True)
 
     # pretty print the run args
     pp.pprint(vars(opts))
@@ -60,7 +63,7 @@ def run_rl(opts) -> None:
         print('\nLoading data from {}'.format(load_path))
         load_data = torch_load_cpu(load_path)
 
-    model = DynamicAttentionModel(
+    model = DynamicAttentionModelnew(
         problem=problem,
         embedding_dim=opts.embedding_dim,
         encoder_class=GNNEncoder,
@@ -195,9 +198,9 @@ def run_rl(opts) -> None:
 
 if __name__ == "__main__":
 
-    # import debugpy
-    # debugpy.listen(5678)  # 5678 is port
-    # print("Waiting for debugger attach")
-    # debugpy.wait_for_client()
+    import debugpy
+    debugpy.listen(5678)  # 5678 is port
+    print("Waiting for debugger attach")
+    debugpy.wait_for_client()
 
     run_rl(get_options())

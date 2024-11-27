@@ -5,3 +5,6 @@ outputs/
 logs/
 nn
 computationalGraphs/
+new_instances.ipynb
+visualize_tests.ipynb
+pdtrp.ipynb

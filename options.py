@@ -116,8 +116,7 @@ def get_options(args=None):
                         help='Covariance matrix of the second normal distribution, give entries in row-major order')
     parser.add_argument('--proportion', type=float, default=None,
                         help='Proportion of points in the first normal distribution')
-    parser.add_argument('--allow_multiple_arrivals', type=bool, default=False,
-                        help='Allow multiple dynamic nodes to arrive at the same time')
+    parser.add_argument('--allow_multiple_arrivals', type=bool, default=False, help='Allow multiple dynamic nodes to arrive at the same time')
     parser.add_argument('--eval_only', action='store_true', 
                         help='Set this value to only evaluate model')
     parser.add_argument('--seed', type=int, default=1234, help='Random seed to use')

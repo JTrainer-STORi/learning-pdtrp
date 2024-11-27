@@ -12,10 +12,11 @@ import torch.nn.functional as F
 
 
 def load_problem(name):
-    from problems import PDTSP, PDTSPReal
+    from problems import PDTSP, PDTSPReal, PDTSPnew
     problem = {
         'pdtsp': PDTSP,
-        'pdtsp-rd': PDTSPReal
+        'pdtsp-rd': PDTSPReal,
+        'pdtsp-new': PDTSPnew,
     }.get(name, None)
     assert problem is not None, "Currently unsupported problem: {}!".format(name)
     return problem
@@ -80,7 +81,7 @@ def load_args(filename):
     return args
 
 
-def load_model(path, epoch=None, extra_logging=False):
+def load_model(path, epoch=None, extra_logging=False, route_id=None):
     from nets.dynamic_attention_model import DynamicAttentionModel
     from nets.encoders.gnn_encoder import GNNEncoder
     
@@ -101,6 +102,10 @@ def load_model(path, epoch=None, extra_logging=False):
     args = load_args(os.path.join(path, 'args.json'))
 
     problem = load_problem(args['problem'])
+
+    if route_id is not None:
+        problem = problem()
+        problem.get_route_info(route_id, device='cpu')
     
     model = DynamicAttentionModel(
         problem=problem,

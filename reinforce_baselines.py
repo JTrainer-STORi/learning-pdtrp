@@ -51,14 +51,14 @@ class WarmupBaseline(Baseline):
             return self.baseline.unwrap_batch(batch)
         return self.warmup_baseline.unwrap_batch(batch)
 
-    def eval(self, x, graph, times, new_nodes, c):
+    def eval(self, all_nodes, graph, times, nodes, new_nodes, c):
 
         if self.alpha == 1:
-            return self.baseline.eval(x, graph, times, new_nodes, c)
+            return self.baseline.eval(all_nodes, graph, times, nodes, new_nodes, c)
         if self.alpha == 0:
-            return self.warmup_baseline.eval(x, graph, c)
-        v, l = self.baseline.eval(x, graph, times, new_nodes, c)
-        vw, lw = self.warmup_baseline.eval(x, graph, c)
+            return self.warmup_baseline.eval(all_nodes, graph, c)
+        v, l = self.baseline.eval(all_nodes, graph, times, nodes, new_nodes, c)
+        vw, lw = self.warmup_baseline.eval(all_nodes, graph, c)
         # Return convex combination of baseline and of loss
         return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (1 - self.alpha * lw)
 
@@ -174,10 +174,10 @@ class RolloutBaseline(Baseline):
     def unwrap_batch(self, batch):
         return batch['data'], batch['baseline'].view(-1)  # Flatten result to undo wrapping as 2D
 
-    def eval(self, x, graph, times, new_nodes, c):
+    def eval(self, all_nodes, graph, times, nodes, new_nodes, c):
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = self.model(x, graph, times, new_nodes)
+            v, _ = self.model(all_nodes, graph, times, nodes=nodes, new_nodes=new_nodes)
         # There is no loss
         return v, 0
 

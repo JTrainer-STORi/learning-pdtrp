@@ -49,7 +49,7 @@ def rollout(model, dataset, opts):
     
     def eval_model_bat(bat):
         with torch.no_grad():
-            cost, _ = model(move_to(bat['nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['times'], opts.device), move_to(bat['new_nodes'], opts.device))
+            cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['times'], opts.device), nodes=move_to(bat['nodes'], opts.device), new_nodes=move_to(bat['new_nodes'], opts.device))
         return cost
 
     return torch.cat([
@@ -63,7 +63,7 @@ def rollout(model, dataset, opts):
 
 def rollout_groundtruth(problem, dataset, opts):
     return torch.cat([
-        problem.get_costs(torch.cat((move_to(bat['nodes'], opts.device), move_to(bat['new_nodes'], opts.device)),dim=1), move_to(bat['tour_nodes'], opts.device))[0]
+        problem.get_costs(move_to(bat['all_nodes'], opts.device), move_to(bat['tour_nodes'], opts.device))[0]
         for bat in DataLoader(
             dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
     ], 0)
@@ -179,17 +179,21 @@ def train_batch(model, optimizer, baseline, epoch,
     bat, bl_val = baseline.unwrap_batch(batch)
     
     # Optionally move Tensors to GPU
-    x = move_to(bat['nodes'], opts.device)
+    all_nodes = move_to(bat['all_nodes'], opts.device)
+    complete_graph = move_to(bat['complete_graph'], opts.device)
     graph = move_to(bat['graph'], opts.device)
     bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
     times = move_to(bat['times'], opts.device)
+    mask = move_to(bat['mask'], opts.device)
+    nodes = move_to(bat['nodes'], opts.device)
     new_nodes = move_to(bat['new_nodes'], opts.device)
 
+
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood = model(x, graph, times, new_nodes)
+    cost, log_likelihood = model(all_nodes, complete_graph, times, mask=mask)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
-    bl_val, bl_loss = baseline.eval(x, graph, times, new_nodes, cost) if bl_val is None else (bl_val, 0)
+    bl_val, bl_loss = baseline.eval(all_nodes, graph, times, nodes, new_nodes, cost) if bl_val is None else (bl_val, 0)
 
     # Calculate loss
     reinforce_loss = ((cost - bl_val) * log_likelihood).mean()
