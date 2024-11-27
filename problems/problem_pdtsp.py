@@ -5,7 +5,6 @@ import numpy as np
 
 from problems.state_pdtsp import StatePDTSP, nearest_neighbor_graph
 
-
 def truncated_bivariate_normal(alimits, blimits, mean, cov, n_samples):
     samples = np.zeros((0, 2))   # 2 columns now
     while samples.shape[0] < n_samples: 
@@ -20,7 +19,7 @@ class PDTSP(object):
     Class representing the PDTSP problem.
     """
 
-    NAME = "pdtsp"
+    NAME = "pdtspm"
 
     def get_costs(all_v, pi):
         """Returns DTSP tour length for given graph nodes and tour permutations
@@ -69,11 +68,16 @@ class PDTSPDataset(Dataset):
         self.neighbors = neighbors
         self.knn_strat = knn_strat
 
-        self.static_v = []
-        self.dyna_v = []
         self.times = []
 
-        # if we have provided a filename, then we will be creating a dataset from that file
+        # if we have provided a filename, then we will be creating a dataset from that file 
+
+        ### change this when it's more clear what the file format is ###
+
+        self.static_v = []
+        self.dyna_v = []
+        self.all_nodes = []
+
         if filename is not None:
             self.tour_nodes = []
 
@@ -96,16 +100,23 @@ class PDTSPDataset(Dataset):
                     self.tour_nodes.append(
                         [int(node) - 1 for node in line[line.index('output') + 1:-1]][:-1]
                     )
+
+                self.all_nodes = [np.concatenate((x, y)) for x, y in zip(self.static_v, self.dyna_v)]
         else:
-            print('\nGenerating {} samples of DTSP with {}-{} static nodes and {}-{} dynamic nodes'.format(
+            self.masks = []
+
+            print('\nGenerating {} training samples of DTSP with {}-{} static nodes and {}-{} dynamic nodes'.format(
             num_samples, min_static, max_static, min_dyna, max_dyna))
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
-                static_v, dyna_v, times = self.generate_training_set(spatial_distribution, td1, td2, mean1, mean2, cov1, cov2, proportion, allow_multiple_arrivals)
+                static_v, dyna_v, times, mask = self.generate_training_set(spatial_distribution, td1, td2, mean1, mean2, cov1, cov2, proportion, allow_multiple_arrivals)
+                all_nodes = [np.concatenate((x, y)) for x, y in zip(static_v, dyna_v)]
+                self.all_nodes += all_nodes
                 self.static_v += static_v
                 self.dyna_v += dyna_v
+                self.masks += mask
                 self.times += times
 
-        self.size = len(self.static_v)
+        self.size = len(self.times)
         assert self.size % batch_size == 0, \
             "Number of samples ({}) must be divisible by batch size ({})".format(self.size, batch_size)
         
@@ -125,10 +136,14 @@ class PDTSPDataset(Dataset):
             allow_multiple_arrivals: boolean indicating whether multiple dynamic nodes can arrive at the same time
         """
 
+        # sample the numbr  of static and dynamic nodes for envs in this batch
         n_static_v = np.random.randint(low=self.min_static, high=self.max_static+1)
         n_dyna_v = np.random.randint(low=self.min_dyna, high=self.max_dyna+1)
 
-        static_v = list(np.random.random([self.batch_size, n_static_v, 2]).astype(np.float32)) # array of static vertex coordinates size [batch_size, n_static_v, 2]
+        n_total = n_static_v + n_dyna_v
+
+        # sample the co-ordinates of the static nodes uniformly
+        static_v = list(np.random.random([self.batch_size, n_static_v, 2]).astype(np.float32))
 
         b_times = [] # list of lists of times for each batch
         b_dyna_v = [] # list of lists of dynamic vertex coordinates for each batch
@@ -195,34 +210,40 @@ class PDTSPDataset(Dataset):
                 b_times.append(np.array(t_times)[sorted_indices])
                 b_dyna_v.append(np.array(t_dyna_v)[sorted_indices])
 
-        return static_v, b_dyna_v, b_times
+
+        mask = [np.zeros((n_total), dtype=bool) for _ in range(self.batch_size)]
+
+        for i in range(self.batch_size):
+            mask[i][-n_dyna_v:] = True
+
+        return static_v, b_dyna_v, b_times, mask
 
     def __len__(self):
         return self.size
     
     def __getitem__(self, idx):
+
         nodes = self.static_v[idx]
-        new_nodes = self.dyna_v[idx]
+        dyna_v = self.dyna_v[idx]
         time = self.times[idx]
+        all_nodes = self.all_nodes[idx]
+
+        # Add groundtruth labels in case of SL         
         item = {
+            'all_nodes': torch.FloatTensor(all_nodes),
             'nodes': torch.FloatTensor(nodes),
-            'new_nodes': torch.FloatTensor(new_nodes),
+            'new_nodes': torch.FloatTensor(dyna_v),
             'times': torch.LongTensor(np.array(time)),
-            'graph': ~torch.BoolTensor(nearest_neighbor_graph(nodes, self.neighbors, self.knn_strat))
+            'graph': ~torch.BoolTensor(nearest_neighbor_graph(nodes, self.neighbors, self.knn_strat)),
         }
         if self.eval:
             # Add groundtruth labels in case of SL
             tour_nodes = self.tour_nodes[idx]
             item['tour_nodes'] = torch.LongTensor(tour_nodes)
+        else:
+            mask = self.masks[idx]
+            item['all_nodes'] = torch.FloatTensor(all_nodes)
+            item['complete_graph'] = ~torch.BoolTensor(nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat))
+            item['mask'] = torch.BoolTensor(mask)
+        
         return item
-
-
-
-        
-
-
-
-        
-
-
-

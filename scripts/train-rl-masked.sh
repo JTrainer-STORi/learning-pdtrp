@@ -2,7 +2,7 @@
 
 RUN_NAME="rl-ar-var-20pnn-gnn-max-dtsp"
 
-PROBLEM="pdtsp-new"
+PROBLEM="pdtsp"
 
 DEVICES="0"
 NUM_WORKERS=0

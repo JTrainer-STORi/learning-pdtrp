@@ -1,3 +1,6 @@
+"""This file contains the code for the dynamic attention model with masked training.
+"""
+
 import math
 import numpy as np
 from typing import NamedTuple
@@ -8,22 +11,19 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from torch.nn import DataParallel
+from problems.state_pdtsp_m import nearest_neighbor_graph
 
 from utils.tensor_functions import compute_in_batches
 from utils import move_to
 
-from scipy.spatial.distance import pdist, squareform
-
-
-def nearest_neighbor_distances_from_graph(nodes_b, graph_b):
-
-    nodes_b_cpu = nodes_b.cpu().numpy()
-
-    W_val = torch.tensor([squareform(pdist(nodes, metric='euclidean')) for nodes in nodes_b_cpu], dtype=torch.float32, device=nodes_b.device)
-
-    W_val[graph_b == 0] = 0
-
-    return W_val
+def update_mask(mask, arrival_times,t, n_static):
+    batch_size, _, _ = mask.shape
+    new_mask = mask.clone() 
+    for i in range(batch_size):
+        if t in arrival_times[i]:
+            new_nodes = np.nonzero(arrival_times[i] == t)[0] + n_static[i]
+            new_mask[i, 0, new_nodes] = False
+    return new_mask
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -45,8 +45,9 @@ class AttentionModelFixed(NamedTuple):
             glimpse_val=self.glimpse_val[:, key],  # dim 0 are the heads
             logit_key=self.logit_key[key]
         )
-
+    
 class DynamicAttentionModel(nn.Module):
+
 
     def __init__(self,
                  problem,
@@ -60,50 +61,37 @@ class DynamicAttentionModel(nn.Module):
                  track_norm=False,
                  gated=True,
                  n_heads=8,
-                 tanh_clipping=10.0,
-                 mask_inner=True,
-                 mask_logits=True,
-                 mask_graph=False,
-                 checkpoint_encoder=False,
-                 shrink_size=None,
+                 tanh_clipping=10.,
                  extra_logging=False,
+                 mask_inner= True,
+                 mask_logits= True,
+                 mask_graph= False,
                  set_start=False,
-                 edge_features='distance',
+                 edge_features='adjacency',
                  *args, **kwargs):
-        """
-        Models with a GNN/Transformer/MLP encoder and the Autoregressive decoder using attention mechanism
+        """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
+
+        During training, the model encodes the entire graph of the partially dynamic routing problem
+        and nodes which have been visited or have not yet arrived are masked. The decoder then decodes 
+        the solution by attending over nodes in the graph. 
+
+        During inference, because the entire graph is not known, the model must update the encoder when 
+        new nodes arrive. The model then decodes the solution by attending over nodes in the graph.
 
         Args:
-            problem: TSP/TSPSL, to identify the learning paradigm
-            embedding_dim: Hidden dimension for encoder/decoder
-            encoder_class: GNN/Transformer/MLP encoder
-            n_encode_layers: Number of layers for encoder
+            problem: The problem instance for the model.
+            embedding_dim: Hidden Dimension for Encoder/Decoder 
+            n_encoder_layers: Number of layers for the encoder
             aggregation: Aggregation function for GNN encoder
-            aggregation_graph: Graph aggregation function
-            normalization: Normalization scheme ('batch'/'layer'/'none')
-            learn_norm: Flag for enabling learnt affine transformation during normalization
-            track_norm: Flag to enable tracking training dataset stats instead of using batch stats during normalization
-            gated: Flag to enbale anisotropic GNN aggregation
-            n_heads: Number of attention heads for Transformer encoder/MHA in decoder
-            tanh_clipping: Constant value to clip decoder logits with tanh
-            mask_inner: Flag to use visited mask during inner function of decoder
-            mask_logits: Flag to use visited mask during log computation of decoder
-            mask_graph: Flag to use graph mask during decoding
-            checkpoint_encoder: Whether to use checkpoints for encoder embeddings
-            shrink_size: N/A
-            extra_logging: Flag to perform extra logging, used for plotting histograms of embeddings
+            aggregation_graph: Aggregation function for graph embedding
 
-        References:
-            - W. Kool, H. van Hoof, and M. Welling. Attention, learn to solve routing problems! In International Conference on Learning Representations, 2019.
-            - M. Deudon, P. Cournut, A. Lacoste, Y. Adulyasak, and L.-M. Rousseau. Learning heuristics for the tsp by policy gradient. In International Conference on the Integration of Constraint Programming, Artificial Intelligence, and Operations Research, pages 170–181. Springer, 2018.
         """
-
-        super(DynamicAttentionModel, self).__init__()
+        super(DynamicAttentionModelnew, self).__init__()
         
         self.problem = problem
         self.embedding_dim = embedding_dim
-        self.encoder_class = encoder_class
-        self.n_encode_layers = n_encode_layers
+        self.encoder = encoder_class
+        self.n_encoder_layers = n_encode_layers
         self.aggregation = aggregation
         self.aggregation_graph = aggregation_graph
         self.normalization = normalization
@@ -112,51 +100,38 @@ class DynamicAttentionModel(nn.Module):
         self.gated = gated
         self.n_heads = n_heads
         self.tanh_clipping = tanh_clipping
+        self.edge_features = edge_features
+        self.set_start = set_start
         self.mask_inner = mask_inner
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
-        self.checkpoint_encoder = checkpoint_encoder
-        self.shrink_size = shrink_size
-        self.set_start = set_start
-        self.edge_features = edge_features
-        
+
         # Extra logging updates self variables with batch statistics (without returning them)
         self.extra_logging = extra_logging
-        
+
         self.decode_type = None
         self.temp = 1.0
 
+        step_context_dim = 2 * embedding_dim
+        node_dim = 2
+        edge_dim = 1
 
-        assert problem.NAME in ("pdtsp", "pdtsp-rd"), "Unsupported problem: {}".format(problem.NAME)
+        # Node Embedding Layer
+        self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)
 
-        step_context_dim = 2 * embedding_dim  # Embedding of first and last node
-        node_dim = 2  # x, y
-        edge_dim  = 1 # Distance
-
-        if not self.set_start:
-            # Learned input symbols for first action
-            self.W_placeholder = nn.Parameter(torch.Tensor(2 * embedding_dim))
-            self.W_placeholder.data.uniform_(-1, 1)  # Placeholder should be in range of activations
-        
-        # Node embedding layer
-        self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)  
-
-        # Edge embedding layer
         if self.edge_features == 'adjacency':
             self.edge_embed = nn.Embedding(2, embedding_dim)
-        elif self.edge_features == 'distance':
-            self.edge_embed = nn.Linear(edge_dim, embedding_dim, bias=True)
-        
-        # Encoder model
-        self.embedder = self.encoder_class(n_layers=n_encode_layers, 
-                                           n_heads=n_heads,
-                                           hidden_dim=embedding_dim, 
-                                           aggregation=aggregation, 
-                                           norm=normalization, 
-                                           learn_norm=learn_norm,
-                                           track_norm=track_norm,
-                                           gated=gated)
 
+        # Encoder model
+        self.embedder = self.encoder(n_layers=self.n_encoder_layers,
+                                     n_heads=n_heads,
+                                     hidden_dim=embedding_dim,
+                                     aggregation=aggregation,
+                                     norm=normalization,
+                                     learn_norm=learn_norm,
+                                     track_norm=track_norm,
+                                     gated=gated,)
+        
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embedding_dim
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
         self.project_fixed_context = nn.Linear(embedding_dim, embedding_dim, bias=False)
@@ -170,47 +145,28 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, nodes, graph, times, new_nodes, return_pi=False):
+    def forward(self, all_nodes, graph, arrival_times, nodes=None, new_nodes=None, mask=None, return_pi=False):
         """
-        Args:
-            nodes: Input graph nodes (B x V x 2)
-            graph: Graph as **NEGATIVE** adjacency matrices (B x V x V)
-            supervised: Toggles SL training, teacher forcing and NLL loss computation
-            targets: Targets for teacher forcing and NLL loss
-            return_pi: Toggles returning the output sequences 
-                       (Not compatible with DataParallel as the results
-                        may be of different lengths on different GPUs)
+            Args:
+                nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
+                graph: Graph as a Boolean adjacency matrix (batch_size, num_nodes, num_nodes) dtype: torch.bool
+                arrival_times: Arrival times of the nodes (batch_size, n_arrivals) dtype: torch.int64
         """
-        
-        # Reinforcement learning or inference
-        # Run inner function
 
-        log_p, pi = self._inner(nodes, graph, times, new_nodes)    
-        
-        # Get predicted costs
-        _, num_new_nodes, _ = new_nodes.shape
-
-        if num_new_nodes > 0:
-            total_nodes = torch.cat((nodes, new_nodes), dim=1)
+        if self.training:
+            log_p, pi = self._inner_train(all_nodes, graph, arrival_times, mask)
         else:
-            total_nodes = nodes
+            log_p, pi = self._inner_eval(nodes, graph, arrival_times, new_nodes)
 
-        # total_nodes = torch.cat((nodes, new_nodes), dim=1)
+        cost, mask = self.problem.get_costs(all_nodes, pi)
 
-        cost, mask = self.problem.get_costs(move_to(total_nodes, device=nodes.device), move_to(pi, device=nodes.device))
-
-        if mask is not None:
-            mask = mask.bool()
-        
-        # Log likelihood is calculated within the model since 
-        # returning it per action does not work well with DataParallel 
-        # (since sequences can be of different lengths)
-        ll = self._calc_log_likelihood(move_to(log_p, device=nodes.device), mask)
+        ll = self._calc_log_likelihood(log_p, mask)
 
         if return_pi:
             return cost, ll, pi
-        return cost, ll
-
+        else:
+            return cost, ll
+        
     def _calc_log_likelihood(self, log_p, mask):
 
         # Optional: mask out actions irrelevant to objective so they do not get reinforced
@@ -222,45 +178,74 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, nodes, graph, times, new_nodes):
-        # Create lists to track the outputs of the policy and the sequences of node selections 
+    def _inner_train(self, nodes, graph, arrival_times, mask):
+        # create lists to track the log probabilities and the selected nodes
         outputs = []
         sequences = []
+
+        edge_features = graph.long()
+
+        # create the problem state for tracking which nodes are masked
+        state = self.problem.make_state(nodes, graph)
+
+        fixed = self._precompute(self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph))
+
+        batch_size, num_nodes, _ = nodes.shape
+        n_static = torch.sum(~mask, dim=1)
+
+        if self.set_start:
+            set_first_selection = torch.stack([torch.tensor(0) for i in range(batch_size)])
+            state = state.update(set_first_selection)
+            sequences.append(set_first_selection) # not sure if this'll work, let's see :)
+            outputs.append(torch.zeros((batch_size, num_nodes), dtype=torch.float, device=nodes.device)) # setting log_p of irrelevant actions should not affect the policy...
+
+        mask = mask.unsqueeze(1)
+
+        t = 1
+        while not state.all_finished():
+
+            # get log probabilities of next action
+            log_p, mask = self._get_log_p(fixed, state, mask)
+
+            # incement the time step counter
+            t += 1
+
+            # update the mask to account for any new arrivals
+
+            mask = update_mask(mask, arrival_times, t, n_static)
+
+            # we query the policy
+            selected = self._select_node(
+                log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+
+            #update problem state
+            state = state.update(selected)
+
+            # Collect output of step
+            outputs.append(log_p[:, 0, :])
+            sequences.append(selected)
+
+        all_sequences = torch.stack(sequences, 1)
+        all_outputs = torch.stack(outputs, 1).gather(2, all_sequences.unsqueeze(2)).squeeze(-1)
         
+        return all_outputs, all_sequences
+    
+    def _inner_eval(self, nodes, graph, arrival_times, new_nodes):
+        # create lists to track the log probabilities and the selected nodes
+        outputs = []
+        sequences = []
+
         # Create problem state for masking (tracks which nodes have been visited)
         state = self.problem.make_state(nodes, graph)
 
-        # Embed input batch of graph using GNN (B x V x H)
-        if self.edge_features == 'adjacency':
-            edge_features = graph.long()
-        elif self.edge_features == 'distance':             
-            if self.problem.NAME == 'pdtsp':
-                edge_features = nearest_neighbor_distances_from_graph(nodes, graph)
-                edge_features = edge_features.unsqueeze(-1)
-            elif self.problem.NAME == 'pdtsp-rd':
-                nearest_neighbor_distances = state.distance_matrices
-                nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
-                edge_features = nearest_neighbor_distances
-                edge_features = edge_features.unsqueeze(-1)
+        edge_features = graph.long()
 
-        if self.checkpoint_encoder:
-            embeddings = checkpoint(self.embedder, self.node_embed(nodes), self.edge_embed(edge_features), graph)
-        else:
-            embeddings = self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph)
-        
-        if self.extra_logging:
-            self.embeddings_batch = embeddings
-
-        # Compute keys, values for the glimpse and keys for the logits for reuse
-        fixed = self._precompute(embeddings)
+        fixed = self._precompute(self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph))
 
         batch_size, num_nodes, _ = nodes.shape
-
         _, num_new_nodes, _ = new_nodes.shape
 
-        # Perform decoding steps
-
-        # initialize the tensor which keeps track of the number of arrivals in each environment
+        # initialize the tensor which keeps track of the number of arrivals in each environment 
         n_arrivals = torch.zeros(batch_size, 1)
         # initialize the counter which tracks the number of embeddings generated - not counting the inital embedding
         embedding_counter = 0
@@ -268,11 +253,11 @@ class DynamicAttentionModel(nn.Module):
         # make any new node selections until the embedding is up to date. 
         pause_queries = torch.zeros(batch_size, 1, dtype=torch.bool)
         # ts tracks the current timestep of each of the environments
-        ts = torch.zeros(batch_size, 1, dtype=torch.int, device=times.device)
+        ts = torch.zeros(batch_size, 1, dtype=torch.int, device=arrival_times.device)
 
         # if set_start is true then we make the first selection the first node in the list of nodes and update the other necessary variables
         if self.set_start:
-            ts = torch.ones_like(ts, dtype=torch.int, device=times.device)
+            ts = torch.ones_like(ts, dtype=torch.int, device=arrival_times.device)
             set_first_selection = [torch.tensor(0) for i in range(batch_size)]
             state = state.update(set_first_selection)
             sequences.append(set_first_selection) # not sure if this'll work, let's see :)
@@ -301,29 +286,20 @@ class DynamicAttentionModel(nn.Module):
                     selection[i] = selected[i]
                     ts[i] += 1
 
-                    if num_new_nodes > 0 and ts[i] in times[i]:
+                    if num_new_nodes > 0 and ts[i] in arrival_times[i]:
                         # by using bincount here, we allow for the possibility of multiple arrivals per timestep
-                        n_arrivals[i] += torch.bincount(times[i])[ts[i]].cpu() 
+                        n_arrivals[i] += torch.bincount(arrival_times[i])[ts[i]].cpu() 
                         pause_queries[i] = True
-                    
-            # Update problem state
+
+            # update the state with the selected nodes
             state = state.update(selection)
 
             if torch.gt(n_arrivals, embedding_counter).all():
                 # update the state to add all of the new arrivals
                 state = state.arrivals(new_nodes[:, embedding_counter].unsqueeze(1))
                 #  create a new embedding here
-                if self.edge_features == 'adjacency':
-                    edge_features = self.edge_embed(move_to(state.graph.long(), device=nodes.device))
-                elif self.edge_features == 'distance':
-                    if self.problem.NAME == 'pdtsp':
-                        edge_features = self.edge_embed(nearest_neighbor_distances_from_graph(move_to(state.loc, device=nodes.device), move_to(state.graph, device=nodes.device)).unsqueeze(-1))
-                    elif self.problem.NAME == 'pdtsp-rd':
-                        nearest_neighbor_distances = state.distance_matrices
-                        nearest_neighbor_distances[move_to(state.graph, device=nodes.device)==0] = 0
-                        edge_features = self.edge_embed(nearest_neighbor_distances.unsqueeze(-1))
-                embeddings = self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), edge_features, move_to(state.graph, device=nodes.device))
-                fixed = self._precompute(embeddings)
+                edge_features = self.edge_embed(move_to(state.graph.long(), device=nodes.device))
+                fixed = self._precompute(self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), edge_features, move_to(state.graph, device=nodes.device)))
                 # Increment the arrival counter
                 embedding_counter += 1
                 # only unpause the queries for which the number of arrivals is equal to the arrival counter
@@ -359,11 +335,48 @@ class DynamicAttentionModel(nn.Module):
 
         elif self.decode_type == "sampling":
             selected = probs.multinomial(1).squeeze(1)
-
         else:
             assert False, "Unknown decode type"
         
         return selected
+
+
+
+    def _get_log_p(self, fixed, state, mask=None, normalize=True):
+        # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
+        query = fixed.context_node_projected + \
+                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
+
+        # Compute keys and values for the nodes
+        glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
+
+        # this mask is returned by the state and tells us which nodes have been visited
+        visited_mask = state.get_mask().bool()
+
+        # use an or operation to combine the visited mask with the mask from the previous timestep which has arrivals masked correctly
+
+        if mask is not None:
+            mask = torch.logical_or(mask, visited_mask)
+        else:
+            mask = visited_mask
+        
+
+        graph_mask = None
+        if self.mask_graph:
+            # Compute the graph mask, for masking next action based on graph structure 
+            graph_mask = state.get_graph_mask()
+
+            graph_mask = graph_mask.bool()
+
+        # Compute logits (unnormalized log_p)
+        log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask, graph_mask)
+
+        if normalize:
+            log_p = F.log_softmax(log_p / self.temp, dim=-1)
+
+        assert not torch.isnan(log_p).any()
+
+        return log_p, mask
 
     def _precompute(self, embeddings, num_steps=1):
         # The fixed context projection of the graph embedding is calculated only once for efficiency
@@ -390,37 +403,7 @@ class DynamicAttentionModel(nn.Module):
             logit_key_fixed.contiguous()
         )
         return AttentionModelFixed(embeddings, fixed_context, *fixed_attention_node_data)
-
-    def _get_log_p(self, fixed, state, normalize=True):
-        # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
-        query = fixed.context_node_projected + \
-                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
-
-        # Compute keys and values for the nodes
-        glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
-        
-        # Compute the mask, for masking next action based on previous actions
-        mask = state.get_mask()
-
-        mask = mask.bool()
-        
-        graph_mask = None
-        if self.mask_graph:
-            # Compute the graph mask, for masking next action based on graph structure 
-            graph_mask = state.get_graph_mask()
-
-            graph_mask = graph_mask.bool()
-
-        # Compute logits (unnormalized log_p)
-        log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask, graph_mask)
-
-        if normalize:
-            log_p = F.log_softmax(log_p / self.temp, dim=-1)
-
-        assert not torch.isnan(log_p).any()
-
-        return log_p, mask
-
+    
     def _get_parallel_step_context(self, embeddings, state):
         """
         Returns the context per step, optionally for multiple steps at once 
