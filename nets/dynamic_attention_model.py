@@ -157,7 +157,7 @@ class DynamicAttentionModel(nn.Module):
         else:
             log_p, pi = self._inner_eval(nodes, graph, arrival_times, new_nodes)
 
-        cost, mask = self.problem.get_costs(all_nodes, pi)
+        cost, mask = self.problem.get_costs(all_nodes, move_to(pi, device=all_nodes.device))
 
         ll = self._calc_log_likelihood(log_p, mask)
 
