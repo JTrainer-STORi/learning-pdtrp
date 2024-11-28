@@ -161,7 +161,7 @@ class RolloutBaseline(Baseline):
         )
         
         print("\nEvaluating Rollout baseline model on evaluation dataset")
-        self.bl_vals = rollout(self.model, self.dataset, self.opts).cpu().numpy()
+        self.bl_vals = rollout(self.model, self.dataset, self.opts, in_eval_mode=False).cpu().numpy()
         self.mean = self.bl_vals.mean()
         self.epoch = epoch
 
