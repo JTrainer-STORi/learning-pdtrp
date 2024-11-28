@@ -28,7 +28,7 @@ def set_decode_type(model, decode_type):
 def validate(model, dataset, problem, opts):
     # Validate
     print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')
-    cost = rollout(model, dataset, opts)
+    cost = rollout(model, dataset, opts, in_eval_mode=True)
     gt_cost = rollout_groundtruth(problem, dataset, opts)
     opt_gap = (((cost/gt_cost) - 1) * 100)
     
@@ -42,15 +42,22 @@ def validate(model, dataset, problem, opts):
     return cost.mean(), opt_gap.mean(), gt_cost.mean()
 
 
-def rollout(model, dataset, opts):
+def rollout(model, dataset, opts, in_eval_mode=True):
     # Put in greedy evaluation mode!
     set_decode_type(model, "greedy")
-    model.eval()
-    
-    def eval_model_bat(bat):
-        with torch.no_grad():
-            cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['times'], opts.device), nodes=move_to(bat['nodes'], opts.device), new_nodes=move_to(bat['new_nodes'], opts.device))
-        return cost
+    if in_eval_mode:
+        model.eval()
+        def eval_model_bat(bat):
+            with torch.no_grad():
+                cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['times'], opts.device), nodes=move_to(bat['nodes'], opts.device), new_nodes=move_to(bat['new_nodes'], opts.device))
+            return cost
+    else:
+        model.train()
+        def eval_model_bat(bat):
+            with torch.no_grad():
+                cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['complete_graph'], opts.device), move_to(bat['times'], opts.device), mask=move_to(bat['mask'], opts.device))
+            return cost
+
 
     return torch.cat([
         eval_model_bat(bat)
@@ -187,7 +194,6 @@ def train_batch(model, optimizer, baseline, epoch,
     mask = move_to(bat['mask'], opts.device)
     nodes = move_to(bat['nodes'], opts.device)
     new_nodes = move_to(bat['new_nodes'], opts.device)
-
 
     # Evaluate model, get costs and log probabilities
     cost, log_likelihood = model(all_nodes, complete_graph, times, mask=mask)
