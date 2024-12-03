@@ -19,7 +19,7 @@ class PDTSP(object):
     Class representing the PDTSP problem.
     """
 
-    NAME = "pdtspm"
+    NAME = "pdtsp"
 
     def get_costs(all_v, pi):
         """Returns DTSP tour length for given graph nodes and tour permutations
