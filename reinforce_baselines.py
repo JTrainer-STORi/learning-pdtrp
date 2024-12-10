@@ -51,13 +51,13 @@ class WarmupBaseline(Baseline):
             return self.baseline.unwrap_batch(batch)
         return self.warmup_baseline.unwrap_batch(batch)
 
-    def eval(self, all_nodes, graph, times, nodes, new_nodes, c):
+    def eval(self, all_nodes, graph, arrival_times, service_times, c):
 
         if self.alpha == 1:
-            return self.baseline.eval(all_nodes, graph, times, nodes, new_nodes, c)
+            return self.baseline.eval(all_nodes, graph, arrival_times, service_times, c)
         if self.alpha == 0:
             return self.warmup_baseline.eval(all_nodes, graph, c)
-        v, l = self.baseline.eval(all_nodes, graph, times, nodes, new_nodes, c)
+        v, l = self.baseline.eval(all_nodes, graph, arrival_times, service_times, c)
         vw, lw = self.warmup_baseline.eval(all_nodes, graph, c)
         # Return convex combination of baseline and of loss
         return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (1 - self.alpha * lw)
@@ -156,12 +156,12 @@ class RolloutBaseline(Baseline):
         
         # Always generate baseline dataset when updating model to prevent overfitting to the baseline dataset
         self.dataset = self.problem.make_dataset(
-            min_static=self.opts.min_static, max_static=self.opts.max_static, min_dyna=self.opts.min_dyna, max_dyna=self.opts.max_dyna, batch_size=self.opts.batch_size, 
-            num_samples=self.opts.epoch_size, spatial_distribution=self.opts.spatial_distribution, td1 = self.opts.td1, td2 = self.opts.td2, mean1 = self.opts.mean1, mean2 = self.opts.mean2, cov1 = self.opts.cov1, cov2 = self.opts.cov2, proportion = self.opts.proportion, allow_multiple_arrivals = self.opts.allow_multiple_arrivals, eval=False, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat
+            min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, batch_size=self.opts.batch_size, 
+            num_samples=self.opts.epoch_size, time_horizon=self.opts.time_horizon, service_times_mu = self.opts.stmu, service_times_sigma = self.opts.stsig, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat
         )
         
         print("\nEvaluating Rollout baseline model on evaluation dataset")
-        self.bl_vals = rollout(self.model, self.dataset, self.opts, in_eval_mode=False).cpu().numpy()
+        self.bl_vals = rollout(self.model, self.dataset, self.opts).cpu().numpy()
         self.mean = self.bl_vals.mean()
         self.epoch = epoch
 
@@ -169,15 +169,15 @@ class RolloutBaseline(Baseline):
         print("\nEvaluating + wrapping Rollout baseline on dataset...")
         # Need to convert baseline to 2D to prevent converting to double, see
         # https://discuss.pytorch.org/t/dataloader-gives-double-instead-of-float/717/3
-        return BaselineDataset(dataset, rollout(self.model, dataset, self.opts, in_eval_mode=False).view(-1, 1))
+        return BaselineDataset(dataset, rollout(self.model, dataset, self.opts).view(-1, 1))
 
     def unwrap_batch(self, batch):
         return batch['data'], batch['baseline'].view(-1)  # Flatten result to undo wrapping as 2D
 
-    def eval(self, all_nodes, graph, times, nodes, new_nodes, c):
+    def eval(self, all_nodes, graph, arrival_times, service_times, c):
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = self.model(all_nodes, graph, times, nodes=nodes, new_nodes=new_nodes)
+            v, _ = self.model(all_nodes, graph, arrival_times, service_times)
         # There is no loss
         return v, 0
 

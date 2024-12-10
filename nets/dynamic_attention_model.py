@@ -61,11 +61,9 @@ class DynamicAttentionModel(nn.Module):
                  gated=True,
                  n_heads=8,
                  tanh_clipping=10.,
-                 extra_logging=False,
                  mask_inner= True,
                  mask_logits= True,
                  mask_graph= False,
-                 set_start=False,
                  edge_features='adjacency',
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
@@ -78,12 +76,22 @@ class DynamicAttentionModel(nn.Module):
         new nodes arrive. The model then decodes the solution by attending over nodes in the graph.
 
         Args:
-            problem: The problem instance for the model.
+            problem: Which problem variant the model will be used for
             embedding_dim: Hidden Dimension for Encoder/Decoder 
+            encoder_class: Which encoder class to use
             n_encoder_layers: Number of layers for the encoder
             aggregation: Aggregation function for GNN encoder
             aggregation_graph: Aggregation function for graph embedding
-
+            normalization: batch or layer normalization
+            learn_norm: Whether to learn normalization parameters (passed as argument to PyTorch normalization layers)
+            track_norm: Whether to track normalization statistics (mean and var running estimates) (passed as argument to PyTorch normalization layers)
+            gated: Whether to use gated skip connections in the encoder
+            n_heads: Number of attention heads
+            tanh_clipping: Clipping value for output logits
+            mask_inner: Whether to mask nodes in the inner attention layer of the decoder
+            mask_logits: Whether to mask logits in the final decoder step
+            mask_graph: whether to mask logits based on graph structure (for problems in which this is a factor)
+            edge_features: Whether to use edge distances as edge features in the encoder or adjacency matrix
         """
         super(DynamicAttentionModel, self).__init__()
         
@@ -100,18 +108,14 @@ class DynamicAttentionModel(nn.Module):
         self.n_heads = n_heads
         self.tanh_clipping = tanh_clipping
         self.edge_features = edge_features
-        self.set_start = set_start
         self.mask_inner = mask_inner
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
 
-        # Extra logging updates self variables with batch statistics (without returning them)
-        self.extra_logging = extra_logging
-
         self.decode_type = None
         self.temp = 1.0
 
-        step_context_dim = 2 * embedding_dim
+        step_context_dim = embedding_dim
         node_dim = 2
         edge_dim = 1
 
@@ -144,7 +148,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, all_nodes, graph, arrival_times, nodes=None, new_nodes=None, mask=None, return_pi=False):
+    def forward(self, all_nodes, graph, arrival_times, service_times, return_pi=False):
         """
             Args:
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
@@ -152,12 +156,11 @@ class DynamicAttentionModel(nn.Module):
                 arrival_times: Arrival times of the nodes (batch_size, n_arrivals) dtype: torch.int64
         """
 
-        if self.training:
-            log_p, pi = self._inner_train(all_nodes, graph, arrival_times, mask)
-        else:
-            log_p, pi = self._inner_eval(nodes, graph, arrival_times, new_nodes)
+        log_p, pi = self._inner(all_nodes, graph, arrival_times, service_times)
 
-        cost, mask = self.problem.get_costs(all_nodes, move_to(pi, device=all_nodes.device))
+        pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
+
+        cost, mask = self.problem.get_costs(all_nodes, move_to(pi_w_depot, device=all_nodes.device))
 
         ll = self._calc_log_likelihood(log_p, mask)
 
@@ -177,41 +180,27 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner_train(self, nodes, graph, arrival_times, mask):
+    def _inner(self, nodes, graph, arrival_times, service_times):
         # create lists to track the log probabilities and the selected nodes
         outputs = []
         sequences = []
 
-        edge_features = graph.long()
+        edge_features = graph.long() # Come back to this later and give option to supply edge lengths as edge features
 
         # create the problem state for tracking which nodes are masked
-        state = self.problem.make_state(nodes, graph)
+        state = self.problem.make_state(nodes, service_times, arrival_times)
 
         fixed = self._precompute(self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph))
 
-        batch_size, num_nodes, _ = nodes.shape
-        n_static = torch.sum(~mask, dim=1)
-
-        if self.set_start:
-            set_first_selection = torch.stack([torch.tensor(0, device=nodes.device) for i in range(batch_size)])
-            state = state.update(set_first_selection)
-            sequences.append(set_first_selection) # not sure if this'll work, let's see :)
-            outputs.append(torch.zeros((batch_size, num_nodes), dtype=torch.float, device=nodes.device)) # setting log_p of irrelevant actions should not affect the policy...
-
-        mask = mask.unsqueeze(1)
-
-        t = 1
         while not state.all_finished():
+
+            visited_mask = state.get_visited()
+            arrival_mask = state.get_not_arrived()
+
+            mask = torch.logical_or(visited_mask, arrival_mask)
 
             # get log probabilities of next action
             log_p, mask = self._get_log_p(fixed, state, mask)
-
-            # incement the time step counter
-            t += 1
-
-            # update the mask to account for any new arrivals
-
-            mask = update_mask(mask, arrival_times, t, n_static)
 
             # we query the policy
             selected = self._select_node(
@@ -228,103 +217,6 @@ class DynamicAttentionModel(nn.Module):
         all_outputs = torch.stack(outputs, 1).gather(2, all_sequences.unsqueeze(2)).squeeze(-1)
         
         return all_outputs, all_sequences
-    
-    def _inner_eval(self, nodes, graph, arrival_times, new_nodes):
-        # create lists to track the log probabilities and the selected nodes
-        outputs = []
-        sequences = []
-
-        # Create problem state for masking (tracks which nodes have been visited)
-        state = self.problem.make_state(nodes, graph)
-
-        edge_features = graph.long()
-
-        fixed = self._precompute(self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph))
-
-        batch_size, num_nodes, _ = nodes.shape
-        _, num_new_nodes, _ = new_nodes.shape
-
-        # initialize the tensor which keeps track of the number of arrivals in each environment 
-        n_arrivals = torch.zeros(batch_size, 1)
-        # initialize the counter which tracks the number of embeddings generated - not counting the inital embedding
-        embedding_counter = 0
-        # initialize boolean tensor which tracks which environments are currently paused. A paused environment will not
-        # make any new node selections until the embedding is up to date. 
-        pause_queries = torch.zeros(batch_size, 1, dtype=torch.bool)
-        # ts tracks the current timestep of each of the environments
-        ts = torch.zeros(batch_size, 1, dtype=torch.int, device=arrival_times.device)
-
-        # if set_start is true then we make the first selection the first node in the list of nodes and update the other necessary variables
-        if self.set_start:
-            ts = torch.ones_like(ts, dtype=torch.int, device=arrival_times.device)
-            set_first_selection = [torch.tensor(0) for i in range(batch_size)]
-            state = state.update(set_first_selection)
-            sequences.append(set_first_selection) # not sure if this'll work, let's see :)
-            outputs.append(torch.zeros((num_nodes, batch_size), dtype=torch.float, device=nodes.device)) # setting log_p of irrelevant actions should not affect the policy...
-
-        while not state.all_finished():
-
-            # Get log probabilities of next action
-            log_p, mask = self._get_log_p(fixed, state)
-
-            mask = mask.bool()
-
-            # we query the policy for the entire batch of environments although some may be paused
-            selected = self._select_node(
-                    log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
-            
-            # selection keeps track of which environments are paused and which are not
-            selection = [None for i in range(batch_size)]
-
-            # iterate over environments 
-            for i in range(batch_size):
-                # we do not select an action if the environment is paused, we do not query the policy for the return back to the starting node so we stop selections at time step = Ntotal
-                if not pause_queries[i] and ts[i] < (num_nodes + num_new_nodes):
-                    # Select an action, increment the time (could be done either way around) then check if an arrival happens
-                    # this makes it so that if an arrival happens at ts = t' then it is available for selection in the state at ts = t'
-                    selection[i] = selected[i]
-                    ts[i] += 1
-
-                    if num_new_nodes > 0 and ts[i] in arrival_times[i]:
-                        # by using bincount here, we allow for the possibility of multiple arrivals per timestep
-                        n_arrivals[i] += torch.bincount(arrival_times[i])[ts[i]].cpu() 
-                        pause_queries[i] = True
-
-            # update the state with the selected nodes
-            state = state.update(selection)
-
-            if torch.gt(n_arrivals, embedding_counter).all():
-                # update the state to add all of the new arrivals
-                state = state.arrivals(new_nodes[:, embedding_counter].unsqueeze(1))
-                #  create a new embedding here
-                edge_features = self.edge_embed(move_to(state.graph.long(), device=nodes.device))
-                fixed = self._precompute(self.embedder(self.node_embed(move_to(state.loc, device=nodes.device)), edge_features, move_to(state.graph, device=nodes.device)))
-                # Increment the arrival counter
-                embedding_counter += 1
-                # only unpause the queries for which the number of arrivals is equal to the arrival counter
-                for i in range(batch_size):
-                    if n_arrivals[i] <= embedding_counter: 
-                        pause_queries[i] = False
-
-            # Collect output of step
-            outputs.append(log_p[:, 0, :].permute(1,0))
-            sequences.append(selection)
-
-        # the purpose of this proceedure is to remove the paused steps for each of the environments so that the sequences of nodes and policy outputs form a contiguous tensor
-        sequences_new = [[] for i in range(batch_size)]
-
-        outputs_new = torch.zeros((batch_size, (num_nodes + num_new_nodes)))
-
-        for i, selection in enumerate(sequences):
-            for j in range(batch_size):
-                if selection[j] is not None:
-                    sequences_new[j].append(selection[j])
-                    outputs_new[j, len(sequences_new[j])-1] = outputs[i][selection[j].item(), j]
-
-        sequences_new_2 = torch.tensor(sequences_new)
-
-        # Collected lists, return Tensor
-        return outputs_new, sequences_new_2
 
     def _select_node(self, probs, mask):
         assert (probs == probs).all(), "Probs should not contain any NaNs"
@@ -339,8 +231,6 @@ class DynamicAttentionModel(nn.Module):
         
         return selected
 
-
-
     def _get_log_p(self, fixed, state, mask=None, normalize=True):
         # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
         query = fixed.context_node_projected + \
@@ -349,17 +239,16 @@ class DynamicAttentionModel(nn.Module):
         # Compute keys and values for the nodes
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
 
-        # this mask is returned by the state and tells us which nodes have been visited
-        visited_mask = state.get_mask().bool()
+        # # this mask is returned by the state and tells us which nodes have been visited
+        # visited_mask = state.get_mask().bool()
 
-        # use an or operation to combine the visited mask with the mask from the previous timestep which has arrivals masked correctly
+        # # use an or operation to combine the visited mask with the mask from the previous timestep which has arrivals masked correctly
 
-        if mask is not None:
-            mask = torch.logical_or(mask, visited_mask)
-        else:
-            mask = visited_mask
+        # if mask is not None:
+        #     mask = torch.logical_or(mask, visited_mask)
+        # else:
+        #     mask = visited_mask
         
-
         graph_mask = None
         if self.mask_graph:
             # Compute the graph mask, for masking next action based on graph structure 
@@ -411,30 +300,12 @@ class DynamicAttentionModel(nn.Module):
         current_node = state.get_current_node()
         batch_size, num_steps = current_node.size()
     
-        if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not
-            if state.i.item() == 0:
-                # First and only step, ignore prev_a (this is a placeholder)
-                return self.W_placeholder[None, None, :].expand(batch_size, 1, self.W_placeholder.size(-1))
-            else:
-                return embeddings.gather(
+        return torch.gather(
+                    embeddings,
                     1,
-                    torch.cat((state.first_a, current_node), 1)[:, :, None].expand(batch_size, 2, embeddings.size(-1))
-                ).view(batch_size, 1, -1)
-        
-        # More than one step, assume always starting with first
-        embeddings_per_step = embeddings.gather(
-            1,
-            current_node[:, 1:, None].expand(batch_size, num_steps - 1, embeddings.size(-1))
-        )
-        return torch.cat((
-            # First step placeholder, cat in dim 1 (time steps)
-            self.W_placeholder[None, None, :].expand(batch_size, 1, self.W_placeholder.size(-1)),
-            # Second step, concatenate embedding of first with embedding of current/previous (in dim 2, context dim)
-            torch.cat((
-                embeddings_per_step[:, 0:1, :].expand(batch_size, num_steps - 1, embeddings.size(-1)),
-                embeddings_per_step
-            ), 2)
-        ), 1)
+                    current_node.contiguous().view(batch_size, num_steps, 1)
+                    .expand(batch_size, num_steps, embeddings.size(-1))
+                ).view(batch_size, num_steps, embeddings.size(-1))
 
     def _one_to_many_logits(self, query, glimpse_K, glimpse_V, logit_K, mask, graph_mask=None):
         batch_size, num_steps, embed_dim = query.size()

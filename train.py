@@ -28,7 +28,7 @@ def set_decode_type(model, decode_type):
 def validate(model, dataset, problem, opts):
     # Validate
     print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')
-    cost = rollout(model, dataset, opts, in_eval_mode=True)
+    cost = rollout(model, dataset, opts)
     gt_cost = rollout_groundtruth(problem, dataset, opts)
     opt_gap = (((cost/gt_cost) - 1) * 100)
     
@@ -42,23 +42,15 @@ def validate(model, dataset, problem, opts):
     return cost.mean(), opt_gap.mean(), gt_cost.mean()
 
 
-def rollout(model, dataset, opts, in_eval_mode=True):
+def rollout(model, dataset, opts):
     # Put in greedy evaluation mode!
     set_decode_type(model, "greedy")
-    if in_eval_mode:
-        model.eval()
-        def eval_model_bat(bat):
-            with torch.no_grad():
-                cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['times'], opts.device), nodes=move_to(bat['nodes'], opts.device), new_nodes=move_to(bat['new_nodes'], opts.device))
-            return cost
-    else:
-        model.train()
-        def eval_model_bat(bat):
-            with torch.no_grad():
-                cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['complete_graph'], opts.device), move_to(bat['times'], opts.device), mask=move_to(bat['mask'], opts.device))
-            return cost
-
-
+    model.eval()
+    def eval_model_bat(bat):
+        with torch.no_grad():
+            cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['arrival_times'], opts.device), move_to(bat['service_times'], opts.device))
+        return cost
+    
     return torch.cat([
         eval_model_bat(bat)
         for bat in tqdm(
@@ -102,8 +94,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     # Generate new training data for each epoch
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
-            min_static=opts.min_static, max_static=opts.max_static, min_dyna=opts.min_dyna, max_dyna=opts.max_dyna, batch_size=opts.batch_size, 
-            num_samples=opts.epoch_size, spatial_distribution=opts.spatial_distribution, td1 = opts.td1, td2 = opts.td2, mean1 = opts.mean1, mean2 = opts.mean2, cov1 = opts.cov1, cov2 = opts.cov2, proportion = opts.proportion, allow_multiple_arrivals = opts.allow_multiple_arrivals, eval=False, neighbors=opts.neighbors, knn_strat=opts.knn_strat
+            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, batch_size=opts.batch_size, 
+            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mu = opts.stmu, service_times_sigma = opts.stsig, neighbors=opts.neighbors, knn_strat=opts.knn_strat
         ))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
@@ -187,19 +179,16 @@ def train_batch(model, optimizer, baseline, epoch,
     
     # Optionally move Tensors to GPU
     all_nodes = move_to(bat['all_nodes'], opts.device)
-    complete_graph = move_to(bat['complete_graph'], opts.device)
     graph = move_to(bat['graph'], opts.device)
     bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
-    times = move_to(bat['times'], opts.device)
-    mask = move_to(bat['mask'], opts.device)
-    nodes = move_to(bat['nodes'], opts.device)
-    new_nodes = move_to(bat['new_nodes'], opts.device)
+    arrival_times = move_to(bat['arrival_times'], opts.device)
+    service_times = move_to(bat['service_times'], opts.device)
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood = model(all_nodes, complete_graph, times, mask=mask)
+    cost, log_likelihood = model(all_nodes, graph, arrival_times, service_times)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
-    bl_val, bl_loss = baseline.eval(all_nodes, graph, times, nodes, new_nodes, cost) if bl_val is None else (bl_val, 0)
+    bl_val, bl_loss = baseline.eval(all_nodes, graph, arrival_times, service_times, cost) if bl_val is None else (bl_val, 0)
 
     # Calculate loss
     reinforce_loss = ((cost - bl_val) * log_likelihood).mean()

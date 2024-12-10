@@ -5,7 +5,7 @@ import numpy as np
 
 from problems.state_pdtrp import StatePDTRP
 
-from problem_pdtsp import nearest_neighbor_graph
+from problems.problem_pdtsp import nearest_neighbor_graph
 
 class PDTRP(object):
     """
@@ -38,48 +38,78 @@ class PDTRP(object):
         return StatePDTRP.initialize(*args, **kwargs)
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_static=20, max_static=50, min_dyna=20,
-                 max_dyna=50, batch_size=128, time_horizon=8, num_samples=12800, neighbours=20, knn_strat='percentage', filename=None, offset=0):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0):
         self.filename = filename
-        self.min_static = min_static
-        self.max_static = max_static
-        self.min_exp_dyna = min_dyna
-        self.max_exp_dyna = max_dyna
+        self.min_total = min_total
+        self.max_total = max_total
+        self.min_dod = min_dod
+        self.max_dod = max_dod
         self.batch_size = batch_size
         self.time_horizon = time_horizon
-        self.neighbours = neighbours
+        self.service_times_mu = service_times_mu
+        self.service_times_sigma = service_times_sigma
+        self.neighbors = neighbors
         self.knn_strat = knn_strat
         self.offset = offset
 
-        self.static_v = []
-        self.dyna_v = []
-        self.all_nodes_v = []
-        self.arrival_times_v = []
-        self.service_times_v = []
+        self.all_nodes = []
+        self.arrival_times = []
+        self.service_times = []
+        self.tours = []
 
-        for _ in tqdm(range(num_samples//batch_size), ascii=True):
-            # Step 1: Generate the number of static customers
-            n_static_v = np.random.randint(self.min_static, self.max_static)
-            # Step 2: Generate the locations of static customers
-            loc_static_v = list(np.random.uniform(0, 1, size=(batch_size, n_static_v, 2)))
-            # Step 3: Generate the number of dynamic customers for each instance in the batch from a poisson distribution
-            exp_dyna_v = np.random.randint(self.min_exp_dyna, self.max_exp_dyna)
-            n_dyna_v = np.random.poisson(lam=exp_dyna_v)
-            # Step 4: Generate the locations of dynamic customers
-            loc_dyna_v = list(np.random.uniform(0, 1, size=(batch_size, n_dyna_v, 2)))
-            # Step 5: Generate the arrival times for dynamic customers
-            arrival_times_v = list(np.random.uniform(0, self.time_horizon, size=(batch_size, n_dyna_v)))
-            # Step 6: Generate the service times for both sets of customers
-            service_times_v = list(np.random.lognormal(0.8777, 0.6647, size=(batch_size, n_static_v + n_dyna_v)))
-            all_nodes = [np.concatenate((x, y)) for x, y in zip(loc_static_v, loc_dyna_v)]
+        if filename is not None:
+            self.tours = []
 
-            self.static_v += loc_static_v
-            self.dyna_v += loc_dyna_v
-            self.all_nodes_v += all_nodes
-            self.arrival_times_v += arrival_times_v
-            self.service_times_v += service_times_v
+            print("Loading from {}...".format(filename))
 
-        self.size = len(self.times)
+            for line in tqdm(open(filename, "r").readlines()[offset:offset + num_samples], ascii=True):
+                line = line.split(" ")
+                n_nodes = int(line.index('arrival_times')//2)
+                self.all_nodes.append(
+                    [[float(line[idx]), float(line[idx + 1])] for idx in range(0, 2 * n_nodes, 2)]
+                )
+                self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
+                self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('output')]])
+                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]][:-1])
+
+        else:
+            for _ in tqdm(range(num_samples//batch_size), ascii=True):
+                # Step 1: Generate the total number of customers
+                n_total = np.random.randint(self.min_total, self.max_total, dtype=int)
+                # Step 2: Generate the expected number of static customers for each instance in the batch
+                lower_bound = np.floor((1-self.max_dod)*n_total)
+                upper_bound = np.ceil((1-self.min_dod)*n_total)
+                exp_n_static = np.random.randint(lower_bound, upper_bound)
+                # Step 3: Sample the number of dynamic customers for each instance in the batch from a poisson distribution
+                p_lambda = (n_total - exp_n_static) / time_horizon
+                n_dyna = np.random.poisson(p_lambda * time_horizon, batch_size)
+                # n_dyna = np.random.poisson(p_lambda * time_horizon)
+                n_dyna = np.clip(n_dyna, a_min=lower_bound, a_max=upper_bound)
+                n_dyna = n_dyna.astype(int)
+                # Step 4: Determine the number of static customers for each instance in the batch
+                n_static = n_total - n_dyna
+                # Step 5: Generate the locations of static customers
+                loc_static = [np.random.uniform(0, 1, size=(n_static[i], 2)) for i in range(batch_size)]
+                # Step 6: prepend the depot to the static customers
+                loc_static = [np.concatenate([np.array([[0.5, 0.5]]), x]) for x in loc_static]
+                #loc_static = list(np.random.uniform(0, 1, size=(batch_size, int(n_static), 2)))
+                # Step 7: Generate the locations of dynamic customers
+                loc_dyna = [np.random.uniform(0, 1, size=(n_dyna[i], 2)) for i in range(batch_size)]
+                #loc_dyna = list(np.random.uniform(0, 1, size=(batch_size, int(n_dyna), 2)))
+                # Step 8: Generate the arrival times for dynamic customers
+                dyna_arrival_times = [np.sort(np.random.uniform(0.1, self.time_horizon, size=(n_dyna[i]))) for i in range(batch_size)]
+                arrival_times = [np.concatenate((np.zeros(n_static[i] + 1), dyna_arrival_times[i])) for i in range(batch_size)] # +1 for the depot
+                #arrival_times = list(np.sort(np.random.uniform(0.1, self.time_horizon, size=(batch_size, int(n_dyna)))))
+                # Step 9: Generate the service times for both sets of customers
+                service_times = list(np.random.lognormal(service_times_mu, service_times_sigma, size=(batch_size, n_total))) 
+                service_times = [np.concatenate((np.zeros(1), x)) for x in service_times] # 
+                all_nodes = [np.concatenate((x, y)) for x, y in zip(loc_static, loc_dyna)]
+
+                self.all_nodes += all_nodes
+                self.arrival_times += arrival_times
+                self.service_times += service_times
+
+        self.size = len(self.all_nodes)
         assert self.size % batch_size == 0, \
             "Number of samples ({}) must be divisible by batch size ({})".format(self.size, batch_size)
 
@@ -88,20 +118,18 @@ class PDTRPDataset(Dataset):
     
     def __getitem__(self, idx):
 
-        nodes = self.static_v[idx]
-        dyna_v = self.dyna_v[idx]
-        arrival_times = self.arrival_times_v[idx]
-        service_times = self.service_times_v[idx]
         all_nodes = self.all_nodes[idx]
+        arrival_times = self.arrival_times[idx]
+        service_times = self.service_times[idx]
 
         # Add groundtruth labels in case of SL         
         item = {
             'all_nodes': torch.FloatTensor(all_nodes),
-            'nodes': torch.FloatTensor(nodes),
-            'new_nodes': torch.FloatTensor(dyna_v),
-            'arrival_times': torch.LongTensor(np.array(arrival_times)),
-            'service_times': torch.FloatTensor(np.array(service_times)),
-            'graph': ~torch.BoolTensor(nearest_neighbor_graph(nodes, self.neighbors, self.knn_strat)),
+            'arrival_times': torch.FloatTensor(arrival_times),
+            'service_times': torch.FloatTensor(service_times),
+            'graph': ~torch.BoolTensor(nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)),
         }
+        if self.filename is not None:
+            item['tour_nodes'] = torch.LongTensor(self.tours[idx])
 
         return item

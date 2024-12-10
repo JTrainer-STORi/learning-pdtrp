@@ -25,7 +25,7 @@ def run_rl(opts) -> None:
     Top Level Function for running RL experiments
     """
 
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True) # un-comment this line for help detecting specific Pytorch autograd errors
 
     # pretty print the run args
     pp.pprint(vars(opts))
@@ -37,7 +37,7 @@ def run_rl(opts) -> None:
     # Optionally configure tensorboard
     tb_logger = None
     if not opts.no_tensorboard:
-        tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_static, opts.max_static, opts.min_dyna, opts.max_dyna), opts.run_name))
+        tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_total, opts.max_total, opts.min_dod, opts.max_dod), opts.run_name))
 
     os.makedirs(opts.save_dir)
     # Save arguments so exact configuration can always be found
@@ -65,8 +65,8 @@ def run_rl(opts) -> None:
     model = DynamicAttentionModel(
         problem=problem,
         embedding_dim=opts.embedding_dim,
-        encoder_class=GNNEncoder,
-        n_encode_layers=opts.n_encode_layers,
+        encoder_class=GNNEncoder, # change this at some point if we only go with this encoder 
+        n_encode_layers=opts.n_encode_layers, 
         aggregation=opts.aggregation,
         aggregation_graph=opts.aggregation_graph,
         normalization=opts.normalization,
@@ -79,7 +79,6 @@ def run_rl(opts) -> None:
         mask_logits=True,
         mask_graph=False,
         checkpoint_encoder=opts.checkpoint_encoder,
-        set_start=opts.set_start,
         edge_features=opts.edge_features,
     ).to(opts.device)
 
@@ -166,7 +165,7 @@ def run_rl(opts) -> None:
         val_datasets.append(
             problem.make_dataset(
                 filename=val_filename, batch_size=opts.batch_size, num_samples=opts.val_size, 
-                neighbors=opts.neighbors, knn_strat=opts.knn_strat, eval=True
+                neighbors=opts.neighbors, knn_strat=opts.knn_strat
             ))
 
     if opts.resume:
@@ -196,5 +195,10 @@ def run_rl(opts) -> None:
         )
 
 if __name__ == "__main__":
+
+    import debugpy
+    debugpy.listen(5678)  # 5678 is port
+    print("Waiting for debugger attach")
+    debugpy.wait_for_client()
 
     run_rl(get_options())

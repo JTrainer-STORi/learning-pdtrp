@@ -11,14 +11,14 @@ def get_options(args=None):
     # Data
     parser.add_argument('--problem', default='pdtsp', 
                         help="The problem to solve, default 'pdtsp'")
-    parser.add_argument('--min_static', type=int, default=20, 
-                        help="The minimum number of static nodes")
-    parser.add_argument('--max_static', type=int, default=50, 
+    parser.add_argument('--min_total', type=int, default=40, 
+                        help="The minimum number of total nodes")
+    parser.add_argument('--max_total', type=int, default=100, 
                         help="The maximum number of static nodes")
-    parser.add_argument('--min_dyna', type=int, default=5,
-                        help='The minimum number of dynamic nodes')
-    parser.add_argument('--max_dyna', type=int, default=15,
-                        help='The maximum number of dynamic nodes')
+    parser.add_argument('--min_dod', type=float, default=0.2,
+                        help='The minimum ratio of dynamic nodes')
+    parser.add_argument('--max_dod', type=float, default=0.8,
+                        help='The maximum ratio of dynamic nodes')
     parser.add_argument('--neighbors', type=float, default=20, 
                         help="The k-nearest neighbors for graph sparsification")
     parser.add_argument('--knn_strat', type=str, default=None, 
@@ -46,6 +46,12 @@ def get_options(args=None):
     #                     help='whether to sample arrival times with replacement')
     parser.add_argument('--route_name', type=str, default=None,
                         help='Name of the route from which to get stop and distance info')
+    parser.add_argument('--time_horizon', type=int, default=480,
+                        help='Time horizon for dynamic node arrivals')
+    parser.add_argument('--stmu', type=float, default=0.8777,
+                        help='mu parameter of lognormal distribution for service times')
+    parser.add_argument('--stsig', type=float, default=0.6647,
+                        help='sigma parameter of lognormal distribution for service times')
     
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 
@@ -100,25 +106,6 @@ def get_options(args=None):
     parser.add_argument('--shrink_size', type=int, default=None,
                         help='Shrink the batch size if at least this many instances in the batch are finished'
                              ' to save memory (default None means no shrinking)')
-    parser.add_argument('--spatial_distribution', type=str, default=None,
-                        help='Spatial Distribution of dynamic nodes: Uniform, unimodal, bimodal')
-    parser.add_argument('--td1', type=str, default=None,
-                        help='Temporal Distribution of dynamic nodes at mode 1: am, pm, equal')
-    parser.add_argument('--td2', type=str, default=None,
-                        help='Temporal Distribution of dynamic nodes at mode 2 (if it exists): am, pm, equal')
-    parser.add_argument('--mean1', type=float, default=None, nargs=2,
-                        help='Mean of the first normal distribution')
-    parser.add_argument('--mean2', type=float, default=None, nargs=2,
-                        help='Mean of the second normal distribution')
-    parser.add_argument('--cov1', type=float, default=None, nargs=4,
-                        help='Covariance matrix of the first normal distribution, give entries in row-major order')
-    parser.add_argument('--cov2', type=float, default=None, nargs=4,
-                        help='Covariance matrix of the second normal distribution, give entries in row-major order')
-    parser.add_argument('--proportion', type=float, default=None,
-                        help='Proportion of points in the first normal distribution')
-    parser.add_argument('--allow_multiple_arrivals', type=bool, default=False, help='Allow multiple dynamic nodes to arrive at the same time')
-    parser.add_argument('--eval_only', action='store_true', 
-                        help='Set this value to only evaluate model')
     parser.add_argument('--seed', type=int, default=1234, help='Random seed to use')
     parser.add_argument('--profiler', type=bool, default=False,
                         help="whether to run pytorch profiler on this run or not")
@@ -157,7 +144,7 @@ def get_options(args=None):
     opts.run_name = "{}_{}".format(opts.run_name, time.strftime("%Y%m%dT%H%M%S"))
     opts.save_dir = os.path.join(
         opts.output_dir,
-        "{}_{}-{}-{}-{}".format(opts.problem, opts.min_static, opts.max_static, opts.min_dyna, opts.max_dyna),
+        "{}_{}-{}-{}-{}".format(opts.problem, opts.min_total, opts.max_total, opts.min_dod, opts.max_dod),
         opts.run_name
     )
     if opts.bl_warmup_epochs is None:
