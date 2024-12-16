@@ -38,7 +38,7 @@ class PDTRP(object):
         return StatePDTRP.initialize(*args, **kwargs)
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, seed_dataset=None):
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total
@@ -73,6 +73,9 @@ class PDTRPDataset(Dataset):
                 self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]][:-1])
 
         else:
+
+            seed_coords = np.load(seed_dataset)
+
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
                 n_total = np.random.randint(self.min_total, self.max_total, dtype=int)
@@ -88,14 +91,10 @@ class PDTRPDataset(Dataset):
                 n_dyna = n_dyna.astype(int)
                 # Step 4: Determine the number of static customers for each instance in the batch
                 n_static = n_total - n_dyna
-                # Step 5: Generate the locations of static customers
-                loc_static = [np.random.uniform(0, 1, size=(n_static[i], 2)) for i in range(batch_size)]
-                # Step 6: prepend the depot to the static customers
-                loc_static = [np.concatenate([np.array([[0.5, 0.5]]), x]) for x in loc_static]
-                #loc_static = list(np.random.uniform(0, 1, size=(batch_size, int(n_static), 2)))
-                # Step 7: Generate the locations of dynamic customers
-                loc_dyna = [np.random.uniform(0, 1, size=(n_dyna[i], 2)) for i in range(batch_size)]
-                #loc_dyna = list(np.random.uniform(0, 1, size=(batch_size, int(n_dyna), 2)))
+                # step 5: Select n_total coordinates from the seed dataset for each instance in the batch, the first n_static are static and the rest are dynamic
+                all_nodes = [seed_coords[np.random.choice(seed_coords.shape[0], n_total, replace=False)] for _ in range(batch_size)]
+                # Step 6: Prepend the depot to the customers
+                all_nodes = [np.concatenate([np.array([[0.5, 0.5]]), x]) for x in all_nodes]
                 # Step 8: Generate the arrival times for dynamic customers
                 dyna_arrival_times = [np.sort(np.random.uniform(0.1, self.time_horizon, size=(n_dyna[i]))) for i in range(batch_size)]
                 arrival_times = [np.concatenate((np.zeros(n_static[i] + 1), dyna_arrival_times[i])) for i in range(batch_size)] # +1 for the depot
@@ -103,7 +102,6 @@ class PDTRPDataset(Dataset):
                 # Step 9: Generate the service times for both sets of customers
                 service_times = list(np.random.lognormal(service_times_mu, service_times_sigma, size=(batch_size, n_total))) 
                 service_times = [np.concatenate((np.zeros(1), x)) for x in service_times] # 
-                all_nodes = [np.concatenate((x, y)) for x, y in zip(loc_static, loc_dyna)]
 
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times

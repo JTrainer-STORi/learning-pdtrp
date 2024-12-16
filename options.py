@@ -52,6 +52,8 @@ def get_options(args=None):
                         help='mu parameter of lognormal distribution for service times')
     parser.add_argument('--stsig', type=float, default=0.6647,
                         help='sigma parameter of lognormal distribution for service times')
+    parser.add_argument('--seed_dataset', type = str, default = None,
+                        help = 'Seed dataset to use when generating instances')
     
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 

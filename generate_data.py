@@ -58,7 +58,7 @@ for i in tqdm(range(N_SAMPLES), ascii=True):
 
         distances_to_current[mask[:,0,:]] = float('inf')
 
-        selected = torch.argmin(distances_to_current, dim=1).unsqueeze(1)
+        selected = torch.argmin(distances_to_current, dim=1)
 
         state = state.update(selected)
         tour.append(selected.item())

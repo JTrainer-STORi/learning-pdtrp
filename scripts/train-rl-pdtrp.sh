@@ -14,8 +14,10 @@ MAX_DOD=0.8
 NEIGHBORS=0.2
 KNN_STRAT="percentage"
 
-VAL_DATASET1="data/pdtrp/pdtrp40edod.5RR.txt"
-VAL_DATASET2="data/pdtrp/pdtrp100edod.5RR.txt"
+SEED_DATASET="solomon_datasets/seed_datasets/pdtrp/RC101.npy"
+
+VAL_DATASET1="data/pdtrp/valsetRC146040.5.txt"
+VAL_DATASET2="data/pdtrp/valsetRC1460100.5.txt"
 # VAL_DATASET3="data/tsp/tsp100_test_concorde.txt"
 
 N_EPOCHS=100
@@ -60,4 +62,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --num_workers "$NUM_WORKERS" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" --set_start "$SET_START" \
-    --edge_features "$EDGE_FEATURES"
+    --edge_features "$EDGE_FEATURES" --seed_dataset "$SEED_DATASET"

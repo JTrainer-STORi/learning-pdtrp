@@ -157,7 +157,7 @@ class RolloutBaseline(Baseline):
         # Always generate baseline dataset when updating model to prevent overfitting to the baseline dataset
         self.dataset = self.problem.make_dataset(
             min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, batch_size=self.opts.batch_size, 
-            num_samples=self.opts.epoch_size, time_horizon=self.opts.time_horizon, service_times_mu = self.opts.stmu, service_times_sigma = self.opts.stsig, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat
+            num_samples=self.opts.epoch_size, time_horizon=self.opts.time_horizon, service_times_mu = self.opts.stmu, service_times_sigma = self.opts.stsig, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat, seed_dataset=self.opts.seed_dataset
         )
         
         print("\nEvaluating Rollout baseline model on evaluation dataset")

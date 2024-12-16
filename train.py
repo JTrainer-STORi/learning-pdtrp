@@ -95,7 +95,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
             min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, batch_size=opts.batch_size, 
-            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mu = opts.stmu, service_times_sigma = opts.stsig, neighbors=opts.neighbors, knn_strat=opts.knn_strat
+            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mu = opts.stmu, service_times_sigma = opts.stsig, neighbors=opts.neighbors, knn_strat=opts.knn_strat, seed_dataset=opts.seed_dataset
         ))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
