@@ -77,7 +77,7 @@ def rollout(model, dataset, opts):
 
 def rollout_groundtruth(problem, dataset, opts):
     return torch.cat([
-        problem.get_costs({'loc': bat['all_nodes'], 'demand': bat['demand']}, move_to(bat['tour_nodes'], opts.device))[0]
+        problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
         for bat in DataLoader(
             dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
     ], 0)
