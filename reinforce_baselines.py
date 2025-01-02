@@ -14,7 +14,7 @@ class Baseline(object):
     def unwrap_batch(self, batch):
         return batch, None
 
-    def eval(self, x, graph, c):
+    def eval(self, input, c):
         raise NotImplementedError("Override this method")
 
     def get_learnable_parameters(self):
@@ -51,14 +51,14 @@ class WarmupBaseline(Baseline):
             return self.baseline.unwrap_batch(batch)
         return self.warmup_baseline.unwrap_batch(batch)
 
-    def eval(self, all_nodes, graph, arrival_times, service_times, c):
+    def eval(self, input, c):
 
         if self.alpha == 1:
-            return self.baseline.eval(all_nodes, graph, arrival_times, service_times, c)
+            return self.baseline.eval(input, c)
         if self.alpha == 0:
-            return self.warmup_baseline.eval(all_nodes, graph, c)
-        v, l = self.baseline.eval(all_nodes, graph, arrival_times, service_times, c)
-        vw, lw = self.warmup_baseline.eval(all_nodes, graph, c)
+            return self.warmup_baseline.eval(input, c)
+        v, l = self.baseline.eval(input, c)
+        vw, lw = self.warmup_baseline.eval(input, c)
         # Return convex combination of baseline and of loss
         return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (1 - self.alpha * lw)
 
@@ -80,7 +80,7 @@ class WarmupBaseline(Baseline):
 
 class NoBaseline(Baseline):
 
-    def eval(self, x, graph, c):
+    def eval(self, input, c):
         return 0, 0  # No baseline, no loss
 
 
@@ -92,7 +92,7 @@ class ExponentialBaseline(Baseline):
         self.beta = beta
         self.v = None
 
-    def eval(self, x, graph, c):
+    def eval(self, input, c):
         
         if self.v is None:
             v = c.mean()
@@ -174,10 +174,10 @@ class RolloutBaseline(Baseline):
     def unwrap_batch(self, batch):
         return batch['data'], batch['baseline'].view(-1)  # Flatten result to undo wrapping as 2D
 
-    def eval(self, all_nodes, graph, arrival_times, service_times, c):
+    def eval(self, input, c):
         # Use volatile mode for efficient inference (single batch so we do not use rollout function)
         with torch.no_grad():
-            v, _ = self.model(all_nodes, graph, arrival_times, service_times)
+            v, _ = self.model(input)
         # There is no loss
         return v, 0
 

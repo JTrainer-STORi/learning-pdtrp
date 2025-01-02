@@ -34,7 +34,11 @@ class StatePDTRP(NamedTuple):
         )
     
     @staticmethod
-    def initialize(loc, service_times, arrival_times):
+    def initialize(input):
+
+        loc = input['loc']
+        service_times = input['service_times']
+        arrival_times = input['arrival_times']
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
@@ -87,11 +91,8 @@ class StatePDTRP(NamedTuple):
     def get_current_node(self):
         return self.prev_a
     
-    def get_visited(self):
-        return self.visited_
-    
-    def get_not_arrived(self):
-        return self.not_arrived_
+    def get_mask(self):
+        return torch.logical_or(self.visited_, self.not_arrived_)
     
     def get_graph_mask(self):
         batch_size, n_loc, _ = self.loc.size()

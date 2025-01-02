@@ -14,8 +14,10 @@ class PDTRP(object):
 
     NAME = "pdtrp"
 
-    def get_costs(all_nodes, pi):
+    def get_costs(input, pi):
         """Returns PDTRP tour length for a given set of nodes and a tour"""
+
+        all_nodes = input['loc']
 
         # Check that tours are valid, i.e. contain all nodes and each node exactly once
         assert (
@@ -78,7 +80,7 @@ class PDTRPDataset(Dataset):
 
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
-                n_total = np.random.randint(self.min_total, self.max_total, dtype=int)
+                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int)
                 # Step 2: Generate the expected number of static customers for each instance in the batch
                 lower_bound = np.floor((1-self.max_dod)*n_total)
                 upper_bound = np.ceil((1-self.min_dod)*n_total)

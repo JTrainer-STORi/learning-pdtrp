@@ -111,6 +111,8 @@ class DynamicAttentionModel(nn.Module):
         self.mask_inner = mask_inner
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
+        self.is_pdcvrp = problem.NAME == 'pdcvrp'
+        self.is_pdtrp = problem.NAME == 'pdtrp'
 
         self.decode_type = None
         self.temp = 1.0
@@ -118,6 +120,13 @@ class DynamicAttentionModel(nn.Module):
         step_context_dim = embedding_dim
         node_dim = 2
         edge_dim = 1
+
+        if self.is_pdcvrp:
+            node_dim = 3 # x, y, demand
+            step_context_dim = embedding_dim + 1 # embedding dim + remaining capacity
+
+        # Special embedding projection for the depot node
+        self.init_embed_depot = nn.Linear(2, embedding_dim)
 
         # Node Embedding Layer
         self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)
@@ -148,7 +157,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, all_nodes, graph, arrival_times, service_times, return_pi=False):
+    def forward(self, input, return_pi=False):
         """
             Args:
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
@@ -156,11 +165,15 @@ class DynamicAttentionModel(nn.Module):
                 arrival_times: Arrival times of the nodes (batch_size, n_arrivals) dtype: torch.int64
         """
 
-        log_p, pi = self._inner(all_nodes, graph, arrival_times, service_times)
+        edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
+
+        embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
+
+        log_p, pi = self._inner(input, embeddings)
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
-        cost, mask = self.problem.get_costs(all_nodes, move_to(pi_w_depot, device=all_nodes.device))
+        cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device))
 
         ll = self._calc_log_likelihood(log_p, mask)
 
@@ -180,24 +193,19 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, nodes, graph, arrival_times, service_times):
+    def _inner(self, input, embeddings):
         # create lists to track the log probabilities and the selected nodes
         outputs = []
         sequences = []
 
-        edge_features = graph.long() # Come back to this later and give option to supply edge lengths as edge features
-
         # create the problem state for tracking which nodes are masked
-        state = self.problem.make_state(nodes, service_times, arrival_times)
+        state = self.problem.make_state(input)
 
-        fixed = self._precompute(self.embedder(self.node_embed(nodes), self.edge_embed(edge_features), graph))
+        fixed = self._precompute(embeddings)
 
         while not state.all_finished():
 
-            visited_mask = state.get_visited()
-            arrival_mask = state.get_not_arrived()
-
-            mask = torch.logical_or(visited_mask, arrival_mask)
+            mask = state.get_mask()
 
             # get log probabilities of next action
             log_p, mask = self._get_log_p(fixed, state, mask)
@@ -299,6 +307,20 @@ class DynamicAttentionModel(nn.Module):
         """
         current_node = state.get_current_node()
         batch_size, num_steps = current_node.size()
+
+        if self.is_pdcvrp:
+            return torch.cat(
+                (
+                    torch.gather(
+                        embeddings,
+                        1,
+                        current_node.contiguous().view(batch_size, num_steps, 1)
+                        .expand(batch_size, num_steps, embeddings.size(-1))
+                    ).view(batch_size, num_steps, embeddings.size(-1)),
+                    self.problem.VEHICLE_CAPACITY - state.used_cap[:, :, None]
+                ),
+                -1
+            )
     
         return torch.gather(
                     embeddings,
@@ -349,6 +371,24 @@ class DynamicAttentionModel(nn.Module):
     def _get_attention_node_data(self, fixed):
 
         return fixed.glimpse_key, fixed.glimpse_val, fixed.logit_key
+    
+    def _init_embed(self, input):
+        if self.is_pdcvrp:
+            return torch.cat(
+            (
+                self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
+                self.node_embed(torch.cat((input['loc'][:, 1:, :], input['demand'][:, 1:, None]), -1))
+            ),
+            1
+            )
+        if self.is_pdtrp:
+            return torch.cat(
+            (
+                self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
+                self.node_embed(input['loc'][:, 1:, :])
+            ),
+            1
+            )
 
     def _make_heads(self, v, num_steps=None):
         assert num_steps is None or v.size(1) == 1 or v.size(1) == num_steps

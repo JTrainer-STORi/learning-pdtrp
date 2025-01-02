@@ -47,8 +47,23 @@ def rollout(model, dataset, opts):
     set_decode_type(model, "greedy")
     model.eval()
     def eval_model_bat(bat):
+        if opts.problem == 'pdtrp':
+            input = {
+                'loc': move_to(bat['all_nodes'], opts.device),
+                'service_times': move_to(bat['service_times'], opts.device),
+                'arrival_times': move_to(bat['arrival_times'], opts.device),
+                'graph': move_to(bat['graph'], opts.device)
+            }
+        elif opts.problem == 'pdcvrp':
+            input = {
+                'loc': move_to(bat['all_nodes'], opts.device),
+                'service_times': move_to(bat['service_times'], opts.device),
+                'arrival_times': move_to(bat['arrival_times'], opts.device),
+                'demand': move_to(bat['demand'], opts.device),
+                'graph': move_to(bat['graph'], opts.device)
+            }
         with torch.no_grad():
-            cost, _ = model(move_to(bat['all_nodes'], opts.device), move_to(bat['graph'], opts.device), move_to(bat['arrival_times'], opts.device), move_to(bat['service_times'], opts.device))
+            cost, _ = model(input)
         return cost
     
     return torch.cat([
@@ -62,7 +77,7 @@ def rollout(model, dataset, opts):
 
 def rollout_groundtruth(problem, dataset, opts):
     return torch.cat([
-        problem.get_costs(move_to(bat['all_nodes'], opts.device), move_to(bat['tour_nodes'], opts.device))[0]
+        problem.get_costs({'loc': bat['all_nodes'], 'demand': bat['demand']}, move_to(bat['tour_nodes'], opts.device))[0]
         for bat in DataLoader(
             dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
     ], 0)
@@ -176,19 +191,31 @@ def train_batch(model, optimizer, baseline, epoch,
                 batch_id, step, batch, tb_logger, opts):
     # Unwrap baseline
     bat, bl_val = baseline.unwrap_batch(batch)
+
+    if opts.problem == 'pdtrp':
+        input = {
+            'loc': move_to(bat['all_nodes'], opts.device),
+            'service_times': move_to(bat['service_times'], opts.device),
+            'arrival_times': move_to(bat['arrival_times'], opts.device),
+            'graph': move_to(bat['graph'], opts.device)
+        }
+    elif opts.problem == 'pdcvrp':
+        input = {
+            'loc': move_to(bat['all_nodes'], opts.device),
+            'service_times': move_to(bat['service_times'], opts.device),
+            'arrival_times': move_to(bat['arrival_times'], opts.device),
+            'demand': move_to(bat['demand'], opts.device),
+            'graph': move_to(bat['graph'], opts.device)
+        }
     
     # Optionally move Tensors to GPU
-    all_nodes = move_to(bat['all_nodes'], opts.device)
-    graph = move_to(bat['graph'], opts.device)
     bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
-    arrival_times = move_to(bat['arrival_times'], opts.device)
-    service_times = move_to(bat['service_times'], opts.device)
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood = model(all_nodes, graph, arrival_times, service_times)
+    cost, log_likelihood = model(input)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
-    bl_val, bl_loss = baseline.eval(all_nodes, graph, arrival_times, service_times, cost) if bl_val is None else (bl_val, 0)
+    bl_val, bl_loss = baseline.eval(input, cost) if bl_val is None else (bl_val, 0)
 
     # Calculate loss
     reinforce_loss = ((cost - bl_val) * log_likelihood).mean()
