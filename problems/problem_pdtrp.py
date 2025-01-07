@@ -28,7 +28,7 @@ class PDTRP(object):
         # gather dataset in order of tour
         d = all_nodes.gather(1, pi.unsqueeze(-1).expand_as(all_nodes))
 
-        # length is distance (l2-norm of difference) from eahc node location from its prev and of last to first
+        # length is distance (l2-norm of difference) from each node location from its prev and of last to first
         return (d[:, 1:] - d[:, :-1]).norm(p=2, dim=2).sum(1) + (d[:, 0] - d[:, -1]).norm(p=2, dim=1), None
 
     @staticmethod

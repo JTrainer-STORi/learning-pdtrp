@@ -54,6 +54,12 @@ def get_options(args=None):
                         help='sigma parameter of lognormal distribution for service times')
     parser.add_argument('--seed_dataset', type = str, default = None,
                         help = 'Seed dataset to use when generating instances')
+    parser.add_argument('--L', type=float, default=0.125,
+                        help = 'Maximum time any customer can be serviced after the time horizon')
+    parser.add_argument('--gamma', type=float, default=1, 
+                        help='weighting for missed time windows in costs for problems with time windows')
+    parser.add_argument('--theta', type=float, default=1,
+                        help='weighting for distance in costs for problems with time windows')
     
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 

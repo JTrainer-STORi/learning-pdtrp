@@ -62,6 +62,16 @@ def rollout(model, dataset, opts):
                 'demand': move_to(bat['demand'], opts.device),
                 'graph': move_to(bat['graph'], opts.device)
             }
+        elif opts.problem == 'pdtrptw':
+            input = {
+                'loc': move_to(bat['all_nodes'], opts.device),
+                'service_times': move_to(bat['service_times'], opts.device),
+                'arrival_times': move_to(bat['arrival_times'], opts.device),
+                'graph': move_to(bat['graph'], opts.device),
+                'window_starts': move_to(bat['window_starts'], opts.device),
+                'window_ends': move_to(bat['window_ends'], opts.device),
+                'graph': move_to(bat['graph'], opts.device)
+            }
         with torch.no_grad():
             cost, _ = model(input)
         return cost
@@ -76,11 +86,24 @@ def rollout(model, dataset, opts):
 
 
 def rollout_groundtruth(problem, dataset, opts):
-    return torch.cat([
-        problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
-        for bat in DataLoader(
-            dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
-    ], 0)
+    if opts.problem == 'pdcvrp':
+        return torch.cat([
+            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
+            for bat in DataLoader(
+                dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
+        ], 0)
+    elif opts.problem == 'pdtrp':
+        return torch.cat([
+            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
+            for bat in DataLoader(
+                dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
+        ], 0)
+    elif opts.problem == 'pdtrptw':
+        return torch.cat([
+            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
+            for bat in DataLoader(
+                dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
+        ], 0)
 
 
 def clip_grad_norms(param_groups, max_norm=math.inf):
@@ -205,6 +228,16 @@ def train_batch(model, optimizer, baseline, epoch,
             'service_times': move_to(bat['service_times'], opts.device),
             'arrival_times': move_to(bat['arrival_times'], opts.device),
             'demand': move_to(bat['demand'], opts.device),
+            'graph': move_to(bat['graph'], opts.device)
+        }
+    elif opts.problem == 'pdtrptw':
+        input = {
+            'loc': move_to(bat['all_nodes'], opts.device),
+            'service_times': move_to(bat['service_times'], opts.device),
+            'arrival_times': move_to(bat['arrival_times'], opts.device),
+            'graph': move_to(bat['graph'], opts.device),
+            'window_starts': move_to(bat['window_starts'], opts.device),
+            'window_ends': move_to(bat['window_ends'], opts.device),
             'graph': move_to(bat['graph'], opts.device)
         }
     
