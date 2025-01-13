@@ -12,13 +12,14 @@ import torch.nn.functional as F
 
 
 def load_problem(name):
-    from problems import PDTSP, PDTSPReal, PDTRP, PDCVRP, PDTRPTW
+    from problems import PDTSP, PDTSPReal, PDTRP, PDCVRP, PDTRPTW, PDCVRPTW
     problem = {
         'pdtsp': PDTSP,
         'pdtsp-rd': PDTSPReal,
         'pdtrp': PDTRP,
         'pdcvrp': PDCVRP,
-        'pdtrptw': PDTRPTW
+        'pdtrptw': PDTRPTW,
+        'pdcvrptw': PDCVRPTW
     }.get(name, None)
     assert problem is not None, "Currently unsupported problem: {}!".format(name)
     return problem

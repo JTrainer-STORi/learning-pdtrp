@@ -114,6 +114,7 @@ class DynamicAttentionModel(nn.Module):
         self.is_pdcvrp = problem.NAME == 'pdcvrp'
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
+        self.is_pdcvrptw = problem.NAME == 'pdcvrptw'
 
         self.decode_type = None
         self.temp = 1.0
@@ -128,6 +129,9 @@ class DynamicAttentionModel(nn.Module):
         if self.is_pdtrptw:
             node_dim = 4 # x,y, window_start, window_end
             step_context_dim = embedding_dim + 1 # embedding dim + current time
+        if self.is_pdcvrptw:
+            node_dim = 5 # x,y, window_start, window_end, demand
+            step_context_dim = embedding_dim + 2 # embedding dim + current time + remaining capacity
 
         # Special embedding projection for the depot node
         self.init_embed_depot = nn.Linear(2, embedding_dim)
@@ -173,7 +177,7 @@ class DynamicAttentionModel(nn.Module):
 
         embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
-        if self.is_pdtrptw:
+        if self.is_pdtrptw or self.is_pdcvrptw:
             log_p, pi, visit_times = self._inner(input, embeddings)
             input['visit_times'] = visit_times
         else:
@@ -232,7 +236,7 @@ class DynamicAttentionModel(nn.Module):
         all_sequences = torch.stack(sequences, 1)
         all_outputs = torch.stack(outputs, 1).gather(2, all_sequences.unsqueeze(2)).squeeze(-1)
 
-        if self.is_pdtrptw:
+        if self.is_pdtrptw or self.is_pdcvrptw:
             return all_outputs, all_sequences, state.visit_times
         else:
             return all_outputs, all_sequences
@@ -346,6 +350,21 @@ class DynamicAttentionModel(nn.Module):
                 ),
                 -1
             )
+        
+        if self.is_pdcvrptw:
+            return torch.cat(
+                (
+                    torch.gather(
+                        embeddings,
+                        1,
+                        current_node.contiguous().view(batch_size, num_steps, 1)
+                        .expand(batch_size, num_steps, embeddings.size(-1))
+                    ).view(batch_size, num_steps, embeddings.size(-1)),
+                    state.cur_times[:,:,None],
+                    self.problem.VEHICLE_CAPACITY - state.used_cap[:, :, None]
+                ),
+                -1
+            )
     
         return torch.gather(
                     embeddings,
@@ -419,6 +438,14 @@ class DynamicAttentionModel(nn.Module):
             (
                 self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
                 self.node_embed(torch.cat((input['loc'][:, 1:, :], input['window_starts'][:, 1:, None], input['window_ends'][:, 1:, None]), -1))
+            ),
+            1
+            )
+        if self.is_pdcvrptw:
+            return torch.cat(
+            (
+                self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
+                self.node_embed(torch.cat((input['loc'][:, 1:, :], input['window_starts'][:, 1:, None], input['window_ends'][:, 1:, None], input['demand'][:, 1:, None]), -1))
             ),
             1
             )

@@ -36,11 +36,11 @@ class PDCVRP(object):
             ),
             1
         )
-        d = demand_with_depot.gather(1, pi)
+        dem = demand_with_depot.gather(1, pi)
 
         used_cap = torch.zeros_like(dataset['demand'][:, 0])
         for i in range(pi.size(1)):
-            used_cap += d[:, i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
+            used_cap += dem[:, i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
             # Cannot use less than 0
             used_cap[used_cap < 0] = 0
             assert (used_cap <= PDCVRP.VEHICLE_CAPACITY + 1e-5).all(), "Used more than capacity"
