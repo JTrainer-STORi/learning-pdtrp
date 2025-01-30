@@ -9,8 +9,8 @@ def get_options(args=None):
         description="Arguments and hyperparameters for training learning-driven solvers for TSP")
 
     # Data
-    parser.add_argument('--problem', default='pdtsp', 
-                        help="The problem to solve, default 'pdtsp'")
+    parser.add_argument('--problem', default='pdtrp', 
+                        help="The problem to solve, 'pdtrp', 'pdtrp-tw', 'pdcvrp' or 'pdcvrp-tw'")
     parser.add_argument('--min_total', type=int, default=40, 
                         help="The minimum number of total nodes")
     parser.add_argument('--max_total', type=int, default=100, 

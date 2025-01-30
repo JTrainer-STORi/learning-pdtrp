@@ -3,9 +3,10 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-from problems.state_pdtrp import StatePDTRP
+from problems.pdtrp.state_pdtrp import StatePDTRP
 
-from problems.problem_pdtsp import nearest_neighbor_graph
+from problems.utils import nearest_neighbor_graph
+from problems.location_generation import subregion_generation
 
 class PDTRP(object):
     """
@@ -40,16 +41,20 @@ class PDTRP(object):
         return StatePDTRP.initialize(*args, **kwargs)
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, seed_dataset=None):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0):
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total
         self.min_dod = min_dod
         self.max_dod = max_dod
         self.batch_size = batch_size
-        self.time_horizon = time_horizon
-        self.service_times_mu = service_times_mu
-        self.service_times_sigma = service_times_sigma
+        #self.time_horizon = time_horizon
+        #self.service_times_mu = service_times_mu
+        #self.service_times_sigma = service_times_sigma
+        self.time_horizon = 1
+        self.service_times_mu = -5.09
+        self.service_times_sigma = np.sqrt(1.33)
+        self.vehicle_speed = 32 # corresponds to 1000 units moved within the time horizon
         self.neighbors = neighbors
         self.knn_strat = knn_strat
         self.offset = offset
@@ -76,34 +81,32 @@ class PDTRPDataset(Dataset):
 
         else:
 
-            seed_coords = np.load(seed_dataset)
-
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
-                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int)
-                # Step 2: Generate the expected number of static customers for each instance in the batch
-                lower_bound = np.floor((1-self.max_dod)*n_total)
-                upper_bound = np.ceil((1-self.min_dod)*n_total)
-                exp_n_static = np.random.randint(lower_bound, upper_bound)
-                # Step 3: Sample the number of dynamic customers for each instance in the batch from a poisson distribution
-                p_lambda = (n_total - exp_n_static) / time_horizon
-                n_dyna = np.random.poisson(p_lambda * time_horizon, batch_size)
-                # n_dyna = np.random.poisson(p_lambda * time_horizon)
-                n_dyna = np.clip(n_dyna, a_min=lower_bound, a_max=upper_bound)
-                n_dyna = n_dyna.astype(int)
-                # Step 4: Determine the number of static customers for each instance in the batch
-                n_static = n_total - n_dyna
-                # step 5: Select n_total coordinates from the seed dataset for each instance in the batch, the first n_static are static and the rest are dynamic
-                all_nodes = [seed_coords[np.random.choice(seed_coords.shape[0], n_total, replace=False)] for _ in range(batch_size)]
-                # Step 6: Prepend the depot to the customers
+                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1 # -1 to account for the depot
+                # Step 2: Generate the locations of the customers
+                all_nodes = [subregion_generation(n_total=n_total) for _ in range(batch_size)]
+                # step 3: Generate customer arrival times
+                arrival_times = [np.round(np.random.uniform(0.1, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)]
+                # step 4: Generate customer service times
+                service_times = list(np.round(np.random.lognormal(self.service_times_mu, self.service_times_sigma, size=(batch_size, n_total)), decimals=3))
+                # step 5: sample the number of advanced request customers for each instance in the batch
+                n_adv = np.random.randint(int(self.min_dod * n_total), int(self.max_dod * n_total), size=(batch_size))
+                # step 6: Sample indices of advanced request customers for each instance in the batch
+                adv_indices = [np.random.choice(n_total, n_adv[i], replace=False) for i in range(batch_size)]
+                # step 7: set the arrival times of the advanced request customers to be 0
+                for i in range(batch_size):
+                    arrival_times[i][adv_indices[i]] = 0
+                # step 8: sort the customers by arrival time
+                for i in range(batch_size):
+                    idx = np.argsort(arrival_times[i])
+                    all_nodes[i] = all_nodes[i][idx]
+                    arrival_times[i] = arrival_times[i][idx]
+                    service_times[i] = service_times[i][idx]
+                # step 9: Prepend the depot to the customers
                 all_nodes = [np.concatenate([np.array([[0.5, 0.5]]), x]) for x in all_nodes]
-                # Step 8: Generate the arrival times for dynamic customers
-                dyna_arrival_times = [np.sort(np.random.uniform(0.1, self.time_horizon, size=(n_dyna[i]))) for i in range(batch_size)]
-                arrival_times = [np.concatenate((np.zeros(n_static[i] + 1), dyna_arrival_times[i])) for i in range(batch_size)] # +1 for the depot
-                #arrival_times = list(np.sort(np.random.uniform(0.1, self.time_horizon, size=(batch_size, int(n_dyna)))))
-                # Step 9: Generate the service times for both sets of customers
-                service_times = list(np.random.lognormal(service_times_mu, service_times_sigma, size=(batch_size, n_total))) 
-                service_times = [np.concatenate((np.zeros(1), x)) for x in service_times] # 
+                arrival_times = [np.concatenate((np.zeros(1), x)) for x in arrival_times]
+                service_times = [np.concatenate((np.zeros(1), x)) for x in service_times]
 
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times

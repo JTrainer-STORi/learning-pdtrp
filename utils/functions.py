@@ -12,10 +12,8 @@ import torch.nn.functional as F
 
 
 def load_problem(name):
-    from problems import PDTSP, PDTSPReal, PDTRP, PDCVRP, PDTRPTW, PDCVRPTW
+    from problems import PDTRP, PDCVRP, PDTRPTW, PDCVRPTW
     problem = {
-        'pdtsp': PDTSP,
-        'pdtsp-rd': PDTSPReal,
         'pdtrp': PDTRP,
         'pdcvrp': PDCVRP,
         'pdtrptw': PDTRPTW,
