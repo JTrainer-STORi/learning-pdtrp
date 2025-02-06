@@ -164,7 +164,7 @@ def run_rl(opts) -> None:
     for val_filename in opts.val_datasets:
         val_datasets.append(
             problem.make_dataset(
-                filename=val_filename, batch_size=opts.batch_size, num_samples=opts.val_size, 
+                filename=val_filename, batch_size=opts.val_batch_size, num_samples=opts.val_size, 
                 neighbors=opts.neighbors, knn_strat=opts.knn_strat
             ))
 

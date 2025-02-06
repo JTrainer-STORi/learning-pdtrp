@@ -36,6 +36,8 @@ def get_options(args=None):
                         help='Dataset file to use for training (SL only)')
     parser.add_argument('--val_datasets', type=str, nargs='+', default=None, 
                         help='Dataset files to use for validation')
+    parser.add_argument('--val_batch_size', type=int, default=128,
+                        help='Number of instances per batch during validation')
     parser.add_argument('--val_size', type=int, default=1000, 
                         help='Number of instances used for reporting validation performance')
     parser.add_argument('--rollout_size', type=int, default=10000, 
