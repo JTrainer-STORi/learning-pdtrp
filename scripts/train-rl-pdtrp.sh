@@ -14,10 +14,8 @@ MAX_DOD=0.8
 NEIGHBORS=0.2
 KNN_STRAT="percentage"
 
-SEED_DATASET="solomon_datasets/seed_datasets/pdtrp/RC101.npy"
-
-VAL_DATASET1="data/pdtrp/valsetRC146040.5.txt"
-VAL_DATASET2="data/pdtrp/valsetRC1460100.5.txt"
+VAL_DATASET1="data/pdtrp/validation_data_PDTRP.txt"
+# VAL_DATASET2="data/pdtrp/valsetRC1460100.5.txt"
 # VAL_DATASET3="data/tsp/tsp100_test_concorde.txt"
 
 N_EPOCHS=100
@@ -49,7 +47,7 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --min_total "$MIN_TOTAL" --max_total "$MAX_TOTAL" \
     --min_dod "$MIN_DOD" --max_dod "$MAX_DOD" \
     --neighbors "$NEIGHBORS" --knn_strat "$KNN_STRAT" \
-    --val_datasets "$VAL_DATASET1" "$VAL_DATASET2" \
+    --val_datasets "$VAL_DATASET1" \
     --epoch_size "$EPOCH_SIZE" \
     --batch_size "$BATCH_SIZE" --accumulation_steps "$ACCUMULATION_STEPS" \
     --n_epochs "$N_EPOCHS" \
@@ -62,4 +60,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --num_workers "$NUM_WORKERS" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" --set_start "$SET_START" \
-    --edge_features "$EDGE_FEATURES" --seed_dataset "$SEED_DATASET"
+    --edge_features "$EDGE_FEATURES"

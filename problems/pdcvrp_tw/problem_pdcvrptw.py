@@ -73,8 +73,6 @@ class PDCVRPTW(object):
  
         time_differences = torch.maximum(visit_times_wo_depots - window_ends_ordered, torch.tensor([0]))
 
-        print(time_differences)
-
         overall_difference = torch.sum(time_differences)
 
         return theta * distance + gamma * overall_difference, None
@@ -155,7 +153,7 @@ class PDCVRPTWDataset(Dataset):
                 # Step 2: Generate the locations of the customers
                 all_nodes = [subregion_generation(n_total=n_total) for _ in range(batch_size)]
                 # step 3: Generate customer arrival times
-                arrival_times = [np.round(np.random.uniform(0.1, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)]
+                arrival_times = [np.round(np.random.uniform(0.001, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)]
                 # step 4: Generate customer service times
                 service_times = list(np.round(np.random.lognormal(self.service_times_mu, self.service_times_sigma, size=(batch_size, n_total)), decimals=3))
                 # step 5: sample the number of advanced request customers for each instance in the batch

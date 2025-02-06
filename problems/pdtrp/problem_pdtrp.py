@@ -21,6 +21,7 @@ class PDTRP(object):
         all_nodes = input['loc']
 
         # Check that tours are valid, i.e. contain all nodes and each node exactly once
+        sorted_pi = pi.data.sort(1)[0]
         assert (
             torch.arange(pi.size(1), out=pi.data.new()).view(1, -1).expand_as(pi) ==
             pi.data.sort(1)[0]
@@ -77,7 +78,7 @@ class PDTRPDataset(Dataset):
                 )
                 self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('output')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]][:-1])
+                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]])
 
         else:
 
@@ -87,7 +88,7 @@ class PDTRPDataset(Dataset):
                 # Step 2: Generate the locations of the customers
                 all_nodes = [subregion_generation(n_total=n_total) for _ in range(batch_size)]
                 # step 3: Generate customer arrival times
-                arrival_times = [np.round(np.random.uniform(0.1, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)]
+                arrival_times = [np.round(np.random.uniform(0.001, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)]
                 # step 4: Generate customer service times
                 service_times = list(np.round(np.random.lognormal(self.service_times_mu, self.service_times_sigma, size=(batch_size, n_total)), decimals=3))
                 # step 5: sample the number of advanced request customers for each instance in the batch

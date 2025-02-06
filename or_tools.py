@@ -185,7 +185,7 @@ parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
 
 parser.add_argument('--problem', type=str, help="Type of the problem to be solved, 'PDTRP', 'PDTRP-TW', 'PCVRP' or 'PDCVRP-TW", required=True)
 
-parser.add_argument('--num_samples', type=int, default=100, help="Number of samples to be solved")
+parser.add_argument('--num_samples', type=int, default=128, help="Number of samples to be solved")
 
 parser.add_argument('--min_total', type=int, default=40, 
                         help="The minimum number of total nodes")
@@ -204,7 +204,7 @@ args = parser.parse_args()
 
 problem_type = args.problem
 NUM_SAMPLES = args.num_samples
-BATCH_SIZE = 1
+BATCH_SIZE = 16
 filename = args.filename
 
 # set seeds for reproducibility
@@ -220,7 +220,7 @@ elif problem_type == 'PDTRPTW':
 elif problem_type == 'PDCVRPTW':
     dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod)
 
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 all_nodes_list = []
 arrival_times_list = []
@@ -236,48 +236,112 @@ for i in tqdm(range(NUM_SAMPLES//BATCH_SIZE), ascii=True):
 
     input = next(iter(dataloader))
 
-    all_nodes = input['all_nodes'][0]
-    arrival_times = input['arrival_times'][0]*1e4
-    service_times = input['service_times'][0]
-    
-    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-        window_starts = input['window_starts'][0]
-        window_ends = input['window_ends'][0]
-        time_windows = torch.stack([window_starts, window_ends], dim=1)
-        window_starts_list += [np.array(input['window_starts'][0])]
-        window_ends_list += [np.array(input['window_ends'][0])]
-    if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-        demands = input['demand'][0]
-        vehicle_capacity = 1.0
-        demands_list += [np.array(input['demand'][0])]
-        # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
-        n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item()
-        # add n_extra depots to data
-        all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
-        demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
-        arrival_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), arrival_times], dim=0)
-        service_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), service_times], dim=0)
-        if problem_type == 'PDCVRPTW':
-            window_starts = torch.cat([window_starts[0].repeat(n_extra_depots), window_starts], dim=0)
-            window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
+    for j in range(BATCH_SIZE):
 
+        all_nodes = input['all_nodes'][j]
+        arrival_times = input['arrival_times'][j]*1e4
+        service_times = input['service_times'][j]
+        
+        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+            window_starts = input['window_starts'][j]
+            window_ends = input['window_ends'][j]
             time_windows = torch.stack([window_starts, window_ends], dim=1)
+            window_starts_list += [np.array(input['window_starts'][j])]
+            window_ends_list += [np.array(input['window_ends'][j])]
+        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+            demands = input['demand'][j]
+            vehicle_capacity = 1.0
+            demands_list += [np.array(input['demand'][j])]
+            # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
+            n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item()
+            # add n_extra depots to data
+            all_nodes = torch.cat([all_nodes[j].repeat(n_extra_depots, 1), all_nodes], dim=0)
+            demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
+            arrival_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), arrival_times], dim=0)
+            service_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), service_times], dim=0)
+            if problem_type == 'PDCVRPTW':
+                window_starts = torch.cat([window_starts[j].repeat(n_extra_depots), window_starts], dim=0)
+                window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
 
-    all_nodes_list += [np.array(input['all_nodes'][0])]
-    arrival_times_list += [np.array(input['arrival_times'][0])]
-    service_times_list += [np.array(input['service_times'][0])]
+                time_windows = torch.stack([window_starts, window_ends], dim=1)
 
-    mask = arrival_times == 0
+        all_nodes_list += [np.array(input['all_nodes'][j])]
+        arrival_times_list += [np.array(input['arrival_times'][j])]
+        service_times_list += [np.array(input['service_times'][j])]
 
-    partial_route = None
+        mask = arrival_times == 0
 
-    total_customers = len(all_nodes[mask])
+        partial_route = None
 
-    total_time_advanced_by = 0
+        total_customers = len(all_nodes[mask])
 
-    done = False
-    
-    while not done:
+        total_time_advanced_by = 0
+
+        done = False
+        
+        while not done:
+
+            current_input = {}
+
+            current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=1)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
+            current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
+            if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+                current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                current_input['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
+                current_input['vehicle_capacity'] = int((vehicle_capacity*1e3))
+                new_time_matrix = np.array(current_input['time_matrix'])
+                new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
+                current_input['time_matrix'] = new_time_matrix.tolist()
+                current_input['n_extra_depots'] = n_extra_depots  
+
+            route, times = resolve_route(current_input, partial_route, problem_type)
+
+            n_arrivals = 0
+
+            for i, time in enumerate(times[1:]):
+                n_arrivals = torch.sum(arrival_times[total_customers:] < (time + total_time_advanced_by)).item()
+                if n_arrivals > 0:
+                    last_idx = min(i+2, len(times[1:]))
+                    partial_route = route[1:last_idx]
+                    break
+
+            if n_arrivals == 0: 
+                time_advanced_by = arrival_times[total_customers] - (times[-1] + total_time_advanced_by)
+                total_time_advanced_by += time_advanced_by
+                n_arrivals = 1
+                partial_route = route[1:-1]
+
+            mask[:total_customers+n_arrivals] = True
+
+            total_customers += n_arrivals
+
+            # if the sum of new arrivals is greater than the remaining vehicle capacity and there are no more dummy depots to visit, we need to add a new dummy depot
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                route_demands = [current_input['demands'][i] for i in partial_route]
+                # current_capacity is the sum of the demands since the last depot visit, indicated by a negative demand
+                depot_visits = [i for i, x in enumerate(route_demands) if x < 0]
+                if len(depot_visits) > 0:
+                    last_depot_visit = np.max(depot_visits)
+                    current_capacity = current_input['vehicle_capacity'] - sum(route_demands[last_depot_visit+1:])
+                    unvisited_customers = [i for i in range(1, len(all_nodes)) if i not in partial_route]
+                    remaining_demand = sum([(demands*1e3).to(torch.int32).tolist()[i] for i in unvisited_customers])
+                    if current_capacity < remaining_demand:
+                        # in this case we need to add a new depot
+                        n_extra_depots += 1
+                        all_nodes = torch.cat([all_nodes[0].repeat(1,1), all_nodes], dim=0)
+                        demands = torch.cat([-torch.tensor(vehicle_capacity).repeat(1), demands], dim=0)
+                        arrival_times = torch.cat([torch.tensor(0).repeat(1), arrival_times], dim=0)
+                        service_times = torch.cat([torch.tensor(0).repeat(1), service_times], dim=0)
+                        mask = torch.cat([torch.tensor(True).repeat(1), mask], dim=0)
+                        if problem_type == 'PDCVRPTW':
+                            window_starts = torch.cat([window_starts[0].repeat(1), window_starts], dim=0)
+                            window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(1), window_ends[1:]], dim=0)
+
+                            time_windows = torch.stack([window_starts, window_ends], dim=1)
+                        partial_route = [x + 1 for x in partial_route]
+
+            done = mask.all()
 
         current_input = {}
 
@@ -287,82 +351,20 @@ for i in tqdm(range(NUM_SAMPLES//BATCH_SIZE), ascii=True):
             current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             current_input['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
-            current_input['vehicle_capacity'] = int((vehicle_capacity*1e3))
+            current_input['vehicle_capacity'] = int(vehicle_capacity*1e3)
             new_time_matrix = np.array(current_input['time_matrix'])
             new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
             current_input['time_matrix'] = new_time_matrix.tolist()
-            current_input['n_extra_depots'] = n_extra_depots  
+            current_input['n_extra_depots'] = n_extra_depots     
 
         route, times = resolve_route(current_input, partial_route, problem_type)
 
-        n_arrivals = 0
-
-        for i, time in enumerate(times[1:]):
-            n_arrivals = torch.sum(arrival_times[total_customers:] < (time + total_time_advanced_by)).item()
-            if n_arrivals > 0:
-                last_idx = min(i+2, len(times[1:]))
-                partial_route = route[1:last_idx]
-                break
-
-        if n_arrivals == 0: 
-            time_advanced_by = arrival_times[total_customers] - (times[-1] + total_time_advanced_by)
-            total_time_advanced_by += time_advanced_by
-            n_arrivals = 1
-            partial_route = route[1:-1]
-
-        mask[:total_customers+n_arrivals] = True
-
-        total_customers += n_arrivals
-
-        # if the sum of new arrivals is greater than the remaining vehicle capacity and there are no more dummy depots to visit, we need to add a new dummy depot
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            route_demands = [current_input['demands'][i] for i in partial_route]
-            # current_capacity is the sum of the demands since the last depot visit, indicated by a negative demand
-            depot_visits = [i for i, x in enumerate(route_demands) if x < 0]
-            if len(depot_visits) > 0:
-                last_depot_visit = np.max(depot_visits)
-                current_capacity = current_input['vehicle_capacity'] - sum(route_demands[last_depot_visit+1:])
-                unvisited_customers = [i for i in range(1, len(all_nodes)) if i not in partial_route]
-                remaining_demand = sum([(demands*1e3).to(torch.int32).tolist()[i] for i in unvisited_customers])
-                if current_capacity < remaining_demand:
-                    # in this case we need to add a new depot
-                    n_extra_depots += 1
-                    all_nodes = torch.cat([all_nodes[0].repeat(1,1), all_nodes], dim=0)
-                    demands = torch.cat([-torch.tensor(vehicle_capacity).repeat(1), demands], dim=0)
-                    arrival_times = torch.cat([torch.tensor(0).repeat(1), arrival_times], dim=0)
-                    service_times = torch.cat([torch.tensor(0).repeat(1), service_times], dim=0)
-                    mask = torch.cat([torch.tensor(True).repeat(1), mask], dim=0)
-                    if problem_type == 'PDCVRPTW':
-                        window_starts = torch.cat([window_starts[0].repeat(1), window_starts], dim=0)
-                        window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(1), window_ends[1:]], dim=0)
-
-                        time_windows = torch.stack([window_starts, window_ends], dim=1)
-                    partial_route = [x + 1 for x in partial_route]
-
-        done = mask.all()
-
-    current_input = {}
-
-    current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=1)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
-    current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
-    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-        current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
-    if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-        current_input['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
-        current_input['vehicle_capacity'] = int(vehicle_capacity*1e3)
-        new_time_matrix = np.array(current_input['time_matrix'])
-        new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
-        current_input['time_matrix'] = new_time_matrix.tolist()
-        current_input['n_extra_depots'] = n_extra_depots     
-
-    route, times = resolve_route(current_input, partial_route, problem_type)
-
-    tours_list += [route]
+        tours_list += [route]
     
     # for each run, we need to save the information to file so that it can be used to validate the model 
 
 
-with open("data/pdtrp/" + filename, "w") as f:
+with open("data/" + args.problem.lower() + "/" + filename, "w") as f:
     for i in range(NUM_SAMPLES):
         f.write( " ".join( str(x)+str(" ")+str(y) for x,y in all_nodes_list[i]))
         f.write( str(" ") + str("arrival_times" + str(" ")))
