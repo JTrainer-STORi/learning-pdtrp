@@ -102,9 +102,9 @@ class PDCVRPDataset(Dataset):
                     [[float(line[idx]), float(line[idx + 1])] for idx in range(0, 2 * n_nodes, 2)]
                 )
                 self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
-                self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('demand')]])
-                self.demands.append([float(x) for x in line[line.index('demand') + 1:line.index('output')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]][:-1])
+                self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('demands')]])
+                self.demands.append([float(x) for x in line[line.index('demands') + 1:line.index('output')]])
+                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]])
 
         else:
 

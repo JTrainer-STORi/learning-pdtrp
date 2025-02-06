@@ -107,7 +107,7 @@ class PDTRPTWDataset(Dataset):
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('window_starts')]])
                 self.window_starts.append([float(x) for x in line[line.index('window_starts') + 1:line.index('window_ends')]])
                 self.window_ends.append([float(x) for x in line[line.index('window_ends') + 1:line.index('tour')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times')]][:-1])
+                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times')]])
                 self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         else:

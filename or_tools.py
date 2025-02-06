@@ -197,6 +197,8 @@ parser.add_argument('--max_dod', type=float, default=0.8,
                     help='The maximum ratio of dynamic nodes')
 parser.add_argument('--filename', type=str, default=None,
                     help='The filename to save the data from')
+parser.add_argument('--batch_size', type=int, default=16,
+                    help='The batch size for the problem')
 
 args = parser.parse_args()
 
@@ -204,7 +206,7 @@ args = parser.parse_args()
 
 problem_type = args.problem
 NUM_SAMPLES = args.num_samples
-BATCH_SIZE = 16
+BATCH_SIZE = args.batch_size
 filename = args.filename
 
 # set seeds for reproducibility
@@ -232,9 +234,9 @@ if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
 if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
     demands_list = []
 
-for i in tqdm(range(NUM_SAMPLES//BATCH_SIZE), ascii=True):
+for input in tqdm(dataloader, ascii=True):
 
-    input = next(iter(dataloader))
+    batch_routes = []
 
     for j in range(BATCH_SIZE):
 
@@ -359,10 +361,19 @@ for i in tqdm(range(NUM_SAMPLES//BATCH_SIZE), ascii=True):
 
         route, times = resolve_route(current_input, partial_route, problem_type)
 
-        tours_list += [route]
-    
-    # for each run, we need to save the information to file so that it can be used to validate the model 
+        # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
 
+        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+            route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
+
+        batch_routes += [route]
+    
+    max_len = max(len(route) for route in batch_routes)
+    padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
+
+    tours_list += padded_batch_routes
+
+# for each run, we need to save the information to file so that it can be used to validate the model
 
 with open("data/" + args.problem.lower() + "/" + filename, "w") as f:
     for i in range(NUM_SAMPLES):
