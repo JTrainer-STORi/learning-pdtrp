@@ -90,7 +90,7 @@ def rollout(model, dataset, opts):
     return torch.cat([
         eval_model_bat(bat)
         for bat in tqdm(
-            DataLoader(dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers), 
+            DataLoader(dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers), 
             disable=opts.no_progress_bar, ascii=True
         )
     ], 0)
