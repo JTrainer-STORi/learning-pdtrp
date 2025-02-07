@@ -39,7 +39,7 @@ class PDTRPTW(object):
 
         window_ends_ordered = window_ends.squeeze()[pi]
  
-        time_differences = torch.maximum(visit_times - window_ends_ordered, torch.tensor([0]))
+        time_differences = torch.maximum(visit_times - window_ends_ordered, torch.tensor([0], device=visit_times.device))
 
         overall_difference = torch.sum(time_differences)
 

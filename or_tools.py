@@ -257,12 +257,12 @@ for input in tqdm(dataloader, ascii=True):
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
             n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item()
             # add n_extra depots to data
-            all_nodes = torch.cat([all_nodes[j].repeat(n_extra_depots, 1), all_nodes], dim=0)
+            all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
             demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
             arrival_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), arrival_times], dim=0)
             service_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), service_times], dim=0)
             if problem_type == 'PDCVRPTW':
-                window_starts = torch.cat([window_starts[j].repeat(n_extra_depots), window_starts], dim=0)
+                window_starts = torch.cat([window_starts[0].repeat(n_extra_depots), window_starts], dim=0)
                 window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
 
                 time_windows = torch.stack([window_starts, window_ends], dim=1)
