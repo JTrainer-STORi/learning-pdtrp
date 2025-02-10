@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-RUN_NAME="rl-ar-var-20pnn-gnn-max-pdtrp"
+RUN_NAME="rl-ar-var-20pnn-gnn-max-pdcvrptw"
 
 PROBLEM="pdcvrptw"
 
@@ -14,18 +14,16 @@ MAX_DOD=0.8
 NEIGHBORS=0.2
 KNN_STRAT="percentage"
 
-VAL_DATASET1="data/pdcvrptw/valsetN1.txt"
-VAL_DATASET2="data/pdcvrptw/valsetN2.txt"
-VAL_DATASET3="data/pdcvrptw/valsetW1.txt"
-VAL_DATASET4="data/pdcvrptw/valsetW2.txt"
+VAL_DATASET1="data/pdcvrptw/validation_data_PDCVRPTW.txt"
 
 N_EPOCHS=100
 EPOCH_SIZE=160
 BATCH_SIZE=16
 ACCUMULATION_STEPS=1
 
-VAL_SIZE=160
-ROLLOUT_SIZE=160
+VAL_SIZE=16
+ROLLOUT_SIZE=16
+VAL_BATCH_SIZE=8
 
 MODEL="dattention"
 ENCODER="gnn"
@@ -50,7 +48,7 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --min_total "$MIN_TOTAL" --max_total "$MAX_TOTAL" \
     --min_dod "$MIN_DOD" --max_dod "$MAX_DOD" \
     --neighbors "$NEIGHBORS" --knn_strat "$KNN_STRAT" \
-    --val_datasets "$VAL_DATASET1" "$VAL_DATASET2" "$VAL_DATASET3" "$VAL_DATASET4" \
+    --val_datasets "$VAL_DATASET1" \
     --epoch_size "$EPOCH_SIZE" \
     --batch_size "$BATCH_SIZE" --accumulation_steps "$ACCUMULATION_STEPS" \
     --n_epochs "$N_EPOCHS" \
@@ -64,4 +62,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" --set_start "$SET_START" \
     --edge_features "$EDGE_FEATURES" --time_horizon "$TIME_HORIZON" \
-    --L "$L" 
+    --L "$L" --val_batch_size "$VAL_BATCH_SIZE"

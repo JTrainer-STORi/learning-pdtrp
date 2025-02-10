@@ -18,8 +18,8 @@ class PDTRPTW(object):
     def get_costs(input, pi):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
-        theta = 3.0
-        gamma = 1.0
+        theta = 1.0
+        gamma = 10.0
 
         all_nodes = input['loc']
         window_ends = input['window_ends']
@@ -37,11 +37,10 @@ class PDTRPTW(object):
         # length is distance (l2-norm of difference) from each node location from its prev and of last to first
         distance =  (d[:, 1:] - d[:, :-1]).norm(p=2, dim=2).sum(1) + (d[:, 0] - d[:, -1]).norm(p=2, dim=1)
 
-        window_ends_ordered = window_ends.squeeze()[pi]
+        #window_ends_ordered = window_ends[pi]
+        window_ends_ordered = window_ends.gather(1, pi)
  
-        time_differences = torch.maximum(visit_times - window_ends_ordered, torch.tensor([0], device=visit_times.device))
-
-        overall_difference = torch.sum(time_differences)
+        time_differences = torch.maximum(visit_times.squeeze() - window_ends_ordered, torch.tensor([0], device=visit_times.device))
 
         overall_difference = torch.sum(time_differences, dim=1)
 
@@ -107,7 +106,7 @@ class PDTRPTWDataset(Dataset):
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('window_starts')]])
                 self.window_starts.append([float(x) for x in line[line.index('window_starts') + 1:line.index('window_ends')]])
                 self.window_ends.append([float(x) for x in line[line.index('window_ends') + 1:line.index('tour')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times')]])
+                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
                 self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         else:

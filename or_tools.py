@@ -231,12 +231,14 @@ tours_list = []
 if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
     window_starts_list = []
     window_ends_list = []
+    visit_times_list = []
 if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
     demands_list = []
 
 for input in tqdm(dataloader, ascii=True):
 
     batch_routes = []
+    batch_times = []
 
     for j in range(BATCH_SIZE):
 
@@ -367,11 +369,19 @@ for input in tqdm(dataloader, ascii=True):
             route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
 
         batch_routes += [route]
-    
+        if problem_type == 'PDCVRPTW':
+            # remove extra visits to dummy depots from visit times
+            new_times = np.insert(np.array(times)[np.array(route) != 0], 0, times[0])
+            batch_times += [[np.round(x * 1e-4, decimals=4) for x in new_times]]
+        elif problem_type == 'PDTRPTW':
+            batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
+
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
 
     tours_list += padded_batch_routes
+    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+        visit_times_list += batch_times
 
 # for each run, we need to save the information to file so that it can be used to validate the model
 
@@ -390,6 +400,13 @@ with open("data/" + args.problem.lower() + "/" + filename, "w") as f:
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             f.write( str(" ") + str("demands" + str(" ")))
             f.write( str(" ").join(str(x) for x in demands_list[i]))
-        f.write( str(" ") + str('output') + str(" ") )
-        f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
+        if problem_type == 'PDCVRPTW' or problem_type == 'PDTRPTW':
+            f.write( str(" ") + str("tour") + str(" ") )
+            f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
+            f.write( str(" ") + str("visit_times") + str(" ") )
+            f.write( str(" ").join(str(x) for x in visit_times_list[i]))
+        else:
+            f.write( str(" ") + str('output') + str(" ") )
+            f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
+
         f.write( "\n" )

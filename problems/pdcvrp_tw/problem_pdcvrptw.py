@@ -20,8 +20,8 @@ class PDCVRPTW(object):
     def get_costs(input, pi):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
-        theta = 3.0
-        gamma = 1.0
+        theta = 1.0
+        gamma = 10.0
         batch_size, graph_size = input['demand'].size()
         graph_size -= 1
 
@@ -65,15 +65,14 @@ class PDCVRPTW(object):
         )
 
         # need to reorder time windows in the order of the tour
-        pi_wo_depot = pi[pi != 0] - 1
-
-        visit_times_wo_depots = visit_times.squeeze(0)[pi != 0]
-
-        window_ends_ordered = window_ends.squeeze()[pi_wo_depot]
- 
-        time_differences = torch.maximum(visit_times_wo_depots - window_ends_ordered, torch.tensor([0], device=visit_times_wo_depots.device))
-
-        overall_difference = torch.sum(time_differences)
+        overall_difference = torch.zeros(batch_size, device=visit_times.device)
+        for i in range(batch_size):
+            mask = pi[i] != 0
+            pi_wo_depot = pi[i][mask] -1
+            visit_times_wo_depot = visit_times.squeeze()[i][1:]
+            window_ends_ordered = window_ends[i][1:][pi_wo_depot]
+            time_difference = torch.maximum(visit_times_wo_depot - window_ends_ordered, torch.tensor([0], device=visit_times_wo_depot.device))
+            overall_difference[i] = torch.sum(time_difference)
 
         return theta * distance + gamma * overall_difference, None
 
@@ -139,9 +138,9 @@ class PDCVRPTWDataset(Dataset):
                 self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('window_starts')]])
                 self.window_starts.append([float(x) for x in line[line.index('window_starts') + 1:line.index('window_ends')]])
-                self.window_ends.append([float(x) for x in line[line.index('window_ends') + 1:line.index('demand')]])
-                self.demand.append([float(x) for x in line[line.index('demand') + 1:line.index('tour')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times')]])
+                self.window_ends.append([float(x) for x in line[line.index('window_ends') + 1:line.index('demands')]])
+                self.demand.append([float(x) for x in line[line.index('demands') + 1:line.index('tour')]])
+                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') -1]])
                 self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         else:
