@@ -64,7 +64,7 @@ class PDCVRP(object):
         return StatePDCVRP.initialize(*args, **kwargs)
     
 class PDCVRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, seed_dataset=None):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, arrival_weights = None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, seed_dataset=None):
         super(PDCVRPDataset, self).__init__()
         self.filename = filename
         self.min_total = min_total
@@ -81,6 +81,7 @@ class PDCVRPDataset(Dataset):
         self.service_times_mu = -5.09
         self.service_times_sigma = np.sqrt(1.33)
         self.vehicle_speed = 32 # corresponds to 1000 units moved within the time horizon
+        self.arrival_weights = arrival_weights
         
 
         self.all_nodes = []
@@ -112,7 +113,7 @@ class PDCVRPDataset(Dataset):
                 # Step 1: Generate the total number of customers
                 n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1 # -1 to account for the depot
                 # Step 2: Generate the locations of the customers
-                all_nodes = [subregion_generation(n_total=n_total) for _ in range(batch_size)]
+                all_nodes = [subregion_generation(n_total=n_total, arrival_weights=self.arrival_weights) for _ in range(batch_size)]
                 # step 3: Generate customer arrival times
                 arrival_times = [np.round(np.random.uniform(0.001, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)]
                 # step 4: Generate customer service times
