@@ -159,8 +159,6 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
                 time_dimension.CumulVar(routing.Start(i))
             )
             routing.AddVariableMinimizedByFinalizer(time_dimension.CumulVar(routing.End(i)))
-        
-
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (

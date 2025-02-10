@@ -18,7 +18,7 @@ class StatePDTRP(NamedTuple):
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
     i: torch.Tensor # Current timestep
 
-    SPEED = 0.4 / 60 # HARDCODED
+    SPEED = 32 
 
     def __getitem__(self, key):
         assert torch.is_tensor(key) or isinstance(key, slice)
