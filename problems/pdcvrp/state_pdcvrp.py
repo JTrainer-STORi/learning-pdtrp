@@ -91,6 +91,17 @@ class StatePDCVRP(NamedTuple):
 
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
+        # if, for any of the environments in the batch, after checking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
+        for i in range(batch_size):            
+            if torch.logical_or(visited_[i], new_arrival_mask[i]).all():
+                if not visited_[i].all():
+                    # fast forward the current time to the minimum of the remaining arrival times ...
+                    min_arrival_times = torch.min(self.arrival_times[i][new_arrival_mask[i][0]])
+                    cur_times[i] = torch.maximum(cur_times[i], min_arrival_times)
+                    # ... and update the mask accordingly
+                    new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
+                    new_arrival_mask[i, 0, new_arrivals] = False
+
         # update the used capacity
         selected_demand = self.demands[self.ids, prev_a]
 

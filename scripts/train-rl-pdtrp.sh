@@ -23,8 +23,9 @@ EPOCH_SIZE=160
 BATCH_SIZE=16
 ACCUMULATION_STEPS=1
 
-VAL_SIZE=160
-ROLLOUT_SIZE=160
+VAL_SIZE=128
+ROLLOUT_SIZE=128
+VAL_BATCH_SIZE=16
 
 MODEL="dattention"
 ENCODER="gnn"
@@ -60,4 +61,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --num_workers "$NUM_WORKERS" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" --set_start "$SET_START" \
-    --edge_features "$EDGE_FEATURES"
+    --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE"

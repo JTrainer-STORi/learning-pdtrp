@@ -98,7 +98,7 @@ class StatePDTRPTW(NamedTuple):
             
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
-        # if, for any of the environments in the batch, after chhecking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
+        # if, for any of the environments in the batch, after checking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
         for i in range(batch_size):            
             if torch.logical_or(visited_[i], new_arrival_mask[i]).all():
                 if not visited_[i].all():

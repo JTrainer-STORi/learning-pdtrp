@@ -197,6 +197,8 @@ parser.add_argument('--filename', type=str, default=None,
                     help='The filename to save the data from')
 parser.add_argument('--batch_size', type=int, default=16,
                     help='The batch size for the problem')
+parser.add_argument('--seed', type=int, default=41394125,
+                    help='The seed for the problem')
 
 args = parser.parse_args()
 
@@ -208,8 +210,8 @@ BATCH_SIZE = args.batch_size
 filename = args.filename
 
 # set seeds for reproducibility
-np.random.seed(41394125)
-torch.manual_seed(41394125)
+np.random.seed(args.seed)
+torch.manual_seed(args.seed)
 
 if problem_type == 'PDTRP':
     dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod)
