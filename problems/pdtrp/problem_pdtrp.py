@@ -60,7 +60,7 @@ class PDTRPDataset(Dataset):
         self.knn_strat = knn_strat
         self.offset = offset
         self.arrival_weights = arrival_weights
-
+        
         self.all_nodes = []
         self.arrival_times = []
         self.service_times = []

@@ -199,6 +199,8 @@ parser.add_argument('--batch_size', type=int, default=16,
                     help='The batch size for the problem')
 parser.add_argument('--seed', type=int, default=41394125,
                     help='The seed for the problem')
+parser.add_argument('--scenario', type=str, default=None,
+                    help='Scenario for arrival weights and time windows')
 
 args = parser.parse_args()
 
@@ -213,14 +215,22 @@ filename = args.filename
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
+arrival_weights = None
+
+if args.scenario is not None:
+    if args.scenario == 'N1':
+        arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+    elif args.scenario == 'N2':
+        arrival_weights = [5, 1, 1, 10, 6, 3, 1, 15, 12]
+
 if problem_type == 'PDTRP':
-    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod)
+    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
 elif problem_type == 'PDCVRP':
-    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod)
+    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
 elif problem_type == 'PDTRPTW':
-    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod)
+    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
 elif problem_type == 'PDCVRPTW':
-    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod)
+    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 

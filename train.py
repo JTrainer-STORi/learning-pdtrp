@@ -146,11 +146,17 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     if not opts.no_tensorboard:
         tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
 
+    if opts.scenario is not None:
+        if opts.scenario == "N1":
+            arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+        elif opts.scenario == "N2":
+            arrival_weights = [5, 1, 1, 10, 6, 3, 1, 15, 12]
+
     # Generate new training data for each epoch
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
             min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, batch_size=opts.batch_size, 
-            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mu = opts.stmu, service_times_sigma = opts.stsig, neighbors=opts.neighbors, knn_strat=opts.knn_strat
+            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mu = opts.stmu, service_times_sigma = opts.stsig, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = arrival_weights
         ))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)

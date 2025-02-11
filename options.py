@@ -62,6 +62,8 @@ def get_options(args=None):
                         help='weighting for missed time windows in costs for problems with time windows')
     parser.add_argument('--theta', type=float, default=1,
                         help='weighting for distance in costs for problems with time windows')
+    parser.add_argument ('--scenario', type=str, default=None,
+                         help='scenario for arrival weights and time windows')
     
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 
