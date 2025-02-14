@@ -18,8 +18,8 @@ class PDTRPTW(object):
     def get_costs(input, pi):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
-        theta = 1.0
-        gamma = 10.0
+        theta = 3.0
+        gamma = 1.0
 
         all_nodes = input['loc']
         window_ends = input['window_ends']
@@ -73,7 +73,6 @@ class PDTRPTWDataset(Dataset):
         self.knn_strat = knn_strat
         self.offset = offset
         self.arrival_weights = arrival_weights
-        self.n_subreg = len(arrival_weights)
         self.L = 0.125 # maximum time after the time horizon that a time window can end
         #self.tw_min = tw_min
         #self.tw_max = tw_max

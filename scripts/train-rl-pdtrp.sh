@@ -14,7 +14,9 @@ MAX_DOD=0.8
 NEIGHBORS=0.2
 KNN_STRAT="percentage"
 
-VAL_DATASET1="data/pdtrp/validation_data_PDTRP.txt"
+SCENARIO="N1"
+
+VAL_DATASET1="data/pdtrp/validation_data_PDTRP_N1.txt"
 # VAL_DATASET2="data/pdtrp/valsetRC1460100.5.txt"
 # VAL_DATASET3="data/tsp/tsp100_test_concorde.txt"
 
@@ -61,4 +63,5 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --num_workers "$NUM_WORKERS" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" --set_start "$SET_START" \
-    --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE"
+    --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" \
+    --scenario "$SCENARIO"

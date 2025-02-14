@@ -146,6 +146,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     if not opts.no_tensorboard:
         tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
 
+    arrival_weights = None
+
     if opts.scenario is not None:
         if opts.scenario == "N1":
             arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]

@@ -21,7 +21,7 @@ def subregion_generation(n_total: int = 40,
     """
 
     n_imm = np.zeros(n_subregions)
-
+    
     if arrival_weights is None:
         arrival_weights = np.random.dirichlet(np.ones(n_subregions), size=1)[0]
     else:

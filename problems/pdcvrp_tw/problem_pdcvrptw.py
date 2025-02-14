@@ -20,8 +20,8 @@ class PDCVRPTW(object):
     def get_costs(input, pi):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
-        theta = 1.0
-        gamma = 10.0
+        theta = 3.0
+        gamma = 1.0
         batch_size, graph_size = input['demand'].size()
         graph_size -= 1
 
@@ -99,7 +99,6 @@ class PDCVRPTWDataset(Dataset):
         self.knn_strat = knn_strat
         self.offset = offset
         self.arrival_weights = arrival_weights
-        self.n_subreg = len(arrival_weights)
         self.L = 0.125
         #self.tw_min = tw_min
         #self.tw_max = tw_max
