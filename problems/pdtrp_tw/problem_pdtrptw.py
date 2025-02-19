@@ -25,6 +25,11 @@ class PDTRPTW(object):
         window_ends = input['window_ends']
         visit_times = input['visit_times'] # The times that each customer was visited - should probably be passed as a seperate argument as it is not an input
 
+        print('window ends')
+        print(window_ends[0])
+        print('visit times')
+        print(visit_times[0])
+
         # Check that tours are valid, i.e. contain all nodes and each node exactly once
         assert (
             torch.arange(pi.size(1), out=pi.data.new()).view(1, -1).expand_as(pi) ==
@@ -39,8 +44,14 @@ class PDTRPTW(object):
 
         #window_ends_ordered = window_ends[pi]
         window_ends_ordered = window_ends.gather(1, pi)
+
+        print('window ends ordered')
+        print(window_ends_ordered[0])
  
         time_differences = torch.maximum(visit_times.squeeze() - window_ends_ordered, torch.tensor([0], device=visit_times.device))
+
+        print('time differences')
+        print(time_differences[0])
 
         overall_difference = torch.sum(time_differences, dim=1)
 
@@ -66,9 +77,9 @@ class PDTRPTWDataset(Dataset):
         # self.service_times_mu = service_times_mu
         # self.service_times_sigma = service_times_sigma
         self.time_horizon = 1
-        self.service_times_mu = -5.09
-        self.service_times_sigma = np.sqrt(1.33)
-        self.vehicle_speed = 32 # corresponds to 1000 units moved within the time horizon
+        self.service_times_mu = -5.296
+        self.service_times_sigma = np.sqrt(0.442)
+        self.vehicle_speed = 32
         self.neighbors = neighbors
         self.knn_strat = knn_strat
         self.offset = offset

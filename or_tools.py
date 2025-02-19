@@ -202,6 +202,11 @@ parser.add_argument('--seed', type=int, default=41394125,
 parser.add_argument('--scenario', type=str, default=None,
                     help='Scenario for arrival weights and time windows')
 
+# import debugpy
+# debugpy.listen(5678)  # 5678 is port
+# print("Waiting for debugger attach")
+# debugpy.wait_for_client()
+
 args = parser.parse_args()
 
 # Set the parameters for the problem here
@@ -238,10 +243,10 @@ all_nodes_list = []
 arrival_times_list = []
 service_times_list = []
 tours_list = []
+visit_times_list = []
 if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
     window_starts_list = []
     window_ends_list = []
-    visit_times_list = []
 if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
     demands_list = []
 
@@ -383,15 +388,14 @@ for input in tqdm(dataloader, ascii=True):
             # remove extra visits to dummy depots from visit times
             new_times = np.insert(np.array(times)[np.array(route) != 0], 0, times[0])
             batch_times += [[np.round(x * 1e-4, decimals=4) for x in new_times]]
-        elif problem_type == 'PDTRPTW':
+        else:
             batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
 
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
 
     tours_list += padded_batch_routes
-    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-        visit_times_list += batch_times
+    visit_times_list += batch_times
 
 # for each run, we need to save the information to file so that it can be used to validate the model
 
@@ -410,13 +414,9 @@ with open("data/" + args.problem.lower() + "/" + filename, "w") as f:
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             f.write( str(" ") + str("demands" + str(" ")))
             f.write( str(" ").join(str(x) for x in demands_list[i]))
-        if problem_type == 'PDCVRPTW' or problem_type == 'PDTRPTW':
-            f.write( str(" ") + str("tour") + str(" ") )
-            f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
-            f.write( str(" ") + str("visit_times") + str(" ") )
-            f.write( str(" ").join(str(x) for x in visit_times_list[i]))
-        else:
-            f.write( str(" ") + str('output') + str(" ") )
-            f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
+        f.write( str(" ") + str("tour") + str(" ") )
+        f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
+        f.write( str(" ") + str("visit_times") + str(" ") )
+        f.write( str(" ").join(str(x) for x in visit_times_list[i]))
 
         f.write( "\n" )

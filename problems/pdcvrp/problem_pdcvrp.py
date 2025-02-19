@@ -78,8 +78,8 @@ class PDCVRPDataset(Dataset):
         # self.service_times_mu = service_times_mu
         # self.service_times_sigma = service_times_sigma
         self.time_horizon = 1
-        self.service_times_mu = -5.09
-        self.service_times_sigma = np.sqrt(1.33)
+        self.service_times_mu = -5.296
+        self.service_times_sigma = np.sqrt(0.442)
         self.vehicle_speed = 32 # corresponds to 1000 units moved within the time horizon
         self.arrival_weights = arrival_weights
         

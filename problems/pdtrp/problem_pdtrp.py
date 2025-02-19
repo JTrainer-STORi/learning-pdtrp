@@ -53,9 +53,9 @@ class PDTRPDataset(Dataset):
         #self.service_times_mu = service_times_mu
         #self.service_times_sigma = service_times_sigma
         self.time_horizon = 1
-        self.service_times_mu = -5.09
-        self.service_times_sigma = np.sqrt(1.33)
-        self.vehicle_speed = 32 # corresponds to 1000 units moved within the time horizon
+        self.service_times_mu = -5.296
+        self.service_times_sigma = np.sqrt(0.442)
+        self.vehicle_speed = 32
         self.neighbors = neighbors
         self.knn_strat = knn_strat
         self.offset = offset
@@ -64,6 +64,7 @@ class PDTRPDataset(Dataset):
         self.all_nodes = []
         self.arrival_times = []
         self.service_times = []
+        self.visit_times = []
         self.tours = []
 
         if filename is not None:
@@ -78,8 +79,9 @@ class PDTRPDataset(Dataset):
                     [[float(line[idx]), float(line[idx + 1])] for idx in range(0, 2 * n_nodes, 2)]
                 )
                 self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
-                self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('output')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]])
+                self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('tour')]])
+                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
+                self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         else:
 
@@ -136,5 +138,6 @@ class PDTRPDataset(Dataset):
         }
         if self.filename is not None:
             item['tour_nodes'] = torch.LongTensor(self.tours[idx])
+            item['visit_times'] = torch.FloatTensor(self.visit_times[idx])
 
         return item
