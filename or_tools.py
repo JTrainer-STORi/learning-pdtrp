@@ -295,6 +295,7 @@ for input in tqdm(dataloader, ascii=True):
         total_customers = len(all_nodes[mask])
 
         total_time_advanced_by = 0
+        time_advances = {}
 
         done = False
         
@@ -330,6 +331,7 @@ for input in tqdm(dataloader, ascii=True):
                 total_time_advanced_by += time_advanced_by
                 n_arrivals = 1
                 partial_route = route[1:-1]
+                time_advances[total_customers - 1] = time_advanced_by.item()
 
             mask[:total_customers+n_arrivals] = True
 
@@ -377,6 +379,10 @@ for input in tqdm(dataloader, ascii=True):
             current_input['n_extra_depots'] = n_extra_depots     
 
         route, times = resolve_route(current_input, partial_route, problem_type)
+
+        if bool(time_advances):
+            for key, value in time_advances.items():
+                times = [x + value if i >= key else x for i, x in enumerate(times)]
 
         # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
 
