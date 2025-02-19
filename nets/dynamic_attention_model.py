@@ -165,7 +165,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False):
+    def forward(self, input, return_pi=False, return_times=False):
         """
             Args:
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
@@ -177,11 +177,16 @@ class DynamicAttentionModel(nn.Module):
 
         embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
+        log_p, pi, visit_times = self._inner(input, embeddings)
+
         if self.is_pdtrptw or self.is_pdcvrptw:
-            log_p, pi, visit_times = self._inner(input, embeddings)
-            input['visit_times'] = visit_times
-        else:
-            log_p, pi = self._inner(input, embeddings)
+            
+            max_len = max(len(route) for route in visit_times)
+
+            padded_visit_times = [route + [0.0] * (max_len - len(route)) for route in visit_times]
+
+            input['visit_times'] = torch.tensor(padded_visit_times, dtype=torch.float32, device=input['loc'].device)
+    
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
@@ -189,8 +194,12 @@ class DynamicAttentionModel(nn.Module):
 
         ll = self._calc_log_likelihood(log_p, mask)
 
-        if return_pi:
+        if return_pi and return_times:
+            return cost, ll, pi, visit_times
+        elif return_pi:
             return cost, ll, pi
+        elif return_times:
+            return cost, ll, visit_times
         else:
             return cost, ll
         
@@ -236,10 +245,7 @@ class DynamicAttentionModel(nn.Module):
         all_sequences = torch.stack(sequences, 1)
         all_outputs = torch.stack(outputs, 1).gather(2, all_sequences.unsqueeze(2)).squeeze(-1)
 
-        if self.is_pdtrptw or self.is_pdcvrptw:
-            return all_outputs, all_sequences, state.visit_times
-        else:
-            return all_outputs, all_sequences
+        return all_outputs, all_sequences, state.visit_times
 
     def _select_node(self, probs, mask):
         assert (probs == probs).all(), "Probs should not contain any NaNs"

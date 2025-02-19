@@ -28,7 +28,7 @@ def get_routes(solution, routing, manager):
         routes.append(route)
     return routes
 
-def get_times(solution, routing):
+def get_times(solution, routing, manager, service_times=None):
     """Get vehicle routes from a solution and store them in an array."""
     # Get vehicle arrival times and store them in a two dimensional array whose
     # i,j entry is the jth location visited by vehicle i along its route.
@@ -41,11 +41,14 @@ def get_times(solution, routing):
             prev_index = index
             index = solution.Value(routing.NextVar(index))
             route_time += routing.GetArcCostForVehicle(prev_index, index, 0)
-            time.append(route_time)
+            if service_times is not None:
+                time.append(route_time - service_times[manager.IndexToNode(index)])
+            else:
+                time.append(route_time)
         times.append(time)
     return times
 
-def resolve_route(current_input, partial_route = None, problem_type='PDTRP', solution_time_limit=3):
+def resolve_route(current_input, partial_route = None, problem_type='PDTRP', solution_time_limit=3, visit_times=False):
     """This function solves the problem PDTRP/PDTRPTW/PDCVRP/PDCVRPTW instance using an information dictionary about nodes currently present, the solution will have its first node visits according to the partial_route.
     
     inputs: 
@@ -175,7 +178,10 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
     solution = routing.SolveWithParameters(search_parameters)
 
     route = get_routes(solution, routing, manager)[0]
-    times = get_times(solution, routing)[0]
+    if visit_times:
+        times = get_times(solution, routing, manager, data['service_times'])[0]
+    else:
+        times = get_times(solution, routing, manager)[0]
 
     return route, times
 
@@ -295,7 +301,8 @@ for input in tqdm(dataloader, ascii=True):
         total_customers = len(all_nodes[mask])
 
         total_time_advanced_by = 0
-        time_advances = {}
+        if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
+            time_advances = {}
 
         done = False
         
@@ -303,7 +310,7 @@ for input in tqdm(dataloader, ascii=True):
 
             current_input = {}
 
-            current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=1)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
+            current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
             current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
             if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
                 current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
@@ -366,7 +373,7 @@ for input in tqdm(dataloader, ascii=True):
 
         current_input = {}
 
-        current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=1)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
+        current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
         current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
         if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
             current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
@@ -378,11 +385,13 @@ for input in tqdm(dataloader, ascii=True):
             current_input['time_matrix'] = new_time_matrix.tolist()
             current_input['n_extra_depots'] = n_extra_depots     
 
-        route, times = resolve_route(current_input, partial_route, problem_type)
+        route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True)
 
-        if bool(time_advances):
-            for key, value in time_advances.items():
-                times = [x + value if i >= key else x for i, x in enumerate(times)]
+        # this won't work for the problems with time windows as these will naturally advance some of the times
+        if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
+            if bool(time_advances):
+                for key, value in time_advances.items():
+                    times = [x + value if i >= key else x for i, x in enumerate(times)]
 
         # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
 
@@ -390,18 +399,19 @@ for input in tqdm(dataloader, ascii=True):
             route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
 
         batch_routes += [route]
-        if problem_type == 'PDCVRPTW':
-            # remove extra visits to dummy depots from visit times
-            new_times = np.insert(np.array(times)[np.array(route) != 0], 0, times[0])
-            batch_times += [[np.round(x * 1e-4, decimals=4) for x in new_times]]
-        else:
-            batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
+        # if problem_type == 'PDCVRPTW':
+        #     # remove extra visits to dummy depots from visit times
+        #     new_times = np.insert(np.array(times)[np.array(route) != 0], 0, times[0])
+        #     batch_times += [[np.round(x * 1e-4, decimals=4) for x in new_times]]
+        # else:
+        batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
 
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
+    padded_batch_times = [times + [0]*(max_len - len(times)) for times in batch_times]
 
     tours_list += padded_batch_routes
-    visit_times_list += batch_times
+    visit_times_list += padded_batch_times
 
 # for each run, we need to save the information to file so that it can be used to validate the model
 
