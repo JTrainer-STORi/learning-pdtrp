@@ -55,7 +55,7 @@ class PDTRPDataset(Dataset):
         self.time_horizon = 1
         self.service_times_mu = -5.296
         self.service_times_sigma = np.sqrt(0.442)
-        self.vehicle_speed = 32
+        self.vehicle_speed = 16
         self.neighbors = neighbors
         self.knn_strat = knn_strat
         self.offset = offset

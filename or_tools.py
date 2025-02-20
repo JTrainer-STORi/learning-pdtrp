@@ -334,11 +334,11 @@ for input in tqdm(dataloader, ascii=True):
                     break
 
             if n_arrivals == 0: 
-                time_advanced_by = arrival_times[total_customers] - (times[-1] + total_time_advanced_by)
+                time_advanced_by = arrival_times[total_customers] - (times[-1] + total_time_advanced_by - current_input['service_times'][route[-2]])
                 total_time_advanced_by += time_advanced_by
-                n_arrivals = 1
+                n_arrivals = torch.sum(arrival_times[total_customers:] <= (times[-1] + total_time_advanced_by)).item()
                 partial_route = route[1:-1]
-                time_advances[total_customers - 1] = time_advanced_by.item()
+                time_advances[total_customers] = time_advanced_by.item()
 
             mask[:total_customers+n_arrivals] = True
 
@@ -387,6 +387,8 @@ for input in tqdm(dataloader, ascii=True):
 
         route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True)
 
+        old_times = times
+
         # this won't work for the problems with time windows as these will naturally advance some of the times
         if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
             if bool(time_advances):
@@ -397,6 +399,8 @@ for input in tqdm(dataloader, ascii=True):
 
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
+
+        arrival_violations = np.array(times[:-1]) < arrival_times.numpy()
 
         batch_routes += [route]
         # if problem_type == 'PDCVRPTW':
