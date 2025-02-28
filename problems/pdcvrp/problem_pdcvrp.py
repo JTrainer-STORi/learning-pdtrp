@@ -80,14 +80,14 @@ class PDCVRPDataset(Dataset):
         self.time_horizon = 1
         self.service_times_mu = -5.296
         self.service_times_sigma = np.sqrt(0.442)
-        self.vehicle_speed = 32 # corresponds to 1000 units moved within the time horizon
+        self.vehicle_speed = 16 # corresponds to 1000 units moved within the time horizon
         self.arrival_weights = arrival_weights
         
 
         self.all_nodes = []
         self.arrival_times = []
         self.demands = []
-        #self.capacities = []
+        self.visit_times = []
         self.service_times = []
 
         if filename is not None:
@@ -104,8 +104,9 @@ class PDCVRPDataset(Dataset):
                 )
                 self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('demands')]])
-                self.demands.append([float(x) for x in line[line.index('demands') + 1:line.index('output')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('output') + 1:-1]])
+                self.demands.append([float(x) for x in line[line.index('demands') + 1:line.index('tour')]])
+                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
+                self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         else:
 
@@ -177,5 +178,6 @@ class PDCVRPDataset(Dataset):
 
         if self.filename is not None:
             item['tour_nodes'] = torch.LongTensor(self.tours[idx])
+            item['visit_times'] = torch.FloatTensor(self.visit_times[idx])
 
         return item

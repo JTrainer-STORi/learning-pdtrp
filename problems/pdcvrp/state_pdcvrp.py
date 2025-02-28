@@ -22,7 +22,7 @@ class StatePDCVRP(NamedTuple):
     not_arrived_: torch.Tensor
     i: torch.Tensor # current timestep
 
-    SPEED = 32 # HARDCODED
+    SPEED = 16 # HARDCODED
     VEHICLE_CAPACITY = 1.0
 
     def __getitem__(self, key):

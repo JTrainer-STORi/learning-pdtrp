@@ -276,9 +276,9 @@ for input in tqdm(dataloader, ascii=True):
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             demands = input['demand'][j]
             vehicle_capacity = 1.0
-            demands_list += [np.array(input['demand'][j])]
+            demands_list += [np.array(demands)]
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
-            n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item()
+            n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
             # add n_extra depots to data
             all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
             demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
@@ -367,6 +367,7 @@ for input in tqdm(dataloader, ascii=True):
                             window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(1), window_ends[1:]], dim=0)
 
                             time_windows = torch.stack([window_starts, window_ends], dim=1)
+                        # add 1 to every node index in the partial route to account for the new depot being added at index 0
                         partial_route = [x + 1 for x in partial_route]
 
             done = mask.all()
@@ -383,11 +384,9 @@ for input in tqdm(dataloader, ascii=True):
             new_time_matrix = np.array(current_input['time_matrix'])
             new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
             current_input['time_matrix'] = new_time_matrix.tolist()
-            current_input['n_extra_depots'] = n_extra_depots     
+            current_input['n_extra_depots'] = n_extra_depots 
 
         route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True)
-
-        old_times = times
 
         # this won't work for the problems with time windows as these will naturally advance some of the times
         if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
@@ -400,7 +399,6 @@ for input in tqdm(dataloader, ascii=True):
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
 
-        arrival_violations = np.array(times[:-1]) < arrival_times.numpy()
 
         batch_routes += [route]
         # if problem_type == 'PDCVRPTW':
@@ -411,8 +409,8 @@ for input in tqdm(dataloader, ascii=True):
         batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
 
     max_len = max(len(route) for route in batch_routes)
-    padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-    padded_batch_times = [times + [0]*(max_len - len(times)) for times in batch_times]
+    padded_batch_routes = [route + [-1]*(max_len - len(route)) for route in batch_routes]
+    padded_batch_times = [times + [-1]*(max_len - len(times)) for times in batch_times]
 
     tours_list += padded_batch_routes
     visit_times_list += padded_batch_times
