@@ -107,7 +107,7 @@ class PDCVRPTWDataset(Dataset):
         self.time_horizon = 1
         self.service_times_mu = -5.296
         self.service_times_sigma = np.sqrt(0.442)
-        self.vehicle_speed = 32 # corresponds to 32 units moved within the time horizon
+        self.vehicle_speed = 16 # corresponds to 32 units moved within the time horizon
         self.tw_min = 0.0625
         self.tw_max = 0.1875
 

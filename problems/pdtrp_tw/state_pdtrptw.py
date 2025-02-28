@@ -22,7 +22,7 @@ class StatePDTRPTW(NamedTuple):
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
     i: torch.Tensor # Current timestep
 
-    SPEED = 32 # HARDCODED
+    SPEED = 16 # HARDCODED
 
     def __getitem__(self, key):
         assert torch.is_tensor(key) or isinstance(key, slice)
@@ -82,7 +82,7 @@ class StatePDTRPTW(NamedTuple):
         distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
         
         # advance the current time by the maximum of the travel time and the beginning of the time window plus service time 
-        service_starts = torch.maximum(self.cur_times  + (distances_travelled / self.SPEED), self.window_starts[self.ids, prev_a])
+        service_starts = torch.maximum(self.cur_times  + torch.round((distances_travelled / self.SPEED), decimals=4), self.window_starts[self.ids, prev_a])
 
         cur_times = service_starts + (self.service_times[self.ids, prev_a])
 
