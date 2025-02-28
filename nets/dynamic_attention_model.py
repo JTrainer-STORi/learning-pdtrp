@@ -179,11 +179,12 @@ class DynamicAttentionModel(nn.Module):
 
         log_p, pi, visit_times = self._inner(input, embeddings)
 
-        if self.is_pdtrptw or self.is_pdcvrptw:
+        # Should only be necesary to pad for capacitated problems as these are the only ones that could have varing route lengths within a batch due to different numbers of depot visits
+        if self.is_pdcvrp or self.is_pdcvrptw:
             
             max_len = max(len(route) for route in visit_times)
 
-            padded_visit_times = [route + [0.0] * (max_len - len(route)) for route in visit_times]
+            padded_visit_times = [route + [-1] * (max_len - len(route)) for route in visit_times]
 
             input['visit_times'] = torch.tensor(padded_visit_times, dtype=torch.float32, device=input['loc'].device)
     

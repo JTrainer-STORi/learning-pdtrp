@@ -16,6 +16,7 @@ class StatePDCVRP(NamedTuple):
     prev_a: torch.Tensor
     cur_times: torch.Tensor
     cur_coords: torch.Tensor
+    visit_times: list
     lengths: torch.Tensor
     used_cap: torch.Tensor
     visited_: torch.Tensor
@@ -60,6 +61,7 @@ class StatePDCVRP(NamedTuple):
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             used_cap=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             visited_= visited,
+            vist_times=[[] for _ in range(batch_size)],
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
@@ -80,8 +82,13 @@ class StatePDCVRP(NamedTuple):
         cur_coords = self.coords[self.ids, prev_a]
         distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
 
+        service_starts = self.cur_times + torch.round((distances_travelled / self.SPEED), decimals=4)
+
         # advance the current time by the travel time and service time
-        cur_times = self.cur_times + (distances_travelled / self.SPEED) + (self.service_times[self.ids, prev_a])
+        cur_times = service_starts + (self.service_times[self.ids, prev_a])
+
+        for i in range(batch_size):
+            self.visit_times[i].append(cur_times[i].item())
 
         # find out which dynamic nodes have arrived in the meantime
         new_arrival_mask = self.not_arrived_.clone()

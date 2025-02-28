@@ -409,7 +409,7 @@ for input in tqdm(dataloader, ascii=True):
         batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
 
     max_len = max(len(route) for route in batch_routes)
-    padded_batch_routes = [route + [-1]*(max_len - len(route)) for route in batch_routes]
+    padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
     padded_batch_times = [times + [-1]*(max_len - len(times)) for times in batch_times]
 
     tours_list += padded_batch_routes
