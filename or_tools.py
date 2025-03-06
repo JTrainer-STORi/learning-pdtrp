@@ -150,6 +150,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
             index = manager.NodeToIndex(location_idx)
             time_dimension.CumulVar(index).SetMin(time_window[0])
             time_dimension.SetCumulVarSoftUpperBound(index, time_window[1], 10)
+            routing.AddToAssignment(time_dimension.SlackVar(index))
         # Add time window constraints for each vehicle start node.
         depot_idx = data["depot"]
         for vehicle_id in range(data["num_vehicles"]):
@@ -157,6 +158,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
             time_dimension.CumulVar(index).SetRange(
                 data["time_windows"][depot_idx][0], data["time_windows"][depot_idx][1]
             )
+            routing.AddToAssignment(time_dimension.SlackVar(index))
         for i in range(data["num_vehicles"]):
             routing.AddVariableMinimizedByFinalizer(
                 time_dimension.CumulVar(routing.Start(i))
@@ -178,10 +180,25 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
     solution = routing.SolveWithParameters(search_parameters)
 
     route = get_routes(solution, routing, manager)[0]
-    if visit_times:
-        times = get_times(solution, routing, manager, data['service_times'])[0]
+
+    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+        times = []
+        time_dimension = routing.GetDimensionOrDie("Time")
+        for vehicle_id in range(data["num_vehicles"]):
+            if not routing.IsVehicleUsed(solution, vehicle_id):
+                continue
+            index = routing.Start(vehicle_id)
+            while not routing.IsEnd(index):
+                time_var = time_dimension.CumulVar(index)
+                times.append(solution.Min(time_var))
+                index = solution.Value(routing.NextVar(index))
+            time_var = time_dimension.CumulVar(index)
+            times.append(solution.Min(time_var))
     else:
-        times = get_times(solution, routing, manager)[0]
+        if visit_times:
+            times = get_times(solution, routing, manager, data['service_times'])[0]
+        else:
+            times = get_times(solution, routing, manager)[0]
 
     return route, times
 
@@ -387,7 +404,7 @@ for input in tqdm(dataloader, ascii=True):
             current_input['n_extra_depots'] = n_extra_depots 
 
         route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True)
-
+        
         # this won't work for the problems with time windows as these will naturally advance some of the times
         if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
             if bool(time_advances):
@@ -410,7 +427,7 @@ for input in tqdm(dataloader, ascii=True):
 
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-    padded_batch_times = [times + [-1]*(max_len - len(times)) for times in batch_times]
+    padded_batch_times = [times + [-1]*(max_len - len(times) - 1) for times in batch_times]
 
     tours_list += padded_batch_routes
     visit_times_list += padded_batch_times

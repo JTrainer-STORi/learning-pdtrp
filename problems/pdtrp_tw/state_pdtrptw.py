@@ -18,7 +18,7 @@ class StatePDTRPTW(NamedTuple):
  
     lengths: torch.Tensor
     visited_: torch.Tensor # Tracks which nodes have been visited
-    visit_times: torch.Tensor # Tracks the time at which each node was visited
+    visit_times: list # Tracks the time at which each node was visited
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
     i: torch.Tensor # Current timestep
 
@@ -60,7 +60,7 @@ class StatePDTRPTW(NamedTuple):
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             visited_= visited,
-            visit_times=torch.zeros((batch_size, 1, n_loc), dtype=torch.float32, device=loc.device),
+            visit_times=[[] for _ in range(batch_size)],
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
@@ -88,7 +88,7 @@ class StatePDTRPTW(NamedTuple):
 
         # record the time at which service began at the current location
         for i in range(batch_size):
-            self.visit_times[i, 0, prev_a[i, 0]] = service_starts[i, 0]
+            self.visit_times[i].append(service_starts[i, 0].item())
 
         # find out which dynamic nodes have arrived in the meantime
         new_arrival_mask = self.not_arrived_.clone()

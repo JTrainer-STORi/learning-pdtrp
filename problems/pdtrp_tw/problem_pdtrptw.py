@@ -25,11 +25,6 @@ class PDTRPTW(object):
         window_ends = input['window_ends']
         visit_times = input['visit_times'] # The times that each customer was visited - should probably be passed as a seperate argument as it is not an input
 
-        print('window ends')
-        print(window_ends[0])
-        print('visit times')
-        print(visit_times[0])
-
         # Check that tours are valid, i.e. contain all nodes and each node exactly once
         assert (
             torch.arange(pi.size(1), out=pi.data.new()).view(1, -1).expand_as(pi) ==
@@ -44,14 +39,8 @@ class PDTRPTW(object):
 
         #window_ends_ordered = window_ends[pi]
         window_ends_ordered = window_ends.gather(1, pi)
-
-        print('window ends ordered')
-        print(window_ends_ordered[0])
  
         time_differences = torch.maximum(visit_times.squeeze() - window_ends_ordered, torch.tensor([0], device=visit_times.device))
-
-        print('time differences')
-        print(time_differences[0])
 
         overall_difference = torch.sum(time_differences, dim=1)
 

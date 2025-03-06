@@ -21,7 +21,7 @@ class StatePDCVRPTW(NamedTuple):
     lengths: torch.Tensor
     used_cap: torch.Tensor
     visited_: torch.Tensor
-    visit_times: torch.Tensor # Tracks the time at which each node was visited
+    visit_times: list # Tracks the time at which each node was visited
     not_arrived_: torch.Tensor
     i: torch.Tensor # current timestep
 
@@ -67,7 +67,7 @@ class StatePDCVRPTW(NamedTuple):
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             used_cap=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             visited_= visited,
-            visit_times=torch.zeros((batch_size, 1, n_loc), dtype=torch.float32, device=loc.device),
+            visit_times=[[] for _ in range(batch_size)],
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
@@ -88,13 +88,13 @@ class StatePDCVRPTW(NamedTuple):
         cur_coords = self.coords[self.ids, prev_a]
         distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
 
-        service_starts = torch.maximum(self.cur_times + (distances_travelled/self.SPEED), self.window_starts[self.ids, prev_a])
+        service_starts = torch.maximum(self.cur_times  + torch.round((distances_travelled / self.SPEED), decimals=4), self.window_starts[self.ids, prev_a])
 
         # advance the current time by the travel time and service time
         cur_times = service_starts + (self.service_times[self.ids, prev_a])
 
         for i in range(batch_size):
-            self.visit_times[i, 0, prev_a[i, 0]] = service_starts[i, 0]
+            self.visit_times[i].append(service_starts[i, 0].item())
 
         # find out which dynamic nodes have arrived in the meantime
         new_arrival_mask = self.not_arrived_.clone()
