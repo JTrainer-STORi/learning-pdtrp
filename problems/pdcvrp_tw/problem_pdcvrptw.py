@@ -65,12 +65,13 @@ class PDCVRPTW(object):
 
         # need to reorder time windows in the order of the tour
         overall_difference = torch.zeros(batch_size, device=visit_times.device)
+
         for i in range(batch_size):
             mask = pi[i] != 0
-            pi_wo_depot = pi[i][mask] -1
-            visit_times_wo_depot = visit_times.squeeze()[i][1:]
-            window_ends_ordered = window_ends[i][1:][pi_wo_depot]
-            time_difference = torch.maximum(visit_times_wo_depot - window_ends_ordered, torch.tensor([0], device=visit_times_wo_depot.device))
+            pi_wo_depot = pi[i][mask]
+            visit_times_wo_depots = visit_times[i][mask]
+            window_ends_ordered = window_ends[i][pi_wo_depot]
+            time_difference = torch.maximum(visit_times_wo_depots - window_ends_ordered, torch.tensor([0], device=visit_times_wo_depots.device))
             overall_difference[i] = torch.sum(time_difference)
 
         return theta * distance + gamma * overall_difference, None
