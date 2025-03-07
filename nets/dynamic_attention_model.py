@@ -193,7 +193,7 @@ class DynamicAttentionModel(nn.Module):
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
-        cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), gamma=1.0)
+        cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), gamma=10.0)
 
         ll = self._calc_log_likelihood(log_p, mask)
 
