@@ -123,6 +123,8 @@ class PDCVRPTWDataset(Dataset):
 
         if filename is not None:
 
+            self.tours = []
+            self.visit_times = []
 
             print("Loading from {}...".format(filename))
 
