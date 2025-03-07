@@ -111,13 +111,13 @@ def rollout_groundtruth(problem, dataset, opts):
         ], 0)
     elif opts.problem == 'pdtrptw':
         return torch.cat([
-            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
+            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device), gamma=10.0)[0]
             for bat in DataLoader(
                 dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
         ], 0)
     elif opts.problem == 'pdcvrptw':
         return torch.cat([
-            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
+            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device), gamma=10.0)[0]
             for bat in DataLoader(
                 dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
         ], 0)
