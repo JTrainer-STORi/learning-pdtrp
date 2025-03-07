@@ -69,7 +69,7 @@ class PDCVRPTW(object):
         for i in range(batch_size):
             mask = pi[i] != 0
             pi_wo_depot = pi[i][mask]
-            visit_times_wo_depots = visit_times[i][mask]
+            visit_times_wo_depots = visit_times[i].squeeze()[mask]
             window_ends_ordered = window_ends[i][pi_wo_depot]
             time_difference = torch.maximum(visit_times_wo_depots - window_ends_ordered, torch.tensor([0], device=visit_times_wo_depots.device))
             overall_difference[i] = torch.sum(time_difference)
@@ -123,8 +123,6 @@ class PDCVRPTWDataset(Dataset):
 
         if filename is not None:
 
-            self.tours = []
-            self.visit_times = []
 
             print("Loading from {}...".format(filename))
 
