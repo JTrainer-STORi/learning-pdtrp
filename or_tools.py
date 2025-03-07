@@ -48,7 +48,7 @@ def get_times(solution, routing, manager, service_times=None):
         times.append(time)
     return times
 
-def resolve_route(current_input, partial_route = None, problem_type='PDTRP', solution_time_limit=3, visit_times=False):
+def resolve_route(current_input, partial_route = None, problem_type='PDTRP', solution_time_limit=3, visit_times=False, gamma=None):
     """This function solves the problem PDTRP/PDTRPTW/PDCVRP/PDCVRPTW instance using an information dictionary about nodes currently present, the solution will have its first node visits according to the partial_route.
     
     inputs: 
@@ -149,7 +149,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
                 continue
             index = manager.NodeToIndex(location_idx)
             time_dimension.CumulVar(index).SetMin(time_window[0])
-            time_dimension.SetCumulVarSoftUpperBound(index, time_window[1], 10)
+            time_dimension.SetCumulVarSoftUpperBound(index, time_window[1], gamma)
             routing.AddToAssignment(time_dimension.SlackVar(index))
         # Add time window constraints for each vehicle start node.
         depot_idx = data["depot"]
@@ -224,6 +224,10 @@ parser.add_argument('--seed', type=int, default=41394125,
                     help='The seed for the problem')
 parser.add_argument('--scenario', type=str, default=None,
                     help='Scenario for arrival weights and time windows')
+parser.add_argument('--read_data_filepath', type=str, default=None,
+                    help='Filepath to read data from in real data scenario')
+parser.add_argument('--gamma', type=int, default=1,
+                    help='How much to penalize lateness in time windows')
 
 # import debugpy
 # debugpy.listen(5678)  # 5678 is port
@@ -244,21 +248,24 @@ np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
 arrival_weights = None
+real_data = None
 
 if args.scenario is not None:
     if args.scenario == 'N1':
         arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     elif args.scenario == 'N2':
         arrival_weights = [5, 1, 1, 10, 6, 3, 1, 15, 12]
+    elif args.scenario == 'RealData':
+        real_data = args.read_data_filepath
 
 if problem_type == 'PDTRP':
-    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
+    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 elif problem_type == 'PDCVRP':
-    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
+    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 elif problem_type == 'PDTRPTW':
-    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
+    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 elif problem_type == 'PDCVRPTW':
-    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights)
+    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -339,7 +346,7 @@ for input in tqdm(dataloader, ascii=True):
                 current_input['time_matrix'] = new_time_matrix.tolist()
                 current_input['n_extra_depots'] = n_extra_depots  
 
-            route, times = resolve_route(current_input, partial_route, problem_type)
+            route, times = resolve_route(current_input, partial_route, problem_type, gamma=args.gamma)
 
             n_arrivals = 0
 
@@ -403,7 +410,7 @@ for input in tqdm(dataloader, ascii=True):
             current_input['time_matrix'] = new_time_matrix.tolist()
             current_input['n_extra_depots'] = n_extra_depots 
 
-        route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True)
+        route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True, gamma=args.gamma)
         
         # this won't work for the problems with time windows as these will naturally advance some of the times
         if problem_type == 'PDTRP' or problem_type == 'PDCVRP':

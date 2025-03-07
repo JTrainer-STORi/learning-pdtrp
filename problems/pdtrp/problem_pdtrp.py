@@ -42,7 +42,7 @@ class PDTRP(object):
         return StatePDTRP.initialize(*args, **kwargs)
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, arrival_weights=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=480, service_times_mu=0.8777, service_times_sigma=0.6647, arrival_weights=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, real_data=None):
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total

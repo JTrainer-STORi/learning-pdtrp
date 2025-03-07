@@ -15,11 +15,10 @@ class PDTRPTW(object):
 
     NAME = "pdtrptw"
 
-    def get_costs(input, pi):
+    def get_costs(input, pi, gamma):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
-        theta = 3.0
-        gamma = 1.0
+        theta = 1.0
 
         all_nodes = input['loc']
         window_ends = input['window_ends']
@@ -55,7 +54,7 @@ class PDTRPTW(object):
         return StatePDTRPTW.initialize(*args, **kwargs)
     
 class PDTRPTWDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=1, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, arrival_weights=None, tw_min=30/480, tw_max=90/480, seed_dataset=None):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, time_horizon=1, service_times_mu=0.8777, service_times_sigma=0.6647, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, arrival_weights=None, tw_min=30/480, tw_max=90/480, real_data=None):
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total
