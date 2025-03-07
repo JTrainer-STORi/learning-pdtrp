@@ -187,6 +187,8 @@ class DynamicAttentionModel(nn.Module):
             padded_visit_times = [route + [-1] * (max_len - len(route)) for route in visit_times]
 
             input['visit_times'] = torch.tensor(padded_visit_times, dtype=torch.float32, device=input['loc'].device)
+        else:
+            input['visit_times'] = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
     
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)

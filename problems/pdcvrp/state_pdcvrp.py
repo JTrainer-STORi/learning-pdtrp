@@ -61,7 +61,7 @@ class StatePDCVRP(NamedTuple):
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             used_cap=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             visited_= visited,
-            visit_times=[[] for _ in range(batch_size)],
+            visit_times=[[0.0] for _ in range(batch_size)],
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),

@@ -60,7 +60,7 @@ class StatePDTRPTW(NamedTuple):
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             visited_= visited,
-            visit_times=[[] for _ in range(batch_size)],
+            visit_times=[[0.0] for _ in range(batch_size)],
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
