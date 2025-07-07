@@ -60,7 +60,7 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
     coords = data['all_nodes']
 
     # add a return to the depot at the end of the tour
-    pi = torch.cat((pi, torch.tensor([0])), dim=0)
+    pi = torch.cat((pi, torch.tensor([0], device=pi.device)), dim=0)
 
     if problem == 'pdtrp':
 
@@ -96,17 +96,19 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
 
             # Tour lines
             lines = []
+            length = 0.0
             for j in range(1, len(current_tour)):
                 a = coords[current_tour[j - 1]]
                 b = coords[current_tour[j]]
                 lines.append([a, b])
+                length += ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
 
             if lines:
                 lc = mc.LineCollection(lines, colors='red', linewidths=2)
                 ax.add_collection(lc)
                 artists.append(lc)
 
-            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes")
+            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             ax.legend()
