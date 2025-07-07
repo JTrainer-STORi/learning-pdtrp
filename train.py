@@ -212,14 +212,15 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             # do a single rollout with the model to get a tour
             for i in [model_best, model_worst]:
                 for j in range(2):
-                    model_instance = val_dataset.__getitem__(i)
+                    dataset_instance = val_dataset.__getitem__(i)
+                    input_instance = dataset_to_input(dataset_instance, opts.problem, opts.device)
                     fig, ax = plt.subplots()
                     if j == 0: # use the model
                         set_decode_type(model, "greedy")
                         model.eval()
                         with torch.no_grad():
-                            _, _, pi, visit_times = model(dataset_to_input(model_instance, opts.problem, opts.device), return_pi=True, return_times=True)
-                            anim = FuncAnimation(fig, update_anim(opts.problem, model_instance, ax, pi=pi.squeeze(), visit_times=visit_times), frames=len(model_instance['visit_times']), blit=False)
+                            _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True)
+                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=pi, visit_times=visit_times), frames=len(dataset_instance['visit_times']), blit=False)
                             with tempfile.TemporaryDirectory() as tmpdir:
                                 video_path = os.path.join(tmpdir, 'validation.mp4')
                                 anim.save(video_path, writer='ffmpeg', fps=2)
@@ -230,7 +231,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                                 else:
                                     wandb.log({"videos_val{}/model_worst/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
                     else: # use the baseline  
-                        anim = FuncAnimation(fig, update_anim(opts.problem, model_instance, ax), frames=len(model_instance['visit_times']), blit=False)
+                        anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=move_to(dataset_instance['tour_nodes'], opts.device), visit_times=move_to(dataset_instance['visit_times'], opts.device)), frames=len(dataset_instance['visit_times']), blit=False)
 
                         with tempfile.TemporaryDirectory() as tmpdir:
                             video_path = os.path.join(tmpdir, 'validation.mp4')

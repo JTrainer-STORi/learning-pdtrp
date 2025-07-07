@@ -56,8 +56,10 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
     if visit_times is None:
         visit_times = data['visit_times']
 
-    arrival_times = data['arrival_times']
-    coords = data['all_nodes']
+    pi = pi.squeeze()
+    visit_times = visit_times.squeeze()
+    arrival_times = data['arrival_times'].squeeze()
+    coords = data['loc'].squeeze()
 
     # add a return to the depot at the end of the tour
     pi = torch.cat((pi, torch.tensor([0], device=pi.device)), dim=0)
@@ -65,7 +67,7 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
     if problem == 'pdtrp':
 
         def update(i):
-            current_time = visit_times.squeeze()[i]
+            current_time = visit_times[i]
             current_tour = pi[:i+1]
             num_customers = len(arrival_times) - 1
 
