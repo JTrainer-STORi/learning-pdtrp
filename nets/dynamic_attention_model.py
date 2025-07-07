@@ -65,6 +65,7 @@ class DynamicAttentionModel(nn.Module):
                  mask_logits= True,
                  mask_graph= False,
                  edge_features='adjacency',
+                 use_time_feature=False,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -111,6 +112,7 @@ class DynamicAttentionModel(nn.Module):
         self.mask_inner = mask_inner
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
+        self.use_time_feature = use_time_feature
         self.is_pdcvrp = problem.NAME == 'pdcvrp'
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
@@ -120,6 +122,8 @@ class DynamicAttentionModel(nn.Module):
         self.temp = 1.0
 
         step_context_dim = embedding_dim
+        if self.use_time_feature:
+            step_context_dim += 1
         node_dim = 2
         edge_dim = 1
 
@@ -271,6 +275,7 @@ class DynamicAttentionModel(nn.Module):
         query = fixed.context_node_projected + \
                 self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
 
+
         # Compute keys and values for the nodes
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
 
@@ -378,7 +383,23 @@ class DynamicAttentionModel(nn.Module):
                 -1
             )
     
-        return torch.gather(
+
+        if self.use_time_feature:
+            return torch.cat(
+                (
+                    torch.gather(
+                        embeddings,
+                        1,
+                        current_node.contiguous().view(batch_size, num_steps, 1)
+                        .expand(batch_size, num_steps, embeddings.size(-1))
+                    ).view(batch_size, num_steps, embeddings.size(-1)),
+                    state.get_timestep(normalize=True)[:,:, None]
+                ),
+                -1
+            )
+        
+        else:
+            return torch.gather(
                     embeddings,
                     1,
                     current_node.contiguous().view(batch_size, num_steps, 1)

@@ -93,6 +93,8 @@ def get_options(args=None):
                         help='Clip the parameters to within +- this value using tanh. Set to 0 to not do clipping.')
     parser.add_argument('--edge_features', type=str, default='distance',
                         help='Edge features to use: distance or adjacency')
+    parser.add_argument('--use_time_feature', action='store_true',
+                        help='Use time as an additional feature during decoding')
 
     # Training
     parser.add_argument('--lr_model', type=float, default=1e-4, 

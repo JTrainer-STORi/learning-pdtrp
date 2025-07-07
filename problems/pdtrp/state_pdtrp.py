@@ -7,6 +7,7 @@ class StatePDTRP(NamedTuple):
     service_times: torch.Tensor
     arrival_times: torch.Tensor
     speed: float
+    time_horizon: float
 
     ids: torch.Tensor
 
@@ -40,6 +41,7 @@ class StatePDTRP(NamedTuple):
         service_times = input['service_times']
         arrival_times = input['arrival_times']
         speed = input['speed']
+        time_horizon = input['time_horizon']
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
@@ -49,6 +51,7 @@ class StatePDTRP(NamedTuple):
             service_times=service_times,
             arrival_times=arrival_times,
             speed=speed,
+            time_horizon=time_horizon,
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
@@ -133,3 +136,9 @@ class StatePDTRP(NamedTuple):
 
     def construct_solutions(self, actions):
         return actions
+    
+    def get_timestep(self, normalize=True):
+        if normalize:
+            return self.cur_times / self.time_horizon
+        else:
+            return self.cur_times

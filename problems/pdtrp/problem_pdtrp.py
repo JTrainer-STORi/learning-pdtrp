@@ -157,6 +157,7 @@ class PDTRPDataset(Dataset):
             'service_times': torch.FloatTensor(service_times),
             'graph': ~torch.BoolTensor(nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)),
             'speed': torch.FloatTensor([self.speed]),
+            'time_horizon': torch.FloatTensor([self.time_horizon]),
         }
         if self.filename is not None:
             item['tour_nodes'] = torch.LongTensor(self.tours[idx])

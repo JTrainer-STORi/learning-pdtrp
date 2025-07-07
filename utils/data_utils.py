@@ -63,7 +63,8 @@ def dataset_to_input(dataset, problem, device):
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
                 'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
                 'graph': move_to(dataset['graph'], device).unsqueeze(0),
-                'speed': move_to(dataset['speed'], device)
+                'speed': move_to(dataset['speed'], device),
+                'time_horizon': move_to(dataset['time_horizon'], device)
             }
         elif problem == 'pdcvrp':
             input = {
@@ -99,7 +100,8 @@ def dataset_to_input(dataset, problem, device):
                 'service_times': move_to(dataset['service_times'], device),
                 'arrival_times': move_to(dataset['arrival_times'], device),
                 'graph': move_to(dataset['graph'], device),
-                'speed': move_to(dataset['speed'], device)
+                'speed': move_to(dataset['speed'], device),
+                'time_horizon': move_to(dataset['time_horizon'], device)
             }
         elif problem == 'pdcvrp':
             input = {
