@@ -66,6 +66,7 @@ class DynamicAttentionModel(nn.Module):
                  mask_graph= False,
                  edge_features='adjacency',
                  use_time_feature=False,
+                 project_time_feature=False,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -113,6 +114,7 @@ class DynamicAttentionModel(nn.Module):
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
         self.use_time_feature = use_time_feature
+        self.project_time_feature = project_time_feature
         self.is_pdcvrp = problem.NAME == 'pdcvrp'
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
@@ -122,7 +124,7 @@ class DynamicAttentionModel(nn.Module):
         self.temp = 1.0
 
         step_context_dim = embedding_dim
-        if self.use_time_feature:
+        if self.use_time_feature and not self.project_time_feature:
             step_context_dim += 1
         node_dim = 2
         edge_dim = 1
@@ -145,6 +147,8 @@ class DynamicAttentionModel(nn.Module):
 
         if self.edge_features == 'adjacency':
             self.edge_embed = nn.Embedding(2, embedding_dim)
+        elif self.edge_features == 'distance':
+            self.edge_embed = nn.Linear(1, embedding_dim, bias=True)
 
         # Encoder model
         self.embedder = self.encoder(n_layers=self.n_encoder_layers,
@@ -160,6 +164,13 @@ class DynamicAttentionModel(nn.Module):
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
         self.project_fixed_context = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_step_context = nn.Linear(step_context_dim, embedding_dim, bias=False)
+        if self.project_time_feature:
+            self.project_time_feature = nn.Sequential(
+                nn.Linear(1, embedding_dim),
+                nn.SiLU(),
+                nn.Linear(embedding_dim, embedding_dim, bias=False),
+            )
+        
         assert embedding_dim % n_heads == 0
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
         self.project_out = nn.Linear(embedding_dim, embedding_dim, bias=False)
@@ -177,7 +188,13 @@ class DynamicAttentionModel(nn.Module):
                 arrival_times: Arrival times of the nodes (batch_size, n_arrivals) dtype: torch.int64
         """
 
-        edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
+        if self.edge_features == 'adjacency':
+            edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
+        elif self.edge_features == 'distance':
+            edge_features = input['distance_matrix']
+
+        print("Edge features:", edge_features)
+        print("Edge features shape:", edge_features.shape)
 
         embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
@@ -333,10 +350,6 @@ class DynamicAttentionModel(nn.Module):
         return AttentionModelFixed(embeddings, fixed_context, *fixed_attention_node_data)
     
     def _get_parallel_step_context(self, embeddings, state):
-        """
-        Returns the context per step, optionally for multiple steps at once 
-        (for efficient evaluation of the model)
-        """
         current_node = state.get_current_node()
         batch_size, num_steps = current_node.size()
 
@@ -385,18 +398,25 @@ class DynamicAttentionModel(nn.Module):
     
 
         if self.use_time_feature:
-            return torch.cat(
-                (
-                    torch.gather(
-                        embeddings,
-                        1,
-                        current_node.contiguous().view(batch_size, num_steps, 1)
-                        .expand(batch_size, num_steps, embeddings.size(-1))
-                    ).view(batch_size, num_steps, embeddings.size(-1)),
-                    state.get_timestep(normalize=True)[:,:, None]
-                ),
-                -1
-            )
+            if self.project_time_feature:
+                time_feature = self.project_time_feature(state.get_timestep(normalize=True)[:,:, None])
+                return torch.gather(embeddings, 1, 
+                    current_node.contiguous().view(batch_size, num_steps, 1)
+                    .expand(batch_size, num_steps, embeddings.size(-1))
+                ).view(batch_size, num_steps, embeddings.size(-1)) + time_feature
+            else:
+                return torch.cat(
+                    (
+                        torch.gather(
+                            embeddings,
+                            1,
+                            current_node.contiguous().view(batch_size, num_steps, 1)
+                            .expand(batch_size, num_steps, embeddings.size(-1))
+                        ).view(batch_size, num_steps, embeddings.size(-1)),
+                        state.get_timestep(normalize=True)[:,:, None]
+                    ),
+                    -1
+                )
         
         else:
             return torch.gather(

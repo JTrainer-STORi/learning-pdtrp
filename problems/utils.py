@@ -24,7 +24,7 @@ def nearest_neighbor_graph(nodes, neighbors, knn_strat):
     
     # Remove self-connections
     np.fill_diagonal(W, 1)
-    return W
+    return W, W_val
 
 def sample_lognorm(mean, std_dev, size):
     shape = np.sqrt(np.log((std_dev**2 / mean**2) + 1))

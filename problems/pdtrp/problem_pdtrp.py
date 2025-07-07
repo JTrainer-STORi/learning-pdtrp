@@ -149,15 +149,17 @@ class PDTRPDataset(Dataset):
         all_nodes = self.all_nodes[idx]
         arrival_times = self.arrival_times[idx]
         service_times = self.service_times[idx]
+        nn_graph, distance_matrix = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)
 
         # Add groundtruth labels in case of SL         
         item = {
             'all_nodes': torch.FloatTensor(all_nodes),
             'arrival_times': torch.FloatTensor(arrival_times),
             'service_times': torch.FloatTensor(service_times),
-            'graph': ~torch.BoolTensor(nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)),
+            'graph': ~torch.BoolTensor(nn_graph),
             'speed': torch.FloatTensor([self.speed]),
             'time_horizon': torch.FloatTensor([self.time_horizon]),
+            'distance_matrix': torch.FloatTensor(distance_matrix),
         }
         if self.filename is not None:
             item['tour_nodes'] = torch.LongTensor(self.tours[idx])

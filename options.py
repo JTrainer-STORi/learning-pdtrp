@@ -3,6 +3,8 @@ import time
 import argparse
 import torch
 
+# The store_true action is used to create a boolean flag that is set to True if the option is provided, and False otherwise.
+# Similarly, the store_false action creates a boolean flag that is set to False if the option is provided, and True otherwise.
 
 def get_options(args=None):
     parser = argparse.ArgumentParser(
@@ -95,6 +97,8 @@ def get_options(args=None):
                         help='Edge features to use: distance or adjacency')
     parser.add_argument('--use_time_feature', action='store_true',
                         help='Use time as an additional feature during decoding')
+    parser.add_argument('--project_time_feature', action='store_true',
+                        help='Project time feature to embedding dimension using an MLP')
 
     # Training
     parser.add_argument('--lr_model', type=float, default=1e-4, 

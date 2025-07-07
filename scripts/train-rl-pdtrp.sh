@@ -7,18 +7,17 @@ PROBLEM="pdtrp"
 DEVICES="0"
 NUM_WORKERS=0
 
-MIN_TOTAL=40
-MAX_TOTAL=100
+MIN_TOTAL=20
+MAX_TOTAL=50
 MIN_DOD=0.2
 MAX_DOD=0.8
 NEIGHBORS=0.2
 KNN_STRAT="percentage"
 
-SCENARIO="N1"
+N_SUBREGIONS=1
 
-VAL_DATASET1="data/pdtrp/validation_data_PDTRP_N1.txt"
-# VAL_DATASET2="data/pdtrp/valsetRC1460100.5.txt"
-# VAL_DATASET3="data/tsp/tsp100_test_concorde.txt"
+VAL_DATASET1="new_data/pdtrp/pdtrp50dod0.5_val_ortools.txt"
+VAL_DATASET2="new_data/pdtrp/pdtrp50dod0.8_val_ortools.txt"
 
 N_EPOCHS=100
 EPOCH_SIZE=160
@@ -50,7 +49,7 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --min_total "$MIN_TOTAL" --max_total "$MAX_TOTAL" \
     --min_dod "$MIN_DOD" --max_dod "$MAX_DOD" \
     --neighbors "$NEIGHBORS" --knn_strat "$KNN_STRAT" \
-    --val_datasets "$VAL_DATASET1" \
+    --val_datasets "$VAL_DATASET1" "$VAL_DATASET2" \
     --epoch_size "$EPOCH_SIZE" \
     --batch_size "$BATCH_SIZE" --accumulation_steps "$ACCUMULATION_STEPS" \
     --n_epochs "$N_EPOCHS" \
@@ -64,4 +63,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" \
     --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" \
-    --scenario "$SCENARIO" --no_tensorboard
+    --no_tensorboard --n_subregions "$N_SUBREGIONS"

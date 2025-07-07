@@ -90,6 +90,7 @@ def run_rl(opts) -> None:
         checkpoint_encoder=opts.checkpoint_encoder,
         edge_features=opts.edge_features,
         use_time_feature=opts.use_time_feature,
+        project_time_feature=opts.project_time_feature,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
