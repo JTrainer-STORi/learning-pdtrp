@@ -4,14 +4,19 @@ from tqdm import tqdm
 import torch
 import math
 import numpy as np
+import tempfile
+import wandb
+
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 from sklearn.utils.class_weight import compute_class_weight
 
 from torch.utils.data import DataLoader, RandomSampler
 from torch.nn import DataParallel
 
-from utils.log_utils import log_values
-from utils.data_utils import BatchedRandomSampler
+from utils.log_utils import log_values, update_anim
+from utils.data_utils import BatchedRandomSampler, dataset_to_input
 from utils import move_to
 
 
@@ -27,7 +32,7 @@ def set_decode_type(model, decode_type):
 
 def validate(model, dataset, problem, opts):
     # Validate
-    print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')
+    print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')      
     cost = rollout(model, dataset, opts)
     gt_cost = rollout_groundtruth(problem, dataset, opts)
     opt_gap = (((cost/gt_cost) - 1) * 100)
@@ -38,8 +43,11 @@ def validate(model, dataset, problem, opts):
         cost.mean(), torch.std(cost)))
     print('Validation optimality gap: {:.3f}% +- {:.3f}'.format(
         opt_gap.mean(), torch.std(opt_gap)))
+    
+    model_best = opt_gap.argmax()
+    model_worst = opt_gap.argmin()
 
-    return cost.mean(), opt_gap.mean(), gt_cost.mean()
+    return cost.mean(), opt_gap.mean(), gt_cost.mean(), model_best, model_worst
 
 
 def rollout(model, dataset, opts):
@@ -47,42 +55,7 @@ def rollout(model, dataset, opts):
     set_decode_type(model, "greedy")
     model.eval()
     def eval_model_bat(bat):
-        if opts.problem == 'pdtrp':
-            input = {
-                'loc': move_to(bat['all_nodes'], opts.device),
-                'service_times': move_to(bat['service_times'], opts.device),
-                'arrival_times': move_to(bat['arrival_times'], opts.device),
-                'graph': move_to(bat['graph'], opts.device)
-            }
-        elif opts.problem == 'pdcvrp':
-            input = {
-                'loc': move_to(bat['all_nodes'], opts.device),
-                'service_times': move_to(bat['service_times'], opts.device),
-                'arrival_times': move_to(bat['arrival_times'], opts.device),
-                'demand': move_to(bat['demand'], opts.device),
-                'graph': move_to(bat['graph'], opts.device)
-            }
-        elif opts.problem == 'pdtrptw':
-            input = {
-                'loc': move_to(bat['all_nodes'], opts.device),
-                'service_times': move_to(bat['service_times'], opts.device),
-                'arrival_times': move_to(bat['arrival_times'], opts.device),
-                'graph': move_to(bat['graph'], opts.device),
-                'window_starts': move_to(bat['window_starts'], opts.device),
-                'window_ends': move_to(bat['window_ends'], opts.device),
-                'graph': move_to(bat['graph'], opts.device)
-            }
-        elif opts.problem == 'pdcvrptw':
-            input = {
-                'loc': move_to(bat['all_nodes'], opts.device),
-                'service_times': move_to(bat['service_times'], opts.device),
-                'arrival_times': move_to(bat['arrival_times'], opts.device),
-                'graph': move_to(bat['graph'], opts.device),
-                'window_starts': move_to(bat['window_starts'], opts.device),
-                'window_ends': move_to(bat['window_ends'], opts.device),
-                'demand': move_to(bat['demand'], opts.device),
-                'graph': move_to(bat['graph'], opts.device)
-            }
+        input = dataset_to_input(bat, opts.problem, opts.device)
         with torch.no_grad():
             cost, _ = model(input)
         return cost
@@ -138,13 +111,15 @@ def clip_grad_norms(param_groups, max_norm=math.inf):
     return grad_norms, grad_norms_clipped
 
 
-def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, problem, tb_logger, opts):
+def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, problem, tb_logger, wandb_run, opts):
     print("\nStart train epoch {}, lr={} for run {}".format(epoch, optimizer.param_groups[0]['lr'], opts.run_name))
     step = epoch * (opts.epoch_size // opts.batch_size)
     start_time = time.time()
 
     if not opts.no_tensorboard:
         tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
+    if not opts.no_wandb:
+        wandb_run.log({'learnrate_pg0': optimizer.param_groups[0]['lr']}, step=step)
 
     arrival_weights = None
 
@@ -157,8 +132,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     # Generate new training data for each epoch
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
-            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, batch_size=opts.batch_size, 
-            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mu = opts.stmu, service_times_sigma = opts.stsig, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = arrival_weights
+            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, speed=opts.speed, batch_size=opts.batch_size, n_subregions=opts.n_subregions,
+            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mean = opts.stmean, service_times_var = opts.stvar, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = arrival_weights
         ))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
@@ -187,6 +162,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                     step,
                     batch,
                     tb_logger,
+                    wandb_run,
                     opts
                 )
 
@@ -202,6 +178,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                     step,
                     batch,
                     tb_logger,
+                    wandb_run,
                     opts
                 )
 
@@ -226,56 +203,60 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         )
 
     for val_idx, val_dataset in enumerate(val_datasets):
-        avg_reward, avg_opt_gap, avg_gt_cost = validate(model, val_dataset, problem, opts)
+        avg_reward, avg_opt_gap, avg_gt_cost, model_worst, model_best = validate(model, val_dataset, problem, opts)
         if not opts.no_tensorboard:
             tb_logger.log_value('val{}/avg_reward'.format(val_idx+1), avg_reward, step)
             tb_logger.log_value('val{}/opt_gap'.format(val_idx+1), avg_opt_gap, step)
             tb_logger.log_value('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
+        if not opts.no_wandb:
+            # do a single rollout with the model to get a tour
+            for i in [model_best, model_worst]:
+                for j in range(2):
+                    model_instance = val_dataset.__getitem__(i)
+                    fig, ax = plt.subplots()
+                    if j == 0: # use the model
+                        set_decode_type(model, "greedy")
+                        model.eval()
+                        with torch.no_grad():
+                            _, _, pi, visit_times = model(dataset_to_input(model_instance, opts.problem, opts.device), return_pi=True, return_times=True)
+                            anim = FuncAnimation(fig, update_anim(opts.problem, model_instance, ax, pi=pi.squeeze(), visit_times=visit_times), frames=len(model_instance['visit_times']), blit=False)
+                            with tempfile.TemporaryDirectory() as tmpdir:
+                                video_path = os.path.join(tmpdir, 'validation.mp4')
+                                anim.save(video_path, writer='ffmpeg', fps=2)
 
+                                # Log the video to wandb
+                                if i == model_best:
+                                    wandb.log({"videos_val{}/model_best/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                                else:
+                                    wandb.log({"videos_val{}/model_worst/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                    else: # use the baseline  
+                        anim = FuncAnimation(fig, update_anim(opts.problem, model_instance, ax), frames=len(model_instance['visit_times']), blit=False)
+
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            video_path = os.path.join(tmpdir, 'validation.mp4')
+                            anim.save(video_path, writer='ffmpeg', fps=2)
+
+                            # Log the video to wandb
+                            if i == model_best:
+                                wandb.log({"videos_val{}/model_best/baseline".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                            else:
+                                wandb.log({"videos_val{}/model_worst/baseline".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                    plt.close('all')
+            wandb_run.log({
+                'val{}/avg_reward'.format(val_idx+1): avg_reward,
+                'val{}/opt_gap'.format(val_idx+1): avg_opt_gap,
+                'val{}/avg_gt_cost'.format(val_idx+1): avg_gt_cost
+            }, step=step)
+                
     baseline.epoch_callback(model, epoch)
 
 
 def train_batch(model, optimizer, baseline, epoch, 
-                batch_id, step, batch, tb_logger, opts):
+                batch_id, step, batch, tb_logger, wandb_run, opts):
     # Unwrap baseline
     bat, bl_val = baseline.unwrap_batch(batch)
 
-    if opts.problem == 'pdtrp':
-        input = {
-            'loc': move_to(bat['all_nodes'], opts.device),
-            'service_times': move_to(bat['service_times'], opts.device),
-            'arrival_times': move_to(bat['arrival_times'], opts.device),
-            'graph': move_to(bat['graph'], opts.device)
-        }
-    elif opts.problem == 'pdcvrp':
-        input = {
-            'loc': move_to(bat['all_nodes'], opts.device),
-            'service_times': move_to(bat['service_times'], opts.device),
-            'arrival_times': move_to(bat['arrival_times'], opts.device),
-            'demand': move_to(bat['demand'], opts.device),
-            'graph': move_to(bat['graph'], opts.device)
-        }
-    elif opts.problem == 'pdtrptw':
-        input = {
-            'loc': move_to(bat['all_nodes'], opts.device),
-            'service_times': move_to(bat['service_times'], opts.device),
-            'arrival_times': move_to(bat['arrival_times'], opts.device),
-            'graph': move_to(bat['graph'], opts.device),
-            'window_starts': move_to(bat['window_starts'], opts.device),
-            'window_ends': move_to(bat['window_ends'], opts.device),
-            'graph': move_to(bat['graph'], opts.device)
-        }
-    elif opts.problem == 'pdcvrptw':
-        input = {
-            'loc': move_to(bat['all_nodes'], opts.device),
-            'service_times': move_to(bat['service_times'], opts.device),
-            'arrival_times': move_to(bat['arrival_times'], opts.device),
-            'graph': move_to(bat['graph'], opts.device),
-            'window_starts': move_to(bat['window_starts'], opts.device),
-            'window_ends': move_to(bat['window_ends'], opts.device),
-            'demand': move_to(bat['demand'], opts.device),
-            'graph': move_to(bat['graph'], opts.device)
-        }
+    input = dataset_to_input(bat, opts.problem, opts.device)
     
     # Optionally move Tensors to GPU
     bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
@@ -307,4 +288,4 @@ def train_batch(model, optimizer, baseline, epoch,
     # Logging
     if step % int(opts.log_step) == 0:
         log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, 
-                   reinforce_loss, bl_loss, tb_logger, opts)
+                   reinforce_loss, bl_loss, tb_logger, wandb_run, opts)

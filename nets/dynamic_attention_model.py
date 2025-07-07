@@ -193,16 +193,19 @@ class DynamicAttentionModel(nn.Module):
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
-        cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), gamma=10.0)
+        if self.is_pdtrptw or self.is_pdcvrptw:
+            cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), gamma=10.0)
+        else:
+            cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device))
 
         ll = self._calc_log_likelihood(log_p, mask)
 
         if return_pi and return_times:
-            return cost, ll, pi, visit_times
+            return cost, ll, pi_w_depot, input['visit_times']
         elif return_pi:
-            return cost, ll, pi
+            return cost, ll, pi_w_depot
         elif return_times:
-            return cost, ll, visit_times
+            return cost, ll, input['visit_times']
         else:
             return cost, ll
         

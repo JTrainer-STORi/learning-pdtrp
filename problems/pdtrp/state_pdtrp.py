@@ -6,6 +6,7 @@ class StatePDTRP(NamedTuple):
     coords: torch.Tensor # Depot + static_loc + dynamic_loc
     service_times: torch.Tensor
     arrival_times: torch.Tensor
+    speed: float
 
     ids: torch.Tensor
 
@@ -18,7 +19,6 @@ class StatePDTRP(NamedTuple):
     visit_times: list # Tracks the time at which each node was visited
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
     i: torch.Tensor # Current timestep
-    SPEED = 16
 
     def __getitem__(self, key):
         assert torch.is_tensor(key) or isinstance(key, slice)
@@ -39,6 +39,7 @@ class StatePDTRP(NamedTuple):
         loc = input['loc']
         service_times = input['service_times']
         arrival_times = input['arrival_times']
+        speed = input['speed']
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
@@ -47,6 +48,7 @@ class StatePDTRP(NamedTuple):
             coords=loc,
             service_times=service_times,
             arrival_times=arrival_times,
+            speed=speed,
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
@@ -73,7 +75,7 @@ class StatePDTRP(NamedTuple):
         cur_coords = self.coords[self.ids, prev_a]
         distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
 
-        service_starts = self.cur_times + torch.round((distances_travelled / self.SPEED), decimals=4)
+        service_starts = self.cur_times + torch.round((distances_travelled / self.speed), decimals=4)
         
         # advance the current time by the travel time and service time 
         cur_times = service_starts + (self.service_times[self.ids, prev_a])
@@ -100,6 +102,13 @@ class StatePDTRP(NamedTuple):
                     # ... and update the mask accordingly
                     new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
                     new_arrival_mask[i, 0, new_arrivals] = False
+
+        # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
+        if visited_.all():
+            distances_back_to_depot = (self.coords[self.ids, 0] - cur_coords).norm(p=2, dim=-1)
+            time_back_at_depot = cur_times + torch.round((distances_back_to_depot / self.speed), decimals=4)
+            for i in range(batch_size):
+                self.visit_times[i].append(time_back_at_depot[i, 0].item())
 
         return self._replace(prev_a=prev_a, cur_coords=cur_coords, cur_times=cur_times, lengths=self.lengths + distances_travelled, visited_=visited_, not_arrived_=new_arrival_mask, i=self.i + 1)
 

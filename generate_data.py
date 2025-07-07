@@ -13,7 +13,6 @@ N_TOTAL=100
 TIME_HORIZON=8*60
 E_DOD=0.5
 
-
 filename = 'pdtrp100edod.5RR.txt'
 
 all_nodes_list = []

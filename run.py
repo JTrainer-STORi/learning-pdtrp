@@ -7,6 +7,7 @@ import numpy as np
 
 import torch
 import torch.optim as optim
+import wandb
 
 from options import get_options
 from train import train_epoch, get_inner_model
@@ -38,6 +39,14 @@ def run_rl(opts) -> None:
     tb_logger = None
     if not opts.no_tensorboard:
         tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_total, opts.max_total, opts.min_dod, opts.max_dod), opts.run_name))
+    if not opts.no_wandb:
+        wandb_run = wandb.init(
+            project="dynamic VRP",
+            name=opts.run_name,
+            config=vars(opts),
+            dir=opts.log_dir,
+            resume="allow" if opts.resume else None
+        )
 
     os.makedirs(opts.save_dir)
     # Save arguments so exact configuration can always be found
@@ -95,6 +104,10 @@ def run_rl(opts) -> None:
     # Overwrite model parameters by parameters to load
     model_ = get_inner_model(model)
     model_.load_state_dict({**model_.state_dict(), **load_data.get('model', {})})
+
+    if not opts.no_wandb:
+        if opts.watch_gradients:
+            wandb.watch(model, log='all', log_graph=True)
 
     # Initialize baseline
     if opts.baseline == 'exponential':
@@ -165,7 +178,7 @@ def run_rl(opts) -> None:
         val_datasets.append(
             problem.make_dataset(
                 filename=val_filename, batch_size=opts.val_batch_size, num_samples=opts.val_size, 
-                neighbors=opts.neighbors, knn_strat=opts.knn_strat
+                neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed,
             ))
 
     if opts.resume:
@@ -191,8 +204,13 @@ def run_rl(opts) -> None:
             val_datasets,
             problem,
             tb_logger,
+            wandb_run,
             opts
         )
+
+    # finish wand run
+    if not opts.no_wandb:
+        wandb.finish()
 
 if __name__ == "__main__":
 

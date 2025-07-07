@@ -19,6 +19,9 @@ def get_options(args=None):
                         help='The minimum ratio of dynamic nodes')
     parser.add_argument('--max_dod', type=float, default=0.8,
                         help='The maximum ratio of dynamic nodes')
+    parser.add_argument('--n_subregions', type=int, default=9,
+                        help='Number of subregions to generate the customers in. Passing 1 will generate customers uniformly in the unit square.')
+    parser.add_argument('--speed', type=float, default=4.0)
     parser.add_argument('--neighbors', type=float, default=20, 
                         help="The k-nearest neighbors for graph sparsification")
     parser.add_argument('--knn_strat', type=str, default=None, 
@@ -42,20 +45,16 @@ def get_options(args=None):
                         help='Number of instances used for reporting validation performance')
     parser.add_argument('--rollout_size', type=int, default=10000, 
                         help='Number of instances used for updating rollout baseline')
-    parser.add_argument('--set_start', type=bool, default=False,
-                        help='toggle whether to have the tsp always start at node 0')
     # parser.add_argument('--with_replacement', type=bool, default=False,
     #                     help='whether to sample arrival times with replacement')
     parser.add_argument('--route_name', type=str, default=None,
                         help='Name of the route from which to get stop and distance info')
     parser.add_argument('--time_horizon', type=int, default=480,
                         help='Time horizon for dynamic node arrivals')
-    parser.add_argument('--stmu', type=float, default=0.8777,
-                        help='mu parameter of lognormal distribution for service times')
-    parser.add_argument('--stsig', type=float, default=0.6647,
-                        help='sigma parameter of lognormal distribution for service times')
-    # parser.add_argument('--seed_dataset', type = str, default = None,
-    #                     help = 'Seed dataset to use when generating instances')
+    parser.add_argument('--stmean', type=float, default=3,
+                        help='mean of service times')
+    parser.add_argument('--stvar', type=float, default=5,
+                        help='variance of service times')
     parser.add_argument('--L', type=float, default=0.125,
                         help = 'Maximum time any customer can be serviced after the time horizon')
     parser.add_argument('--gamma', type=float, default=1, 
@@ -118,7 +117,8 @@ def get_options(args=None):
     parser.add_argument('--shrink_size', type=int, default=None,
                         help='Shrink the batch size if at least this many instances in the batch are finished'
                              ' to save memory (default None means no shrinking)')
-    parser.add_argument('--seed', type=int, default=1234, help='Random seed to use')
+    parser.add_argument('--seed', type=int, default=1234,
+                        help='Random seed to use')
     parser.add_argument('--profiler', type=bool, default=False,
                         help="whether to run pytorch profiler on this run or not")
 
@@ -147,8 +147,12 @@ def get_options(args=None):
                         help='Disable progress bar')
     parser.add_argument('--no_cuda', action='store_true', 
                         help='Disable CUDA')
+    parser.add_argument('--no_wandb', action='store_true',
+                        help='Disable Weights & Biases logging')
     parser.add_argument('--profile', type=bool, default=False,
                         help='run cuda profiler')
+    parser.add_argument('--watch_gradients', action='store_true',
+                        help='Watch gradients in Weights & Biases')
 
     opts = parser.parse_args(args)
 

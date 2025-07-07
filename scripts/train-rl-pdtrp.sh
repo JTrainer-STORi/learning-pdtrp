@@ -62,6 +62,6 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --lr_model "$LR_MODEL" --max_grad_norm "$MAX_NORM" \
     --num_workers "$NUM_WORKERS" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
-    --run_name "$RUN_NAME" --set_start "$SET_START" \
+    --run_name "$RUN_NAME" \
     --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" \
-    --scenario "$SCENARIO"
+    --scenario "$SCENARIO" --no_tensorboard

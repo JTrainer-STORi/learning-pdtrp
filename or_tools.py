@@ -13,6 +13,7 @@ import torch
 import sys
 from functools import partial
 from tqdm import tqdm
+import os
 
 def get_routes(solution, routing, manager):
     """Get vehicle routes from a solution and store them in an array."""
@@ -200,6 +201,18 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
         else:
             times = get_times(solution, routing, manager)[0]
 
+    if visit_times:
+        """Prints assignment on console."""
+        print(f"Objective: {solution.ObjectiveValue()}")
+        # Display dropped nodes.
+        dropped_nodes = "Dropped nodes:"
+        for node in range(routing.Size()):
+            if routing.IsStart(node) or routing.IsEnd(node):
+                continue
+            if solution.Value(routing.NextVar(node)) == node:
+                dropped_nodes += f" {manager.IndexToNode(node)}"
+        print(dropped_nodes)
+
     return route, times
 
 parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
@@ -216,8 +229,12 @@ parser.add_argument('--min_dod', type=float, default=0.2,
                     help='The minimum ratio of dynamic nodes')
 parser.add_argument('--max_dod', type=float, default=0.8,
                     help='The maximum ratio of dynamic nodes')
+parser.add_argument('--speed', type=float, default=4.0,
+                    help='The speed of the vehicle in units/h')
+parser.add_argument('--n_subregions', type=int, default=9,
+                        help='Number of subregions to generate the customers in. Passing 1 will generate customers uniformly in the unit square.')
 parser.add_argument('--filename', type=str, default=None,
-                    help='The filename to save the data from')
+                    help='The filename to save the data to')
 parser.add_argument('--batch_size', type=int, default=16,
                     help='The batch size for the problem')
 parser.add_argument('--seed', type=int, default=41394125,
@@ -259,7 +276,7 @@ if args.scenario is not None:
         real_data = args.read_data_filepath
 
 if problem_type == 'PDTRP':
-    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
+    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, n_subregions=args.n_subregions, arrival_weights=arrival_weights, real_data=real_data)
 elif problem_type == 'PDCVRP':
     dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 elif problem_type == 'PDTRPTW':
@@ -334,7 +351,7 @@ for input in tqdm(dataloader, ascii=True):
 
             current_input = {}
 
-            current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
+            current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/args.speed)*1e4).to(torch.int32).tolist()
             current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
             if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
                 current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
@@ -398,7 +415,7 @@ for input in tqdm(dataloader, ascii=True):
 
         current_input = {}
 
-        current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/dataset.vehicle_speed)*1e4).to(torch.int32).tolist()
+        current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/args.speed)*1e4).to(torch.int32).tolist()
         current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
         if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
             current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
@@ -423,6 +440,8 @@ for input in tqdm(dataloader, ascii=True):
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
 
+        #assert that the length of the route is the same as the number of nodes
+        assert len(route) == all_nodes.shape[0] + 1
 
         batch_routes += [route]
         # if problem_type == 'PDCVRPTW':
@@ -430,7 +449,7 @@ for input in tqdm(dataloader, ascii=True):
         #     new_times = np.insert(np.array(times)[np.array(route) != 0], 0, times[0])
         #     batch_times += [[np.round(x * 1e-4, decimals=4) for x in new_times]]
         # else:
-        batch_times += [[np.round(x * 1e-4, decimals=4) for x in times[:-1]]]
+        batch_times += [[np.round(x * 1e-4, decimals=4) for x in times]]
 
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
@@ -441,7 +460,9 @@ for input in tqdm(dataloader, ascii=True):
 
 # for each run, we need to save the information to file so that it can be used to validate the model
 
-with open("data/" + args.problem.lower() + "/" + filename, "w") as f:
+os.makedirs("new_data/" + args.problem.lower(), exist_ok=True)
+
+with open("new_data/" + args.problem.lower() + "/" + filename, "w") as f:
     for i in range(NUM_SAMPLES):
         f.write( " ".join( str(x)+str(" ")+str(y) for x,y in all_nodes_list[i]))
         f.write( str(" ") + str("arrival_times" + str(" ")))

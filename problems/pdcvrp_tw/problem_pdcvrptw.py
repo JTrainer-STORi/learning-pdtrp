@@ -20,7 +20,7 @@ class PDCVRPTW(object):
     def get_costs(input, pi, gamma):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
-        theta = 3.0
+        theta = 1.0
         batch_size, graph_size = input['demand'].size()
         graph_size -= 1
 
@@ -139,7 +139,7 @@ class PDCVRPTWDataset(Dataset):
                 self.window_starts.append([float(x) for x in line[line.index('window_starts') + 1:line.index('window_ends')]])
                 self.window_ends.append([float(x) for x in line[line.index('window_ends') + 1:line.index('demands')]])
                 self.demand.append([float(x) for x in line[line.index('demands') + 1:line.index('tour')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') -1]])
+                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
                 self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         else:

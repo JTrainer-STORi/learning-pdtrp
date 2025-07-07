@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 
 from torch.utils.data import Sampler
+from utils import move_to
 
 
 def check_extension(filename):
@@ -52,3 +53,80 @@ class BatchedRandomSampler(Sampler):
 
     def __len__(self):
         return len(self.data_source)
+
+def dataset_to_input(dataset, problem, device):
+    """Convert a dataset to a model input format"""
+    if dataset['all_nodes'].dim() == 2:
+        if problem == 'pdtrp':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
+                'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
+                'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
+                'graph': move_to(dataset['graph'], device).unsqueeze(0),
+                'speed': move_to(dataset['speed'], device)
+            }
+        elif problem == 'pdcvrp':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'demand': move_to(dataset['demand'], device),
+                'graph': move_to(dataset['graph'], device)
+            }
+        elif problem == 'pdtrptw':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'graph': move_to(dataset['graph'], device),
+                'window_starts': move_to(dataset['window_starts'], device),
+                'window_ends': move_to(dataset['window_ends'], device)
+            }
+        elif problem == 'pdcvrptw':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'demand': move_to(dataset['demand'], device),
+                'graph': move_to(dataset['graph'], device),
+                'window_starts': move_to(dataset['window_starts'], device),
+                'window_ends': move_to(dataset['window_ends'], device)
+            }
+    else:
+        if problem == 'pdtrp':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'graph': move_to(dataset['graph'], device),
+                'speed': move_to(dataset['speed'], device)
+            }
+        elif problem == 'pdcvrp':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'demand': move_to(dataset['demand'], device),
+                'graph': move_to(dataset['graph'], device)
+            }
+        elif problem == 'pdtrptw':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'graph': move_to(dataset['graph'], device),
+                'window_starts': move_to(dataset['window_starts'], device),
+                'window_ends': move_to(dataset['window_ends'], device)
+            }
+        elif problem == 'pdcvrptw':
+            input = {
+                'loc': move_to(dataset['all_nodes'], device),
+                'service_times': move_to(dataset['service_times'], device),
+                'arrival_times': move_to(dataset['arrival_times'], device),
+                'demand': move_to(dataset['demand'], device),
+                'graph': move_to(dataset['graph'], device),
+                'window_starts': move_to(dataset['window_starts'], device),
+                'window_ends': move_to(dataset['window_ends'], device)
+            }
+
+    return input

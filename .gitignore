@@ -1,5 +1,6 @@
 .vscode/
 data/
+new_data/
 __pycache__/
 outputs/
 logs/
@@ -14,3 +15,6 @@ or_tools_tidy.ipynb
 or_tools.ipynb
 models_HEC/
 *.ipynb
+pretrained/
+*.ipynb
+scripts/
