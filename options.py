@@ -155,6 +155,8 @@ def get_options(args=None):
                         help='Disable CUDA')
     parser.add_argument('--no_wandb', action='store_true',
                         help='Disable Weights & Biases logging')
+    parser.add_argument('--no_videos', action='store_true',
+                        help='Disable video logging on wandb')
     parser.add_argument('--profile', type=bool, default=False,
                         help='run cuda profiler')
     parser.add_argument('--watch_gradients', action='store_true',

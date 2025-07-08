@@ -191,10 +191,7 @@ class DynamicAttentionModel(nn.Module):
         if self.edge_features == 'adjacency':
             edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
         elif self.edge_features == 'distance':
-            edge_features = input['distance_matrix']
-
-        print("Edge features:", edge_features)
-        print("Edge features shape:", edge_features.shape)
+            edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
 
         embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 

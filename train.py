@@ -210,39 +210,40 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             tb_logger.log_value('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
         if not opts.no_wandb:
             # do a single rollout with the model to get a tour
-            for i in [model_best, model_worst]:
-                for j in range(2):
-                    dataset_instance = val_dataset.__getitem__(i)
-                    input_instance = dataset_to_input(dataset_instance, opts.problem, opts.device)
-                    fig, ax = plt.subplots()
-                    if j == 0: # use the model
-                        set_decode_type(model, "greedy")
-                        model.eval()
-                        with torch.no_grad():
-                            _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True)
-                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=pi, visit_times=visit_times), frames=len(dataset_instance['visit_times']), blit=False)
+            if not opts.no_video:
+                for i in [model_best, model_worst]:
+                    for j in range(2):
+                        dataset_instance = val_dataset.__getitem__(i)
+                        input_instance = dataset_to_input(dataset_instance, opts.problem, opts.device)
+                        fig, ax = plt.subplots()
+                        if j == 0: # use the model
+                            set_decode_type(model, "greedy")
+                            model.eval()
+                            with torch.no_grad():
+                                _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True)
+                                anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=pi, visit_times=visit_times), frames=len(dataset_instance['visit_times']), blit=False)
+                                with tempfile.TemporaryDirectory() as tmpdir:
+                                    video_path = os.path.join(tmpdir, 'validation.mp4')
+                                    anim.save(video_path, writer='ffmpeg', fps=2)
+
+                                    # Log the video to wandb
+                                    if i == model_best:
+                                        wandb.log({"videos_val{}/model_best/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                                    else:
+                                        wandb.log({"videos_val{}/model_worst/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                        else: # use the baseline  
+                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=move_to(dataset_instance['tour_nodes'], opts.device), visit_times=move_to(dataset_instance['visit_times'], opts.device)), frames=len(dataset_instance['visit_times']), blit=False)
+
                             with tempfile.TemporaryDirectory() as tmpdir:
                                 video_path = os.path.join(tmpdir, 'validation.mp4')
                                 anim.save(video_path, writer='ffmpeg', fps=2)
 
                                 # Log the video to wandb
                                 if i == model_best:
-                                    wandb.log({"videos_val{}/model_best/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                                    wandb.log({"videos_val{}/model_best/baseline".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
                                 else:
-                                    wandb.log({"videos_val{}/model_worst/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
-                    else: # use the baseline  
-                        anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=move_to(dataset_instance['tour_nodes'], opts.device), visit_times=move_to(dataset_instance['visit_times'], opts.device)), frames=len(dataset_instance['visit_times']), blit=False)
-
-                        with tempfile.TemporaryDirectory() as tmpdir:
-                            video_path = os.path.join(tmpdir, 'validation.mp4')
-                            anim.save(video_path, writer='ffmpeg', fps=2)
-
-                            # Log the video to wandb
-                            if i == model_best:
-                                wandb.log({"videos_val{}/model_best/baseline".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
-                            else:
-                                wandb.log({"videos_val{}/model_worst/baseline".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
-                    plt.close('all')
+                                    wandb.log({"videos_val{}/model_worst/baseline".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
+                        plt.close('all')
             wandb_run.log({
                 'val{}/avg_reward'.format(val_idx+1): avg_reward,
                 'val{}/opt_gap'.format(val_idx+1): avg_opt_gap,
