@@ -210,7 +210,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             tb_logger.log_value('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
         if not opts.no_wandb:
             # do a single rollout with the model to get a tour
-            if not opts.no_video:
+            if not opts.no_videos:
                 for i in [model_best, model_worst]:
                     for j in range(2):
                         dataset_instance = val_dataset.__getitem__(i)
