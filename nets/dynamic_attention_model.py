@@ -342,8 +342,8 @@ class DynamicAttentionModel(nn.Module):
         # for now, going to do this the easy way and simply put the masked locations into the nearest neighbour function and get the new distance matrix and graph from that
         locs_on_cpu = masked_input['loc'].squeeze(0).cpu().numpy()
         nn_graph, distance_matrix = nearest_neighbor_graph(locs_on_cpu, self.neighbors, self.knn_strat)
-        masked_input['graph'] = ~torch.BoolTensor(nn_graph, device=masked_input['loc'].device)
-        masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix, device=masked_input['loc'].device)
+        masked_input['graph'] = ~torch.BoolTensor(nn_graph).to(masked_input['loc'].device)
+        masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix).to(masked_input['loc'].device)
         masked_input['time_horizon'] = input['time_horizon']
         if 'window_starts' in input:
             masked_input['window_starts'] = input['window_starts'][mask].unsqueeze(0)

@@ -1,5 +1,7 @@
 from matplotlib import pyplot as plt
 from matplotlib import collections as mc
+from matplotlib import cm
+import numpy as np
 
 import torch
 
@@ -225,74 +227,76 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
             return artists  # This is key!
         
     elif problem=='pdcvrp':
-        current_time = visit_times[i]
-        current_tour = pi[:i+1]
-        visited_mask[current_tour] = True
 
-        num_customers = len(arrival_times) - 1
-        available_mask = arrival_times[1:] <= current_time
-        unavailable_mask = ~available_mask
-        available_customers = coords[1:][available_mask]
-        unavailable_customers = coords[1:][unavailable_mask]
+        def update(i):
+            current_time = visit_times[i]
+            current_tour = pi[:i+1]
+            visited_mask[current_tour] = True
 
-        ax.clear()
+            num_customers = len(arrival_times) - 1
+            available_mask = arrival_times[1:] <= current_time
+            unavailable_mask = ~available_mask
+            available_customers = coords[1:][available_mask]
+            unavailable_customers = coords[1:][unavailable_mask]
 
-        # Plot depot
-        depot = ax.scatter(*coords[0], c='green', marker='s', label='Depot')
-        artists = [depot]
+            ax.clear()
 
-        # Plot available/unavailable customers
-        if len(available_customers) > 0:
-            avail_visited_mask = visited_mask[1:][available_mask]
-            visited_customers = available_customers[avail_visited_mask]
-            available_customers = available_customers[~avail_visited_mask]
-            if len(visited_customers) > 0:
-                artists.append(ax.scatter(visited_customers[:, 0], visited_customers[:, 1], c='green', label='Visited'))
+            # Plot depot
+            depot = ax.scatter(*coords[0], c='green', marker='s', label='Depot')
+            artists = [depot]
+
+            # Plot available/unavailable customers
             if len(available_customers) > 0:
-                artists.append(ax.scatter(available_customers[:, 0], available_customers[:, 1], c='blue', label='Available'))
-        if len(unavailable_customers) > 0:
-            unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
-            artists.append(unavail)
+                avail_visited_mask = visited_mask[1:][available_mask]
+                visited_customers = available_customers[avail_visited_mask]
+                available_customers = available_customers[~avail_visited_mask]
+                if len(visited_customers) > 0:
+                    artists.append(ax.scatter(visited_customers[:, 0], visited_customers[:, 1], c='green', label='Visited'))
+                if len(available_customers) > 0:
+                    artists.append(ax.scatter(available_customers[:, 0], available_customers[:, 1], c='blue', label='Available'))
+            if len(unavailable_customers) > 0:
+                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
+                artists.append(unavail)
 
-        # Customer labels
-        for j in range(1, num_customers + 1):
-            x, y = coords[j]
-            txt = ax.text(x, y + 0.02, str(j), fontsize=8, ha='center')
-            artists.append(txt)
+            # Customer labels
+            for j in range(1, num_customers + 1):
+                x, y = coords[j]
+                txt = ax.text(x, y + 0.02, str(j), fontsize=8, ha='center')
+                artists.append(txt)
 
-        # Split tour into subroutes using depot (0) as delimiter
-        routes = []
-        current_route = [current_tour[0]]
-        for node in current_tour[1:]:
-            current_route.append(node)
-            if node == 0:
+            # Split tour into subroutes using depot (0) as delimiter
+            routes = []
+            current_route = [current_tour[0]]
+            for node in current_tour[1:]:
+                current_route.append(node)
+                if node == 0:
+                    routes.append(current_route)
+                    current_route = [0]
+            if len(current_route) > 1:  # leftover
                 routes.append(current_route)
-                current_route = [0]
-        if len(current_route) > 1:  # leftover
-            routes.append(current_route)
 
-        # Color map for routes
-        cmap = cm.get_cmap('tab10', len(routes))
-        total_length = 0.0
+            # Color map for routes
+            cmap = cm.get_cmap('tab10', len(routes))
+            total_length = 0.0
 
-        for idx, route in enumerate(routes):
-            lines = []
-            for j in range(1, len(route)):
-                a = coords[route[j - 1]]
-                b = coords[route[j]]
-                lines.append([a, b])
-                total_length += np.linalg.norm(a - b)
-            if lines:
-                lc = mc.LineCollection(lines, colors=[cmap(idx)], linewidths=2)
-                ax.add_collection(lc)
-                artists.append(lc)
+            for idx, route in enumerate(routes):
+                lines = []
+                for j in range(1, len(route)):
+                    a = coords[route[j - 1]]
+                    b = coords[route[j]]
+                    lines.append([a, b])
+                    total_length += np.linalg.norm(a - b)
+                if lines:
+                    lc = mc.LineCollection(lines, colors=[cmap(idx)], linewidths=2)
+                    ax.add_collection(lc)
+                    artists.append(lc)
 
-        ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units")
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.legend()
+            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units")
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.legend()
 
-        return artists
+            return artists
         
 
     return update
