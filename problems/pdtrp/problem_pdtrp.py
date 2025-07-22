@@ -5,8 +5,8 @@ import numpy as np
 
 from problems.pdtrp.state_pdtrp import StatePDTRP
 
-from problems.utils import nearest_neighbor_graph, sample_lognorm
-from problems.location_generation import subregion_generation
+from problems.utils import nearest_neighbor_graph, sample_lognorm, subsample_ortec 
+from problems.location_generation import time_and_subregion_generation
 
 class PDTRP(object):
     """
@@ -17,22 +17,39 @@ class PDTRP(object):
 
     @staticmethod
     def get_costs(input, pi):
-        """Returns PDTRP tour length for a given set of nodes and a tour provided that the distance is the l2-norm"""
+        """
+        Returns PDTRP tour length for a given set of tours (pi) and a precomputed distance matrix.
+        
+        Assumes:
+            - input['distance_matrix']: shape (B, N, N)
+            - pi: LongTensor of shape (B, N), each row is a permutation of node indices
+        Returns:
+            - tour length for each sample in batch (B,)
+            - None (for compatibility with the original return type)
+        """
+        distance_matrix = input['distance_matrix']  # (B, N, N)
+        B, N = pi.size()
 
-        all_nodes = input['loc']
-
-        # Check that tours are valid, i.e. contain all nodes and each node exactly once
-        sorted_pi = pi.data.sort(1)[0]
+        # Validate that each tour is a valid permutation
         assert (
-            torch.arange(pi.size(1), out=pi.data.new()).view(1, -1).expand_as(pi) ==
-            pi.data.sort(1)[0]
-        ).all(), "Invalid tour:\n{}\n{}".format(all_nodes, pi)
+            torch.arange(N, device=pi.device).view(1, -1).expand_as(pi) == pi.sort(dim=1)[0]
+        ).all(), f"Invalid tour:\n{pi}"
 
-        # gather dataset in order of tour
-        d = all_nodes.gather(1, pi.unsqueeze(-1).expand_as(all_nodes))
+        # Gather distances along the tour
+        idx_from = pi[:, :-1]  # shape (B, N-1)
+        idx_to = pi[:, 1:]     # shape (B, N-1)
 
-        # length is distance (l2-norm of difference) from each node location from its prev and of last to first
-        return (d[:, 1:] - d[:, :-1]).norm(p=2, dim=2).sum(1) + (d[:, 0] - d[:, -1]).norm(p=2, dim=1), None
+        batch_idx = torch.arange(B, device=pi.device).unsqueeze(1).expand_as(idx_from)
+
+        # Collect distances between consecutive nodes
+        dists = distance_matrix[batch_idx, idx_from, idx_to]  # (B, N-1)
+
+        # Add distance from last to first to complete the tour
+        last_to_first = distance_matrix[torch.arange(B, device=pi.device), pi[:, -1], pi[:, 0]]  # (B,)
+
+        tour_lengths = dists.sum(dim=1) + last_to_first  # (B,)
+
+        return tour_lengths, {}
 
     @staticmethod
     def make_dataset(*args, **kwargs):
@@ -43,7 +60,7 @@ class PDTRP(object):
         return StatePDTRP.initialize(*args, **kwargs)
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, real_data=None):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, latest_end=None, reaction_time=None, vehicle_capacity=None, min_trips_required=None, use_ortec=None):
         """
         Use this function for either loading a dataset from a file or generating a new dataset.
 
@@ -79,7 +96,9 @@ class PDTRPDataset(Dataset):
         self.knn_strat = knn_strat
         self.offset = offset
         self.arrival_weights = arrival_weights
+        self.arrival_skews = arrival_skews
         self.speed = speed / 60.0  # Convert speed to units/minute
+        self.use_ortec = use_ortec
         
         self.all_nodes = []
         self.arrival_times = []
@@ -89,6 +108,9 @@ class PDTRPDataset(Dataset):
 
         if filename is not None:
             self.tours = []
+
+            if self.use_ortec is not None:
+                self.distance_matrix = []
 
             print("Loading from {}...".format(filename))
 
@@ -101,17 +123,67 @@ class PDTRPDataset(Dataset):
                 self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('tour')]])
                 self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
-                self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
-        else:
+                if self.use_ortec is not None:
+                    # If using ORTEC, the distance matrix is already computed
+                    self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:line.index('distance_matrix')]])
+                    self.distance_matrix.append(np.reshape(np.array([float(x) for x in line[line.index('distance_matrix') + 1:]]), (n_nodes, n_nodes)))
+                else: 
+                    self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
+        elif self.use_ortec is not None:
+            print("Generating PDTRP instances from ORTEC instance: {}".format(self.use_ortec))
+            # For this manner of generating 'Real' PDTRP instances, the dod arguments won't apply and instead the dod will be determined randomly based on the subsampling
+            self.distance_matrix = []
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
+                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1
+                # Step 2: Generate the locations and arrival times of the customers by subsampling ortec instances
+                all_nodes = []
+                arrival_times = []
+                service_times = []
+                distance_matrix = []
+                for _ in range(batch_size):
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix = subsample_ortec(instance_file=self.use_ortec, problem='pdtrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed)
+                    all_nodes.append(batch_nodes)
+                    arrival_times.append(batch_arrival_times)
+                    service_times.append(batch_service_times)
+                    distance_matrix.append(batch_distance_matrix)
+
+                # step 3: sort the customers by arrival time
+                for i in range(batch_size):
+                    idx = np.argsort(arrival_times[i])
+                    all_nodes[i] = all_nodes[i][idx]
+                    arrival_times[i] = arrival_times[i][idx]
+                    service_times[i] = service_times[i][idx]
+                    distance_matrix[i] = distance_matrix[i][idx][:, idx]
+
+                self.all_nodes += all_nodes
+                self.arrival_times += arrival_times
+                self.service_times += service_times
+                self.distance_matrix += distance_matrix
+
+        else:
+            if arrival_weights is not None and arrival_skews is not None:
+                print("Generating PDTRP instances with {} subregion(s) with arrival weights {} and skews {}...".format(self.n_subregions, self.arrival_weights, self.arrival_skews))
+            elif arrival_weights is not None:
+                print("Generating PDTRP instances with {} subregion(s) with arrival weights {} and uniform arrival skews...".format(self.n_subregions, self.arrival_weights))
+            elif arrival_skews is not None:
+                print("Generating PDTRP instances with {} subregion(s) with dirichlet arrival weights and skews {}...".format(self.n_subregions, self.arrival_skews))
+            else:
+                print("Generating PDTRP instances with {} subregion(s) with dirichlet arrival weights and uniform skews...".format(self.n_subregions))
+
+            for _ in tqdm(range(num_samples//batch_size), ascii=True):   
+
+                # Step 1: Generate the total number of customers
                 n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1 # -1 to account for the depot
-                # Step 2: Generate the locations of the customers
-                all_nodes = [subregion_generation(n_total=n_total, n_subregions=self.n_subregions, arrival_weights=self.arrival_weights) for _ in range(batch_size)]
-                # step 3: Generate customer arrival times
-                arrival_times = [np.round(np.random.uniform(1, self.time_horizon, size=(n_total)), decimals=3) for _ in range(batch_size)] # give a leeway of 1 minute before immediate requests can arrive
+                # Step 2: Generate the locations and arrival times of the customers
+                all_nodes = []
+                arrival_times = []
+                for _ in range(batch_size):
+                    batch_nodes, batch_arrival_times = time_and_subregion_generation(n_total=n_total, n_subregions=self.n_subregions, arrival_weights=self.arrival_weights, arrival_skews=self.arrival_skews, time_horizon=self.time_horizon)
+                    all_nodes.append(batch_nodes)
+                    arrival_times.append(batch_arrival_times)
                 # step 4: Generate customer service times
                 service_times = list(np.round(sample_lognorm(self.service_times_mean, self.service_times_std, size=(batch_size, n_total)), decimals=3))
                 # step 5: sample the number of immediate request customers for each instance in the batch
@@ -149,7 +221,12 @@ class PDTRPDataset(Dataset):
         all_nodes = self.all_nodes[idx]
         arrival_times = self.arrival_times[idx]
         service_times = self.service_times[idx]
-        nn_graph, distance_matrix = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)
+        if self.use_ortec is not None:
+            # If using ortec, the distance matrix is already computed
+            distance_matrix = self.distance_matrix[idx]
+            nn_graph, _ = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat, distance_matrix=distance_matrix)
+        else:
+            nn_graph, distance_matrix = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)
 
         # Add groundtruth labels in case of SL         
         item = {

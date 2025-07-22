@@ -1,5 +1,6 @@
 from typing import NamedTuple
 import torch
+from utils import scale_time
 
 class StatePDTRP(NamedTuple):
     # Fixed input
@@ -8,6 +9,7 @@ class StatePDTRP(NamedTuple):
     arrival_times: torch.Tensor
     speed: float
     time_horizon: float
+    distance_matrix: torch.Tensor
 
     ids: torch.Tensor
 
@@ -19,6 +21,7 @@ class StatePDTRP(NamedTuple):
     visited_: torch.Tensor # Tracks which nodes have been visited
     visit_times: list # Tracks the time at which each node was visited
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
+    arrival_occured: bool # Tracks if a new arrival has occurred in the last step
     i: torch.Tensor # Current timestep
 
     def __getitem__(self, key):
@@ -42,6 +45,7 @@ class StatePDTRP(NamedTuple):
         arrival_times = input['arrival_times']
         speed = input['speed']
         time_horizon = input['time_horizon']
+        distance_matrix = input['distance_matrix']
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
@@ -52,6 +56,7 @@ class StatePDTRP(NamedTuple):
             arrival_times=arrival_times,
             speed=speed,
             time_horizon=time_horizon,
+            distance_matrix=distance_matrix,
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
@@ -59,15 +64,10 @@ class StatePDTRP(NamedTuple):
             visited_= visited,
             visit_times=[[0.0] for _ in range(batch_size)],
             not_arrived_= (arrival_times > 0).unsqueeze(1),
+            arrival_occured=False,
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
         )
-    
-    def get_final_cost(self):
-
-        assert self.all_finished()
-
-        return self.lengths + (self.coords[self.ids, 0] - self.cur_coords).norm(p=2, dim=-1)
 
     def update(self, selected):
 
@@ -76,7 +76,9 @@ class StatePDTRP(NamedTuple):
         prev_a = selected[:, None]
 
         cur_coords = self.coords[self.ids, prev_a]
-        distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
+        # distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
+
+        distances_travelled = self.distance_matrix[self.ids, self.prev_a, prev_a]
 
         service_starts = self.cur_times + torch.round((distances_travelled / self.speed), decimals=4)
         
@@ -92,7 +94,7 @@ class StatePDTRP(NamedTuple):
         for i in range(batch_size):
             new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
             new_arrival_mask[i, 0, new_arrivals] = False
-            
+        
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
         # if, for any of the environments in the batch, after checking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
@@ -105,6 +107,11 @@ class StatePDTRP(NamedTuple):
                     # ... and update the mask accordingly
                     new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
                     new_arrival_mask[i, 0, new_arrivals] = False
+        
+        if len(new_arrivals) == 0:
+            arrival_occured = False
+        else:
+            arrival_occured = True
 
         # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
         if visited_.all():
@@ -113,7 +120,7 @@ class StatePDTRP(NamedTuple):
             for i in range(batch_size):
                 self.visit_times[i].append(time_back_at_depot[i, 0].item())
 
-        return self._replace(prev_a=prev_a, cur_coords=cur_coords, cur_times=cur_times, lengths=self.lengths + distances_travelled, visited_=visited_, not_arrived_=new_arrival_mask, i=self.i + 1)
+        return self._replace(prev_a=prev_a, cur_coords=cur_coords, cur_times=cur_times, lengths=self.lengths + distances_travelled, visited_=visited_, not_arrived_=new_arrival_mask, i=self.i + 1, arrival_occured=arrival_occured)
 
     def all_finished(self):
         return self.visited_.all()
@@ -133,12 +140,15 @@ class StatePDTRP(NamedTuple):
             
     def get_graph(self):
         return self.graph
+    
+    def arrival_at_last_timestep(self):
+        return self.arrival_occured
 
     def construct_solutions(self, actions):
         return actions
     
     def get_timestep(self, normalize=True):
         if normalize:
-            return self.cur_times / self.time_horizon
+            return scale_time(self.cur_times, self.time_horizon)
         else:
             return self.cur_times

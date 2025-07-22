@@ -153,23 +153,23 @@ class RolloutBaseline(Baseline):
 
     def _update_model(self, model, epoch, dataset=None):
         self.model = copy.deepcopy(model)
-
-        arrival_weights = None
-
-        if self.opts.scenario is not None:
-            if self.opts.scenario == "N1":
-                arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]
-            elif self.opts.scenario == "N2":
-                arrival_weights = [5, 1, 1, 10, 6, 3, 1, 15, 12]
         
         # Always generate baseline dataset when updating model to prevent overfitting to the baseline dataset
         self.dataset = self.problem.make_dataset(
-            min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, speed=self.opts.speed, batch_size=self.opts.batch_size, 
-            num_samples=self.opts.epoch_size, time_horizon=self.opts.time_horizon, service_times_mean = self.opts.stmean, service_times_var = self.opts.stvar, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat, arrival_weights=arrival_weights
+            min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, speed=self.opts.speed, batch_size=self.opts.val_batch_size, n_subregions=self.opts.n_subregions, num_samples=self.opts.epoch_size, time_horizon=self.opts.time_horizon, service_times_mean = self.opts.stmean, service_times_var = self.opts.stvar, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat, arrival_weights=self.opts.arrival_weights, arrival_skews=self.opts.arrival_skews,
+            min_time_window=self.opts.min_time_window,
+            max_time_window=self.opts.max_time_window,
+            gamma=self.opts.gamma,
+            latest_end=self.opts.latest_end,
+            reaction_time=self.opts.reaction_time,
+            vehicle_capacity=self.opts.vehicle_capacity,
+            min_trips_required=self.opts.min_trips_required,
+            use_ortec=self.opts.use_ortec
         )
         
         print("\nEvaluating Rollout baseline model on evaluation dataset")
-        self.bl_vals = rollout(self.model, self.dataset, self.opts).cpu().numpy()
+        self.bl_vals, _ = rollout(self.model, self.dataset, self.opts)
+        self.bl_vals = self.bl_vals.cpu().numpy()
         self.mean = self.bl_vals.mean()
         self.epoch = epoch
 
@@ -177,7 +177,10 @@ class RolloutBaseline(Baseline):
         print("\nEvaluating + wrapping Rollout baseline on dataset...")
         # Need to convert baseline to 2D to prevent converting to double, see
         # https://discuss.pytorch.org/t/dataloader-gives-double-instead-of-float/717/3
-        return BaselineDataset(dataset, rollout(self.model, dataset, self.opts).view(-1, 1))
+
+        bl_vals, _ = rollout(self.model, dataset, self.opts)
+
+        return BaselineDataset(dataset, bl_vals.view(-1, 1))
 
     def unwrap_batch(self, batch):
         return batch['data'], batch['baseline'].view(-1)  # Flatten result to undo wrapping as 2D
@@ -196,7 +199,8 @@ class RolloutBaseline(Baseline):
         :param epoch: The current epoch
         """
         print("\nEvaluating candidate model on evaluation dataset")
-        candidate_vals = rollout(model, self.dataset, self.opts).cpu().numpy()
+        candidate_vals, _ = rollout(model, self.dataset, self.opts)
+        candidate_vals = candidate_vals.cpu().numpy()
 
         candidate_mean = candidate_vals.mean()
 

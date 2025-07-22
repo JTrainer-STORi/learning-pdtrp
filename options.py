@@ -23,7 +23,12 @@ def get_options(args=None):
                         help='The maximum ratio of dynamic nodes')
     parser.add_argument('--n_subregions', type=int, default=9,
                         help='Number of subregions to generate the customers in. Passing 1 will generate customers uniformly in the unit square.')
-    parser.add_argument('--speed', type=float, default=4.0)
+    parser.add_argument('--speed', type=float, default=4.0, 
+                        help='The speed of the vehicle in units/h')
+    parser.add_argument('--arrival_weights', nargs='+', type=int, default=None,
+                        help='The weights for the subregions, if None, subregion weights are sampled from a dirichlet distribution. Pass as a space-separated list, e.g. "1 2 3"')
+    parser.add_argument('--arrival_skews', nargs='+', type=str, default=None,
+                        help='The skews for the arrival times distribution in each subregion, if None, uniform distribution is used. Pass as a space-separated list, e.g. "uniform early late"')
     parser.add_argument('--neighbors', type=float, default=20, 
                         help="The k-nearest neighbors for graph sparsification")
     parser.add_argument('--knn_strat', type=str, default=None, 
@@ -45,26 +50,35 @@ def get_options(args=None):
                         help='Number of instances per batch during validation')
     parser.add_argument('--val_size', type=int, default=1000, 
                         help='Number of instances used for reporting validation performance')
+    parser.add_argument('--rollout_batch_size', type=int, default=128,)
     parser.add_argument('--rollout_size', type=int, default=10000, 
                         help='Number of instances used for updating rollout baseline')
-    # parser.add_argument('--with_replacement', type=bool, default=False,
-    #                     help='whether to sample arrival times with replacement')
     parser.add_argument('--route_name', type=str, default=None,
                         help='Name of the route from which to get stop and distance info')
-    parser.add_argument('--time_horizon', type=int, default=480,
-                        help='Time horizon for dynamic node arrivals')
+    parser.add_argument('--time_horizon', type=int, default=8,
+                        help='Time horizon for dynamic node arrivals in hours, default is 8 hours (480 minutes)')
     parser.add_argument('--stmean', type=float, default=3,
                         help='mean of service times')
     parser.add_argument('--stvar', type=float, default=5,
                         help='variance of service times')
-    parser.add_argument('--L', type=float, default=0.125,
+    parser.add_argument('--L', type=float, default=2,
                         help = 'Maximum time any customer can be serviced after the time horizon')
     parser.add_argument('--gamma', type=float, default=1, 
                         help='weighting for missed time windows in costs for problems with time windows')
-    parser.add_argument('--theta', type=float, default=1,
-                        help='weighting for distance in costs for problems with time windows')
-    parser.add_argument ('--scenario', type=str, default=None,
-                         help='scenario for arrival weights and time windows')
+    parser.add_argument('--latest_end', type=int, default=2,
+                        help='number of hours after the time horizon that a customer\'s time window can end, default is 2 hours (120 minutes)')
+    parser.add_argument('--reaction_time', type=int, default=60,
+                        help="Reaction time in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
+    parser.add_argument('--min_time_window', type=int, default=60,
+                        help='Minimum time window length in minutes')
+    parser.add_argument('--max_time_window', type=int, default=100,
+                        help='Maximum time window length in minutes')
+    parser.add_argument('--vehicle_capacity', type=float, default=1.0,
+                        help='Vehicle capacity, default is 1.0 (1 unit of demand)')
+    parser.add_argument('--min_trips_required', type=int, default=3,
+                        help='Minimum number of trips required to service all customers, default is 3')
+    parser.add_argument('--use_ortec', type=str, default=None,
+                        help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
     
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 
@@ -99,6 +113,8 @@ def get_options(args=None):
                         help='Use time as an additional feature during decoding')
     parser.add_argument('--project_time_feature', action='store_true',
                         help='Project time feature to embedding dimension using an MLP')
+    parser.add_argument('--scale_times', action='store_true',
+    help='scale time features to an approximate [0,1] range by dividing by the time horizon')
 
     # Training
     parser.add_argument('--lr_model', type=float, default=1e-4, 

@@ -47,6 +47,8 @@ def run_rl(opts) -> None:
             dir=opts.log_dir,
             resume="allow" if opts.resume else None
         )
+    else:
+        wandb_run = None
 
     os.makedirs(opts.save_dir)
     # Save arguments so exact configuration can always be found
@@ -91,6 +93,9 @@ def run_rl(opts) -> None:
         edge_features=opts.edge_features,
         use_time_feature=opts.use_time_feature,
         project_time_feature=opts.project_time_feature,
+        knn_strat=opts.knn_strat,
+        neighbors=opts.neighbors,
+        scale_times=opts.scale_times,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
@@ -180,7 +185,7 @@ def run_rl(opts) -> None:
         val_datasets.append(
             problem.make_dataset(
                 filename=val_filename, batch_size=opts.val_batch_size, num_samples=opts.val_size, 
-                neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed,
+                neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed, time_horizon=opts.time_horizon, gamma=opts.gamma, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required=opts.min_trips_required,use_ortec=opts.use_ortec,
             ))
 
     if opts.resume:

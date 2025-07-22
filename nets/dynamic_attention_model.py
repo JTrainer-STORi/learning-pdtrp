@@ -13,16 +13,8 @@ from torch.utils.checkpoint import checkpoint
 from torch.nn import DataParallel
 
 from utils.tensor_functions import compute_in_batches
-from utils import move_to
-
-def update_mask(mask, arrival_times,t, n_static):
-    batch_size, _, _ = mask.shape
-    new_mask = mask.clone() 
-    for i in range(batch_size):
-        if t in arrival_times[i]:
-            new_nodes = np.nonzero(arrival_times[i] == t)[0] + n_static[i]
-            new_mask[i, 0, new_nodes] = False
-    return new_mask
+from utils import move_to, scale_time
+from problems.utils import nearest_neighbor_graph
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -67,6 +59,9 @@ class DynamicAttentionModel(nn.Module):
                  edge_features='adjacency',
                  use_time_feature=False,
                  project_time_feature=False,
+                 scale_times=False,
+                 knn_strat='percentage',
+                 neighbors=20,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -115,6 +110,9 @@ class DynamicAttentionModel(nn.Module):
         self.mask_graph = mask_graph
         self.use_time_feature = use_time_feature
         self.project_time_feature = project_time_feature
+        self.knn_strat = knn_strat
+        self.neighbors = neighbors
+        self.scale_times = scale_times
         self.is_pdcvrp = problem.NAME == 'pdcvrp'
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
@@ -193,9 +191,15 @@ class DynamicAttentionModel(nn.Module):
         elif self.edge_features == 'distance':
             edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
 
-        embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
+        if self.training:
+            
+            embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
-        log_p, pi, visit_times = self._inner(input, embeddings)
+            log_p, pi, visit_times = self._inner(input, embeddings)
+
+        elif self.eval:
+            
+            pi, visit_times = self._inner_eval(input)
 
         # Should only be necesary to pad for capacitated problems as these are the only ones that could have varing route lengths within a batch due to different numbers of depot visits
         if self.is_pdcvrp or self.is_pdcvrptw:
@@ -212,20 +216,23 @@ class DynamicAttentionModel(nn.Module):
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
         if self.is_pdtrptw or self.is_pdcvrptw:
-            cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), gamma=10.0)
+            cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), move_to(input['visit_times'], device=input['loc'].device), gamma=move_to(input['gamma'], device=input['loc'].device))
         else:
-            cost, mask = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device))
+            cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device))
 
-        ll = self._calc_log_likelihood(log_p, mask)
+        if self.training:
+            ll = self._calc_log_likelihood(log_p, mask=None)
+        elif self.eval:
+            ll = None
 
         if return_pi and return_times:
-            return cost, ll, pi_w_depot, input['visit_times']
+            return cost, ll, info, pi_w_depot, input['visit_times']
         elif return_pi:
-            return cost, ll, pi_w_depot
+            return cost, ll, info, pi_w_depot
         elif return_times:
-            return cost, ll, input['visit_times']
+            return cost, ll, info, input['visit_times']
         else:
-            return cost, ll
+            return cost, ll, info
         
     def _calc_log_likelihood(self, log_p, mask):
 
@@ -270,6 +277,79 @@ class DynamicAttentionModel(nn.Module):
         all_outputs = torch.stack(outputs, 1).gather(2, all_sequences.unsqueeze(2)).squeeze(-1)
 
         return all_outputs, all_sequences, state.visit_times
+    
+    def _inner_eval(self, input):
+        # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
+        # note that due to it being annoying to do this for anything other than a single instance, this function is designed to only work for a single instance
+        assert input['loc'].size(0) == 1, "This eval method doesn't play nicely with batched inputs"
+
+        # This bit is the same as the training inner method
+        outputs = []
+        sequences = []
+
+        state = self.problem.make_state(input)
+
+        arrival_mask = ~state.not_arrived_[:,0,:]
+
+        masked_input = self._mask_input(input, arrival_mask)
+
+        if self.edge_features == 'adjacency':
+            edge_features = masked_input['graph'].long()
+        elif self.edge_features == 'distance':
+            edge_features = masked_input['distance_matrix'].unsqueeze(-1)
+
+        embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
+
+        decoder_input = self._precompute(embeddings)
+
+        # This is the main loop for the decoder
+        while not state.all_finished():
+            mask = state.visited_[~state.not_arrived_][None, None, :]
+
+            # get log probabilities of next action
+            log_p, mask = self._get_log_p(decoder_input, state, mask)
+
+            # we query the policy
+            selected = self._select_node(
+                log_p.exp()[:, 0, :], mask[:, 0, :])
+            
+            state = state.update(selected)
+
+            # Collect output of step
+            outputs.append(log_p[:, 0, :])
+            sequences.append(selected)
+
+            # if an arrival has occurred, we need to update the embeddings and decoder input
+            if state.arrival_occured:
+                masked_input = self._mask_input(input, ~state.not_arrived_[:,0,:])
+                if self.edge_features == 'adjacency':
+                    edge_features = masked_input['graph'].long()
+                elif self.edge_features == 'distance':
+                    edge_features = masked_input['distance_matrix'].unsqueeze(-1)
+                embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
+                decoder_input = self._precompute(embeddings, num_steps=1)
+
+        all_sequences = torch.stack(sequences, 1)
+
+        return all_sequences, state.visit_times
+
+    def _mask_input(self, input, mask):
+        """The job of this function is to mask the input dictionary prior to being passed to the encoder"""
+
+        masked_input = {}
+        # first step is to mask the coordinates, very simple
+        masked_input['loc'] = input['loc'][mask].unsqueeze(0)  # (batch_size, num_nodes, 2)
+        # for now, going to do this the easy way and simply put the masked locations into the nearest neighbour function and get the new distance matrix and graph from that
+        nn_graph, distance_matrix = nearest_neighbor_graph(masked_input['loc'].squeeze(0), self.neighbors, self.knn_strat)
+        masked_input['graph'] = ~torch.BoolTensor(nn_graph)
+        masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix)
+        masked_input['time_horizon'] = input['time_horizon']
+        if 'window_starts' in input:
+            masked_input['window_starts'] = input['window_starts'][mask].unsqueeze(0)
+        if 'window_ends' in input:
+            masked_input['window_ends'] = input['window_ends'][mask].unsqueeze(0)
+        
+        return masked_input
 
     def _select_node(self, probs, mask):
         assert (probs == probs).all(), "Probs should not contain any NaNs"
@@ -363,21 +443,7 @@ class DynamicAttentionModel(nn.Module):
                 ),
                 -1
             )
-        
-        if self.is_pdtrptw:
-            return torch.cat(
-                (
-                    torch.gather(
-                        embeddings,
-                        1,
-                        current_node.contiguous().view(batch_size, num_steps, 1)
-                        .expand(batch_size, num_steps, embeddings.size(-1))
-                    ).view(batch_size, num_steps, embeddings.size(-1)),
-                    state.cur_times[:,:,None]
-                ),
-                -1
-            )
-        
+             
         if self.is_pdcvrptw:
             return torch.cat(
                 (
@@ -396,7 +462,7 @@ class DynamicAttentionModel(nn.Module):
 
         if self.use_time_feature:
             if self.project_time_feature:
-                time_feature = self.project_time_feature(state.get_timestep(normalize=True)[:,:, None])
+                time_feature = self.project_time_feature(state.get_timestep(normalize=self.scale_times)[:,:, None])
                 return torch.gather(embeddings, 1, 
                     current_node.contiguous().view(batch_size, num_steps, 1)
                     .expand(batch_size, num_steps, embeddings.size(-1))
@@ -410,7 +476,7 @@ class DynamicAttentionModel(nn.Module):
                             current_node.contiguous().view(batch_size, num_steps, 1)
                             .expand(batch_size, num_steps, embeddings.size(-1))
                         ).view(batch_size, num_steps, embeddings.size(-1)),
-                        state.get_timestep(normalize=True)[:,:, None]
+                        state.get_timestep(normalize=self.scale_times)[:,:, None]
                     ),
                     -1
                 )
@@ -484,10 +550,16 @@ class DynamicAttentionModel(nn.Module):
             1
             )
         if self.is_pdtrptw:
+            if self.scale_times:
+                window_starts = scale_time(input['window_starts'][:, 1:, None], input['time_horizon'][0])
+                window_ends = scale_time(input['window_ends'][:, 1:, None], input['time_horizon'][0])
+            else:
+                window_starts = input['window_starts'][:, 1:, None]
+                window_ends = input['window_ends'][:, 1:, None]
             return torch.cat(
             (
                 self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
-                self.node_embed(torch.cat((input['loc'][:, 1:, :], input['window_starts'][:, 1:, None], input['window_ends'][:, 1:, None]), -1))
+                self.node_embed(torch.cat((input['loc'][:, 1:, :], window_starts, window_ends), -1))
             ),
             1
             )

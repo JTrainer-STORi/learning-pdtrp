@@ -217,7 +217,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
 
 parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
 
-parser.add_argument('--problem', type=str, help="Type of the problem to be solved, 'PDTRP', 'PDTRP-TW', 'PCVRP' or 'PDCVRP-TW", required=True)
+parser.add_argument('--problem', type=str, help="Type of the problem to be solved, 'PDTRP', 'PDTRPTW', 'PCVRP' or 'PDCVRPTW", required=True)
 
 parser.add_argument('--num_samples', type=int, default=128, help="Number of samples to be solved")
 
@@ -231,6 +231,14 @@ parser.add_argument('--max_dod', type=float, default=0.8,
                     help='The maximum ratio of dynamic nodes')
 parser.add_argument('--speed', type=float, default=4.0,
                     help='The speed of the vehicle in units/h')
+parser.add_argument('--time_horizon', type=int, default=8,
+                    help='Time horizon for dynamic node arrivals in hours, default is 8 hours (480 minutes)')
+parser.add_argument('--arrival_weights', nargs='+', type=int, default=None,
+                    help='The weights for the subregions, if None, subregion weights are sampled from a dirichlet distribution. Pass as a space-separated list, e.g. "1 2 3"')
+parser.add_argument('--arrival_skews', nargs='+', type=str, default=None,
+                    help='The skews for the arrival times distribution in each subregion, if None, uniform distribution is used. Pass as a space-separated list, e.g. "uniform early late"')
+parser.add_argument('--use_ortec', type=str, default=None,
+                    help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
 parser.add_argument('--n_subregions', type=int, default=9,
                         help='Number of subregions to generate the customers in. Passing 1 will generate customers uniformly in the unit square.')
 parser.add_argument('--filename', type=str, default=None,
@@ -245,6 +253,10 @@ parser.add_argument('--read_data_filepath', type=str, default=None,
                     help='Filepath to read data from in real data scenario')
 parser.add_argument('--gamma', type=int, default=1,
                     help='How much to penalize lateness in time windows')
+parser.add_argument('--latest_end', type=int, default=2,
+                        help='number of hours after the time horizon that a customer\'s time window can end, default is 2 hours (120 minutes)')
+parser.add_argument('--reaction_time', type=int, default=60,
+                        help="Reaction time in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
 
 # import debugpy
 # debugpy.listen(5678)  # 5678 is port
@@ -253,36 +265,33 @@ parser.add_argument('--gamma', type=int, default=1,
 
 args = parser.parse_args()
 
+if args.arrival_weights is not None:
+    assert len(args.arrival_weights) == args.n_subregions, "The number of arrival weights must match the number of subregions"
+if args.arrival_skews is not None:
+    assert len(args.arrival_skews) == args.n_subregions, "The number of arrival skews must match the number of subregions"
+
+
 # Set the parameters for the problem here
 
 problem_type = args.problem
 NUM_SAMPLES = args.num_samples
 BATCH_SIZE = args.batch_size
 filename = args.filename
+SPEED = args.speed / 60.0
 
 # set seeds for reproducibility
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-arrival_weights = None
-real_data = None
-
-if args.scenario is not None:
-    if args.scenario == 'N1':
-        arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]
-    elif args.scenario == 'N2':
-        arrival_weights = [5, 1, 1, 10, 6, 3, 1, 15, 12]
-    elif args.scenario == 'RealData':
-        real_data = args.read_data_filepath
 
 if problem_type == 'PDTRP':
-    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, n_subregions=args.n_subregions, arrival_weights=arrival_weights, real_data=real_data)
-elif problem_type == 'PDCVRP':
-    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
+    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec)
+# elif problem_type == 'PDCVRP':
+#     dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 elif problem_type == 'PDTRPTW':
-    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
-elif problem_type == 'PDCVRPTW':
-    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
+    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, latest_end=args.latest_end, reaction_time=args.reaction_time)
+# elif problem_type == 'PDCVRPTW':
+#     dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -296,6 +305,8 @@ if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
     window_ends_list = []
 if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
     demands_list = []
+if args.use_ortec is not None:
+    distance_matrix_list = []
 
 for input in tqdm(dataloader, ascii=True):
 
@@ -307,6 +318,7 @@ for input in tqdm(dataloader, ascii=True):
         all_nodes = input['all_nodes'][j]
         arrival_times = input['arrival_times'][j]*1e4
         service_times = input['service_times'][j]
+        distance_matrix = input['distance_matrix'][j]
         
         if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
             window_starts = input['window_starts'][j]
@@ -334,6 +346,8 @@ for input in tqdm(dataloader, ascii=True):
         all_nodes_list += [np.array(input['all_nodes'][j])]
         arrival_times_list += [np.array(input['arrival_times'][j])]
         service_times_list += [np.array(input['service_times'][j])]
+        if args.use_ortec is not None:
+            distance_matrix_list += [np.array(input['distance_matrix'][j])]
 
         mask = arrival_times == 0
 
@@ -342,8 +356,8 @@ for input in tqdm(dataloader, ascii=True):
         total_customers = len(all_nodes[mask])
 
         total_time_advanced_by = 0
-        if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
-            time_advances = {}
+
+        time_advances = {}
 
         done = False
         
@@ -351,7 +365,7 @@ for input in tqdm(dataloader, ascii=True):
 
             current_input = {}
 
-            current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/args.speed)*1e4).to(torch.int32).tolist()
+            current_input['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
             current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
             if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
                 current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
@@ -415,7 +429,7 @@ for input in tqdm(dataloader, ascii=True):
 
         current_input = {}
 
-        current_input['time_matrix'] = torch.round((torch.cdist(all_nodes[mask], all_nodes[mask], p=2)/args.speed)*1e4).to(torch.int32).tolist()
+        current_input['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
         current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
         if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
             current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
@@ -429,11 +443,9 @@ for input in tqdm(dataloader, ascii=True):
 
         route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True, gamma=args.gamma)
         
-        # this won't work for the problems with time windows as these will naturally advance some of the times
-        if problem_type == 'PDTRP' or problem_type == 'PDCVRP':
-            if bool(time_advances):
-                for key, value in time_advances.items():
-                    times = [x + value if i >= key else x for i, x in enumerate(times)]
+        if time_advances:
+            for key, value in time_advances.items():
+                times = [x + value if i >= key else x for i, x in enumerate(times)]
 
         # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
 
@@ -481,5 +493,8 @@ with open("new_data/" + args.problem.lower() + "/" + filename, "w") as f:
         f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
         f.write( str(" ") + str("visit_times") + str(" ") )
         f.write( str(" ").join(str(x) for x in visit_times_list[i]))
+        if args.use_ortec is not None:
+            f.write( str(" ") + str("distance_matrix" + str(" ")))
+            f.write( str(" ").join(str(x) for x in distance_matrix_list[i].flatten()))
 
         f.write( "\n" )

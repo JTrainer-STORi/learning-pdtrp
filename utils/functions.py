@@ -303,3 +303,14 @@ def get_best(sequences, cost, ids=None, batch_size=None):
     result[ids[all_argmin[::-1]]] = all_argmin[::-1]
 
     return [sequences[i] if i >= 0 else None for i in result], [cost[i] if i >= 0 else math.inf for i in result]
+
+def scale_time(time, time_horizon):
+    """
+    Scale time to roughly a [0, 1] range by dividng by the time horizon
+    :param time: time value
+    :param time_horizon: maximum time horizon
+    :return: scaled time value
+    """
+    if isinstance(time, torch.Tensor):
+        return time / time_horizon
+    return np.array(time) / time_horizon if isinstance(time, np.ndarray) else float(time) / time_horizon

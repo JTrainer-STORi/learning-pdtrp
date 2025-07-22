@@ -26,7 +26,8 @@ ACCUMULATION_STEPS=1
 
 VAL_SIZE=128
 ROLLOUT_SIZE=128
-VAL_BATCH_SIZE=16
+VAL_BATCH_SIZE=1
+ROLLOUT_BATCH_SIZE=1
 
 MODEL="dattention"
 ENCODER="gnn"
@@ -63,4 +64,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" \
     --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" \
-    --no_tensorboard --n_subregions "$N_SUBREGIONS"
+    --no_tensorboard --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE" 

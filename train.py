@@ -33,8 +33,8 @@ def set_decode_type(model, decode_type):
 def validate(model, dataset, problem, opts):
     # Validate
     print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')      
-    cost = rollout(model, dataset, opts)
-    gt_cost = rollout_groundtruth(problem, dataset, opts)
+    cost, info = rollout(model, dataset, opts)
+    gt_cost, info = rollout_groundtruth(problem, dataset, opts)
     opt_gap = (((cost/gt_cost) - 1) * 100)
     
     print('Validation groundtruth cost: {:.3f} +- {:.3f}'.format(
@@ -57,43 +57,59 @@ def rollout(model, dataset, opts):
     def eval_model_bat(bat):
         input = dataset_to_input(bat, opts.problem, opts.device)
         with torch.no_grad():
-            cost, _ = model(input)
-        return cost
+            cost, _, info = model(input)
+        return cost, info
     
-    return torch.cat([
-        eval_model_bat(bat)
-        for bat in tqdm(
+    costs = []
+    infos = []
+    
+    for bat in tqdm(
             DataLoader(dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers), 
             disable=opts.no_progress_bar, ascii=True
-        )
-    ], 0)
+        ):
+        cost, info = eval_model_bat(bat)
+        costs.append(cost)
+        if info:
+            infos.append(info)
+
+    return torch.cat(costs, 0), infos
 
 
 def rollout_groundtruth(problem, dataset, opts):
-    if opts.problem == 'pdcvrp':
-        return torch.cat([
-            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
-            for bat in DataLoader(
-                dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
-        ], 0)
-    elif opts.problem == 'pdtrp':
-        return torch.cat([
-            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
-            for bat in DataLoader(
-                dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
-        ], 0)
+    # if opts.problem == 'pdcvrp':
+    #     return torch.cat([
+    #         problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device)}, move_to(bat['tour_nodes'], opts.device))[0]
+    #         for bat in DataLoader(
+    #             dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
+    #     ], 0)
+    if opts.problem == 'pdtrp':
+        costs = []
+        infos = []
+        for bat in DataLoader(
+                dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers):
+            
+            cost, info = problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'distance_matrix': move_to(bat['distance_matrix'], opts.device)}, move_to(bat['tour_nodes'], opts.device))
+            costs.append(cost)
+            if info:
+                infos.append(info)
+        return torch.cat(costs, 0), infos
     elif opts.problem == 'pdtrptw':
-        return torch.cat([
-            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device), gamma=10.0)[0]
-            for bat in DataLoader(
-                dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
-        ], 0)
-    elif opts.problem == 'pdcvrptw':
-        return torch.cat([
-            problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device), gamma=10.0)[0]
-            for bat in DataLoader(
-                dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
-        ], 0)
+        costs = []
+        infos = []
+        for bat in DataLoader(
+                dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers):
+            
+            cost, info = problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'distance_matrix': move_to(bat['distance_matrix'], opts.device)}, move_to(bat['tour_nodes'], opts.device), move_to(bat['visit_times'], opts.device), move_to(bat['gamma'], opts.device))
+            costs.append(cost)
+            if info:
+                infos.append(info)
+        return torch.cat(costs, 0), infos
+    # elif opts.problem == 'pdcvrptw':
+    #     return torch.cat([
+    #         problem.get_costs({'loc': move_to(bat['all_nodes'], opts.device), 'demand': move_to(bat['demand'], opts.device), 'window_ends': move_to(bat['window_ends'], opts.device), 'visit_times': move_to(bat['visit_times'].unsqueeze(1), opts.device)}, move_to(bat['tour_nodes'], opts.device), gamma=10.0)[0]
+    #         for bat in DataLoader(
+    #             dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers)
+    #     ], 0)
 
 
 def clip_grad_norms(param_groups, max_norm=math.inf):
@@ -121,19 +137,10 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     if not opts.no_wandb:
         wandb_run.log({'learnrate_pg0': optimizer.param_groups[0]['lr']}, step=step)
 
-    arrival_weights = None
-
-    if opts.scenario is not None:
-        if opts.scenario == "N1":
-            arrival_weights = [1, 2, 1, 2, 4, 2, 1, 2, 1]
-        elif opts.scenario == "N2":
-            arrival_weights = [5, 1, 1, 10, 6, 3, 1, 15, 12]
-
     # Generate new training data for each epoch
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
-            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, speed=opts.speed, batch_size=opts.batch_size, n_subregions=opts.n_subregions,
-            num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mean = opts.stmean, service_times_var = opts.stvar, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = arrival_weights
+            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, speed=opts.speed, batch_size=opts.batch_size, n_subregions=opts.n_subregions, num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mean = opts.stmean, service_times_var = opts.stvar, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = opts.arrival_weights, arrival_skews=opts.arrival_skews, min_time_window=opts.min_time_window, max_time_window=opts.max_time_window, gamma = opts.gamma, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required=opts.min_trips_required, use_ortec = opts.use_ortec
         ))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
@@ -220,7 +227,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                             set_decode_type(model, "greedy")
                             model.eval()
                             with torch.no_grad():
-                                _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True)
+                                _, _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True)
                                 anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=pi, visit_times=visit_times), frames=len(dataset_instance['visit_times']), blit=False)
                                 with tempfile.TemporaryDirectory() as tmpdir:
                                     video_path = os.path.join(tmpdir, 'validation.mp4')
@@ -264,7 +271,7 @@ def train_batch(model, optimizer, baseline, epoch,
     bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood = model(input)
+    cost, log_likelihood, info = model(input)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
     bl_val, bl_loss = baseline.eval(input, cost) if bl_val is None else (bl_val, 0)
@@ -289,5 +296,4 @@ def train_batch(model, optimizer, baseline, epoch,
 
     # Logging
     if step % int(opts.log_step) == 0:
-        log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, 
-                   reinforce_loss, bl_loss, tb_logger, wandb_run, opts)
+        log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, reinforce_loss, bl_loss, tb_logger, wandb_run, opts, info)
