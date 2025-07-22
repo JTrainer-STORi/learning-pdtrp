@@ -223,6 +223,10 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
             ax.legend()
 
             return artists  # This is key!
+        
+    elif problem=='pdcvrp':
+
+        
 
     return update
 
