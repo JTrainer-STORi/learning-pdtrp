@@ -340,7 +340,8 @@ class DynamicAttentionModel(nn.Module):
         # first step is to mask the coordinates, very simple
         masked_input['loc'] = input['loc'][mask].unsqueeze(0)  # (batch_size, num_nodes, 2)
         # for now, going to do this the easy way and simply put the masked locations into the nearest neighbour function and get the new distance matrix and graph from that
-        nn_graph, distance_matrix = nearest_neighbor_graph(masked_input['loc'].squeeze(0), self.neighbors, self.knn_strat)
+        locs_on_cpu = masked_input['loc'].squeeze(0).cpu().numpy()
+        nn_graph, distance_matrix = nearest_neighbor_graph(locs_on_cpu, self.neighbors, self.knn_strat)
         masked_input['graph'] = ~torch.BoolTensor(nn_graph)
         masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix)
         masked_input['time_horizon'] = input['time_horizon']
