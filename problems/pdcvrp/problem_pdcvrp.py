@@ -132,7 +132,9 @@ class PDCVRPDataset(Dataset):
                 # step 4: Generate customer service times
                 service_times = list(np.round(sample_lognorm(self.service_times_mean, self.service_times_std, size=(batch_size, n_total)), decimals=3))
                 # step 5: sample the number of advanced request customers for each instance in the batch
-                n_adv = np.random.randint(int(self.min_dod * n_total), int(self.max_dod * n_total), size=(batch_size))
+                n_imm = np.random.randint(int(self.min_dod * n_total), int(self.max_dod * n_total) + 1, size=(batch_size))
+                n_adv = n_total - n_imm
+
                 # step 6: Sample indices of advanced request customers for each instance in the batch
                 adv_indices = [np.random.choice(n_total, n_adv[i], replace=False) for i in range(batch_size)]
                 # step 7: set the arrival times of the advanced request customers to be 0
@@ -167,7 +169,7 @@ class PDCVRPDataset(Dataset):
             "Number of samples ({}) must be divisible by batch size ({})".format(self.size, batch_size)  
 
     def __len__(self):
-        return self.num_samples
+        return self.size
 
     def __getitem__(self, idx):
         all_nodes  = self.all_nodes[idx]

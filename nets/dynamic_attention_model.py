@@ -178,28 +178,31 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False, return_times=False):
+    def forward(self, input, return_pi=False, return_times=False, mode='masked'):
         """
             Args:
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
                 graph: Graph as a Boolean adjacency matrix (batch_size, num_nodes, num_nodes) dtype: torch.bool
                 arrival_times: Arrival times of the nodes (batch_size, n_arrivals) dtype: torch.int64
+                mode: 'masked' for embedding final graph and masking nodes which haven't arrived, 'recursive' for embedding graph as nodes arrive
         """
+
+        assert mode in ['masked', 'recursive'], "Mode must be either 'masked' or 'recursive'"
 
         if self.edge_features == 'adjacency':
             edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
         elif self.edge_features == 'distance':
             edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
 
-        if self.training:
+        if mode == 'masked':
             
             embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
             log_p, pi, visit_times = self._inner(input, embeddings)
 
-        elif self.eval:
+        elif mode == 'recursive':
             
-            pi, visit_times = self._inner_eval(input)
+            pi, visit_times = self._inner_recursive(input)
 
         # Should only be necesary to pad for capacitated problems as these are the only ones that could have varing route lengths within a batch due to different numbers of depot visits
         if self.is_pdcvrp or self.is_pdcvrptw:
@@ -278,10 +281,10 @@ class DynamicAttentionModel(nn.Module):
 
         return all_outputs, all_sequences, state.visit_times
     
-    def _inner_eval(self, input):
+    def _inner_recursive(self, input):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
         # note that due to it being annoying to do this for anything other than a single instance, this function is designed to only work for a single instance
-        assert input['loc'].size(0) == 1, "This eval method doesn't play nicely with batched inputs"
+        assert input['loc'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
 
         # This bit is the same as the training inner method
         outputs = []

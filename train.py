@@ -57,7 +57,7 @@ def rollout(model, dataset, opts):
     def eval_model_bat(bat):
         input = dataset_to_input(bat, opts.problem, opts.device)
         with torch.no_grad():
-            cost, _, info = model(input)
+            cost, _, info = model(input, mode='recursive')
         return cost, info
     
     costs = []
@@ -65,6 +65,30 @@ def rollout(model, dataset, opts):
     
     for bat in tqdm(
             DataLoader(dataset, batch_size=opts.val_batch_size, shuffle=False, num_workers=opts.num_workers), 
+            disable=opts.no_progress_bar, ascii=True
+        ):
+        cost, info = eval_model_bat(bat)
+        costs.append(cost)
+        if info:
+            infos.append(info)
+
+    return torch.cat(costs, 0), infos
+
+def rollout_baseline(model, dataset, opts, mode):
+        # Put in greedy evaluation mode!
+    set_decode_type(model, "greedy")
+    model.eval()
+    def eval_model_bat(bat):
+        input = dataset_to_input(bat, opts.problem, opts.device)
+        with torch.no_grad():
+            cost, _, info = model(input, mode=mode)
+        return cost, info
+    
+    costs = []
+    infos = []
+    
+    for bat in tqdm(
+            DataLoader(dataset, batch_size=opts.rollout_batch_size, shuffle=False, num_workers=opts.num_workers), 
             disable=opts.no_progress_bar, ascii=True
         ):
         cost, info = eval_model_bat(bat)
@@ -191,7 +215,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
 
                 step += 1
     
-    lr_scheduler.step(epoch)
+    lr_scheduler.step()
 
     epoch_duration = time.time() - start_time
     print("Finished epoch {}, took {} s".format(epoch, time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
@@ -219,6 +243,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             # do a single rollout with the model to get a tour
             if not opts.no_videos:
                 for i in [model_best, model_worst]:
+                    print(f"Logging videos for validation dataset {val_idx + 1}, sample {i} (model {'best' if i == model_best else 'worst'})")
                     for j in range(2):
                         dataset_instance = val_dataset.__getitem__(i)
                         input_instance = dataset_to_input(dataset_instance, opts.problem, opts.device)
@@ -227,7 +252,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                             set_decode_type(model, "greedy")
                             model.eval()
                             with torch.no_grad():
-                                _, _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True)
+                                _, _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True, mode='recursive')
                                 anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, ax, pi=pi, visit_times=visit_times), frames=len(dataset_instance['visit_times']), blit=False)
                                 with tempfile.TemporaryDirectory() as tmpdir:
                                     video_path = os.path.join(tmpdir, 'validation.mp4')

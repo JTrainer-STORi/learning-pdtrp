@@ -168,7 +168,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)  # pylint: disable=no-member
+        routing_enums_pb2.FirstSolutionStrategy.PATH_MOST_CONSTRAINED_ARC)  # pylint: disable=no-member
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
     search_parameters.time_limit.FromSeconds(solution_time_limit)
@@ -257,6 +257,14 @@ parser.add_argument('--latest_end', type=int, default=2,
                         help='number of hours after the time horizon that a customer\'s time window can end, default is 2 hours (120 minutes)')
 parser.add_argument('--reaction_time', type=int, default=60,
                         help="Reaction time in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
+parser.add_argument('--vehicle_capacity', type=float, default=1.0,
+                    help='Vehicle capacity, default is 1.0 (1 unit of demand)')
+parser.add_argument('--min_trips_required', type=int, default=3,
+                    help='Minimum number of trips required to service all customers, default is 3')
+parser.add_argument('--min_time_window', type=int, default=60,
+                        help='Minimum time window length in minutes')
+parser.add_argument('--max_time_window', type=int, default=100,
+                        help='Maximum time window length in minutes')
 
 # import debugpy
 # debugpy.listen(5678)  # 5678 is port
@@ -286,10 +294,10 @@ torch.manual_seed(args.seed)
 
 if problem_type == 'PDTRP':
     dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec)
-# elif problem_type == 'PDCVRP':
-#     dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
+elif problem_type == 'PDCVRP':
+    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required)
 elif problem_type == 'PDTRPTW':
-    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, latest_end=args.latest_end, reaction_time=args.reaction_time)
+    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, latest_end=args.latest_end, reaction_time=args.reaction_time)
 # elif problem_type == 'PDCVRPTW':
 #     dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
 
@@ -316,6 +324,7 @@ for input in tqdm(dataloader, ascii=True):
     for j in range(BATCH_SIZE):
 
         all_nodes = input['all_nodes'][j]
+        n_original_nodes = len(all_nodes)
         arrival_times = input['arrival_times'][j]*1e4
         service_times = input['service_times'][j]
         distance_matrix = input['distance_matrix'][j]
@@ -329,23 +338,36 @@ for input in tqdm(dataloader, ascii=True):
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             demands = input['demand'][j]
             vehicle_capacity = 1.0
-            demands_list += [np.array(demands)]
+            demands_list += [np.asarray(demands)]
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
-            n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
+            #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
+            n_extra_depots = args.min_trips_required - 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
+            print("Sum of demands:", torch.sum(demands).item())
+            print(f"Number of extra depots: {n_extra_depots}")
+            print("Total Capacity:", (n_extra_depots + 1) * vehicle_capacity)
             # add n_extra depots to data
             all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
             demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
+
             arrival_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), arrival_times], dim=0)
             service_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), service_times], dim=0)
+            # need to modify distance matrix to account for the new depots
+            temp_distance_matrix = np.zeros((len(all_nodes), len(all_nodes)))
+            for i in range(n_extra_depots):
+                temp_distance_matrix[i, n_extra_depots:] = np.asarray(distance_matrix[0, :])
+                temp_distance_matrix[n_extra_depots:, i] = np.asarray(distance_matrix[:, 0])
+            temp_distance_matrix[n_extra_depots:, n_extra_depots:] = np.asarray(distance_matrix)
+            distance_matrix = torch.tensor(temp_distance_matrix)
+
             if problem_type == 'PDCVRPTW':
                 window_starts = torch.cat([window_starts[0].repeat(n_extra_depots), window_starts], dim=0)
                 window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
 
                 time_windows = torch.stack([window_starts, window_ends], dim=1)
 
-        all_nodes_list += [np.array(input['all_nodes'][j])]
-        arrival_times_list += [np.array(input['arrival_times'][j])]
-        service_times_list += [np.array(input['service_times'][j])]
+        all_nodes_list += [np.asarray(input['all_nodes'][j])]
+        arrival_times_list += [np.asarray(input['arrival_times'][j])]
+        service_times_list += [np.asarray(input['service_times'][j])]
         if args.use_ortec is not None:
             distance_matrix_list += [np.array(input['distance_matrix'][j])]
 
@@ -417,6 +439,13 @@ for input in tqdm(dataloader, ascii=True):
                         arrival_times = torch.cat([torch.tensor(0).repeat(1), arrival_times], dim=0)
                         service_times = torch.cat([torch.tensor(0).repeat(1), service_times], dim=0)
                         mask = torch.cat([torch.tensor(True).repeat(1), mask], dim=0)
+                        # need to modify distance matrix to account for the new depot
+                        temp_distance_matrix = np.zeros((len(all_nodes), len(all_nodes)))
+                        for i in range(n_extra_depots):
+                            temp_distance_matrix[i, 1:] = np.asarray(distance_matrix[0, :])
+                            temp_distance_matrix[1:, i] = np.asarray(distance_matrix[:, 0])
+                        temp_distance_matrix[1:, 1:] = np.asarray(distance_matrix)
+                        distance_matrix = torch.tensor(temp_distance_matrix)
                         if problem_type == 'PDCVRPTW':
                             window_starts = torch.cat([window_starts[0].repeat(1), window_starts], dim=0)
                             window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(1), window_ends[1:]], dim=0)
@@ -452,8 +481,12 @@ for input in tqdm(dataloader, ascii=True):
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
 
-        #assert that the length of the route is the same as the number of nodes
-        assert len(route) == all_nodes.shape[0] + 1
+        # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
+        sorted_route = sorted(route)
+        stripped_sorted_route = [x for x in sorted_route if x != 0]
+
+        assert stripped_sorted_route == list(range(1, n_original_nodes)), \
+            f"Route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
 
         batch_routes += [route]
         # if problem_type == 'PDCVRPTW':

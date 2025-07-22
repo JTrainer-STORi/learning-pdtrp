@@ -149,11 +149,11 @@ def subsample_ortec(instance_file, n_total, time_horizon, speed):
     raw_dict = read_vrplib(instance_file)
     return transform_and_subsample_rl_instance(raw_dict, n_total, time_horizon, speed)
 
-def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_required, min_demand=0.1):
+def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_required):
 
     # Step 1: Generate raw uniform demands in shape [batch, customers]
     raw_demands = np.random.uniform(
-        low=min_demand,
+        low=0.1,
         high=vehicle_capacity,
         size=(batch_size, n_total)
     )
@@ -169,6 +169,6 @@ def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_req
     scaled_demands = raw_demands * scale_factors
 
     # Step 4: Clip any demand > vehicle_capacity (optional — can remove to allow spillover)
-    scaled_demands = np.clip(scaled_demands, min_demand, vehicle_capacity)
+    scaled_demands = np.clip(scaled_demands, a_min=0.0, a_max=vehicle_capacity)
 
     return scaled_demands

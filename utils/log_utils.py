@@ -159,6 +159,8 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
 
             on_time_visits = (window_starts[1:] <= visit_times_by_index) & (visit_times_by_index <= window_ends[1:])
 
+            lateness = visit_times_by_index - window_ends[1:]
+
             late_visits = visit_times_by_index > window_ends[1:]
 
             ax.clear()
@@ -199,11 +201,16 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
                 unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
                 artists.append(unavail)
 
-            # Customer labels
+            # Customer labels - if customer was visited late, show the amount of time they were late
             for j in range(1, num_customers + 1):
                 x, y = coords[j]
-                txt = ax.text(x, y + 0.02, str(j), fontsize=8, ha='center')
-                artists.append(txt)
+                node_label = ax.text(x, y + 0.02, str(j), fontsize=8, ha='center')
+                artists.append(node_label)
+                if len(visited_late) > 0:
+                    if j in pi[1:-1] and late_visits[j - 1] and visited_mask[j]:
+                        late_label = ax.text(x, y - 0.04, f"{lateness[j-1]:.1f}", fontsize=8, ha='center', color='purple')
+                        artists.append(late_label)
+                
 
             # Tour lines
             lines = []
@@ -227,6 +234,9 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
             return artists  # This is key!
         
     elif problem=='pdcvrp':
+
+        vehicle_capacity = data['vehicle_capacity'].squeeze().cpu()
+        demands = data['demand'].squeeze().cpu()
 
         def update(i):
             current_time = visit_times[i]
@@ -280,6 +290,7 @@ def update_anim(problem, data, ax, pi=None, visit_times=None):
             total_length = 0.0
 
             for idx, route in enumerate(routes):
+                #route_demands = demands[route - 1]
                 lines = []
                 for j in range(1, len(route)):
                     a = coords[route[j - 1]]

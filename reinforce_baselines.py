@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from scipy.stats import ttest_rel
 import copy
-from train import rollout, get_inner_model
+from train import rollout, rollout_baseline, get_inner_model
 
 
 class Baseline(object):
@@ -156,7 +156,7 @@ class RolloutBaseline(Baseline):
         
         # Always generate baseline dataset when updating model to prevent overfitting to the baseline dataset
         self.dataset = self.problem.make_dataset(
-            min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, speed=self.opts.speed, batch_size=self.opts.val_batch_size, n_subregions=self.opts.n_subregions, num_samples=self.opts.epoch_size, time_horizon=self.opts.time_horizon, service_times_mean = self.opts.stmean, service_times_var = self.opts.stvar, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat, arrival_weights=self.opts.arrival_weights, arrival_skews=self.opts.arrival_skews,
+            min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, speed=self.opts.speed, batch_size=self.opts.rollout_batch_size, n_subregions=self.opts.n_subregions, num_samples=self.opts.rollout_size, time_horizon=self.opts.time_horizon, service_times_mean = self.opts.stmean, service_times_var = self.opts.stvar, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat, arrival_weights=self.opts.arrival_weights, arrival_skews=self.opts.arrival_skews,
             min_time_window=self.opts.min_time_window,
             max_time_window=self.opts.max_time_window,
             gamma=self.opts.gamma,
@@ -168,7 +168,10 @@ class RolloutBaseline(Baseline):
         )
         
         print("\nEvaluating Rollout baseline model on evaluation dataset")
-        self.bl_vals, _ = rollout(self.model, self.dataset, self.opts)
+        if self.opts.rollout_batch_size == 1:
+            self.bl_vals, _ = rollout_baseline(self.model, self.dataset, self.opts, mode='recursive')
+        else:
+            self.bl_vals, _ = rollout_baseline(self.model, self.dataset, self.opts, mode='masked')
         self.bl_vals = self.bl_vals.cpu().numpy()
         self.mean = self.bl_vals.mean()
         self.epoch = epoch
@@ -178,7 +181,10 @@ class RolloutBaseline(Baseline):
         # Need to convert baseline to 2D to prevent converting to double, see
         # https://discuss.pytorch.org/t/dataloader-gives-double-instead-of-float/717/3
 
-        bl_vals, _ = rollout(self.model, dataset, self.opts)
+        if self.opts.rollout_batch_size == 1:
+            bl_vals, _ = rollout_baseline(self.model, dataset, self.opts, mode='recursive')
+        else:
+            bl_vals, _ = rollout_baseline(self.model, dataset, self.opts, mode='masked')
 
         return BaselineDataset(dataset, bl_vals.view(-1, 1))
 
@@ -199,7 +205,10 @@ class RolloutBaseline(Baseline):
         :param epoch: The current epoch
         """
         print("\nEvaluating candidate model on evaluation dataset")
-        candidate_vals, _ = rollout(model, self.dataset, self.opts)
+        if self.opts.rollout_batch_size == 1:
+            candidate_vals, _ = rollout_baseline(model, self.dataset, self.opts, mode='recursive')
+        else:
+            candidate_vals, _ = rollout_baseline(model, self.dataset, self.opts, mode='masked')
         candidate_vals = candidate_vals.cpu().numpy()
 
         candidate_mean = candidate_vals.mean()
