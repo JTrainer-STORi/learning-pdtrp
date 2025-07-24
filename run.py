@@ -185,7 +185,7 @@ def run_rl(opts) -> None:
         val_datasets.append(
             problem.make_dataset(
                 filename=val_filename, batch_size=opts.val_batch_size, num_samples=opts.val_size, 
-                neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed, time_horizon=opts.time_horizon, gamma=opts.gamma, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required=opts.min_trips_required,use_ortec=opts.use_ortec,
+                neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed, time_horizon=opts.time_horizon, gamma=opts.gamma, theta=opts.theta, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required=opts.min_trips_required,use_ortec=opts.use_ortec,
             ))
 
     if opts.resume:

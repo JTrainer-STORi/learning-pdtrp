@@ -65,6 +65,8 @@ def get_options(args=None):
                         help = 'Maximum time any customer can be serviced after the time horizon')
     parser.add_argument('--gamma', type=float, default=1, 
                         help='weighting for missed time windows in costs for problems with time windows')
+    parser.add_argument('--theta', type=float, default=1.0, 
+                        help='weighting for distance in costs for problems with time windows')
     parser.add_argument('--latest_end', type=int, default=2,
                         help='number of hours after the time horizon that a customer\'s time window can end, default is 2 hours (120 minutes)')
     parser.add_argument('--reaction_time', type=int, default=60,

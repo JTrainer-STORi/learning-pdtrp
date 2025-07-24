@@ -122,20 +122,20 @@ class DynamicAttentionModel(nn.Module):
         self.temp = 1.0
 
         step_context_dim = embedding_dim
-        if self.use_time_feature and not self.project_time_feature:
-            step_context_dim += 1
         node_dim = 2
         edge_dim = 1
 
         if self.is_pdcvrp:
             node_dim = 3 # x, y, demand
-            step_context_dim = embedding_dim + 1 # embedding dim + remaining capacity
+            step_context_dim += 1 # for the capacity
         if self.is_pdtrptw:
             node_dim = 4 # x,y, window_start, window_end
-            step_context_dim = embedding_dim + 1 # embedding dim + current time
         if self.is_pdcvrptw:
             node_dim = 5 # x,y, window_start, window_end, demand
-            step_context_dim = embedding_dim + 2 # embedding dim + current time + remaining capacity
+            step_context_dim += 1 # for the capacity
+
+        if self.use_time_feature and not self.project_time_feature:
+            step_context_dim += 1
 
         # Special embedding projection for the depot node
         self.init_embed_depot = nn.Linear(2, embedding_dim)
@@ -204,22 +204,24 @@ class DynamicAttentionModel(nn.Module):
             
             pi, visit_times = self._inner_recursive(input)
 
+        visit_times = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
+
         # Should only be necesary to pad for capacitated problems as these are the only ones that could have varing route lengths within a batch due to different numbers of depot visits
-        if self.is_pdcvrp or self.is_pdcvrptw:
+        # if self.is_pdcvrp or self.is_pdcvrptw:
             
-            max_len = max(len(route) for route in visit_times)
+        #     max_len = max(len(route) for route in visit_times)
 
-            padded_visit_times = [route + [-1] * (max_len - len(route)) for route in visit_times]
+        #     padded_visit_times = [route + [-1] * (max_len - len(route)) for route in visit_times]
 
-            input['visit_times'] = torch.tensor(padded_visit_times, dtype=torch.float32, device=input['loc'].device)
-        else:
-            input['visit_times'] = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
+        #     input['visit_times'] = torch.tensor(padded_visit_times, dtype=torch.float32, device=input['loc'].device)
+        # else:
+        #     input['visit_times'] = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
     
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
         if self.is_pdtrptw or self.is_pdcvrptw:
-            cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), move_to(input['visit_times'], device=input['loc'].device), gamma=move_to(input['gamma'], device=input['loc'].device))
+            cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device), move_to(visit_times, device=input['loc'].device), gamma=move_to(input['gamma'], device=input['loc'].device), theta=move_to(input['theta'], device=input['loc'].device))
         else:
             cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['loc'].device))
 
@@ -229,11 +231,11 @@ class DynamicAttentionModel(nn.Module):
             ll = None
 
         if return_pi and return_times:
-            return cost, ll, info, pi_w_depot, input['visit_times']
+            return cost, ll, info, pi_w_depot, visit_times
         elif return_pi:
             return cost, ll, info, pi_w_depot
         elif return_times:
-            return cost, ll, info, input['visit_times']
+            return cost, ll, info, visit_times
         else:
             return cost, ll, info
         
@@ -307,7 +309,7 @@ class DynamicAttentionModel(nn.Module):
 
         # This is the main loop for the decoder
         while not state.all_finished():
-            mask = state.visited_[~state.not_arrived_][None, None, :]
+            mask = state.get_mask()[~state.not_arrived_][None, None, :]
 
             # get log probabilities of next action
             log_p, mask = self._get_log_p(decoder_input, state, mask)
@@ -352,6 +354,8 @@ class DynamicAttentionModel(nn.Module):
             masked_input['window_starts'] = input['window_starts'][mask].unsqueeze(0)
         if 'window_ends' in input:
             masked_input['window_ends'] = input['window_ends'][mask].unsqueeze(0)
+        if 'demand' in input:
+            masked_input['demand'] = input['demand'][mask].unsqueeze(0)
         
         return masked_input
 
@@ -434,64 +438,29 @@ class DynamicAttentionModel(nn.Module):
         current_node = state.get_current_node()
         batch_size, num_steps = current_node.size()
 
-        if self.is_pdcvrp:
-            return torch.cat(
-                (
-                    torch.gather(
+        context = torch.gather(
                         embeddings,
                         1,
                         current_node.contiguous().view(batch_size, num_steps, 1)
                         .expand(batch_size, num_steps, embeddings.size(-1))
-                    ).view(batch_size, num_steps, embeddings.size(-1)),
-                    self.problem.VEHICLE_CAPACITY - state.used_cap[:, :, None]
-                ),
-                -1
-            )
-             
-        if self.is_pdcvrptw:
-            return torch.cat(
-                (
-                    torch.gather(
-                        embeddings,
-                        1,
-                        current_node.contiguous().view(batch_size, num_steps, 1)
-                        .expand(batch_size, num_steps, embeddings.size(-1))
-                    ).view(batch_size, num_steps, embeddings.size(-1)),
-                    state.cur_times[:,:,None],
-                    self.problem.VEHICLE_CAPACITY - state.used_cap[:, :, None]
-                ),
-                -1
-            )
-    
+                    ).view(batch_size, num_steps, embeddings.size(-1))
 
         if self.use_time_feature:
             if self.project_time_feature:
-                time_feature = self.project_time_feature(state.get_timestep(normalize=self.scale_times)[:,:, None])
-                return torch.gather(embeddings, 1, 
-                    current_node.contiguous().view(batch_size, num_steps, 1)
-                    .expand(batch_size, num_steps, embeddings.size(-1))
-                ).view(batch_size, num_steps, embeddings.size(-1)) + time_feature
+                context = context + self.project_time_feature(state.get_timestep(normalize=self.scale_times)[:,:, None])
             else:
-                return torch.cat(
-                    (
-                        torch.gather(
-                            embeddings,
-                            1,
-                            current_node.contiguous().view(batch_size, num_steps, 1)
-                            .expand(batch_size, num_steps, embeddings.size(-1))
-                        ).view(batch_size, num_steps, embeddings.size(-1)),
-                        state.get_timestep(normalize=self.scale_times)[:,:, None]
-                    ),
-                    -1
-                )
+                context = torch.cat((context, state.get_timestep(normalize=self.scale_times)[:,:, None]), -1)
         
-        else:
-            return torch.gather(
-                    embeddings,
-                    1,
-                    current_node.contiguous().view(batch_size, num_steps, 1)
-                    .expand(batch_size, num_steps, embeddings.size(-1))
-                ).view(batch_size, num_steps, embeddings.size(-1))
+        if self.is_pdcvrp or self.is_pdcvrptw:
+            context = torch.cat(
+                (
+                    context,
+                    state.get_remaining_capacity()[:, :, None]
+                ),
+                -1
+            )
+
+        return context
 
     def _one_to_many_logits(self, query, glimpse_K, glimpse_V, logit_K, mask, graph_mask=None):
         batch_size, num_steps, embed_dim = query.size()
@@ -568,10 +537,16 @@ class DynamicAttentionModel(nn.Module):
             1
             )
         if self.is_pdcvrptw:
+            if self.scale_times:
+                window_starts = scale_time(input['window_starts'][:, 1:, None], input['time_horizon'][0])
+                window_ends = scale_time(input['window_ends'][:, 1:, None], input['time_horizon'][0])
+            else:
+                window_starts = input['window_starts'][:, 1:, None]
+                window_ends = input['window_ends'][:, 1:, None]
             return torch.cat(
             (
                 self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
-                self.node_embed(torch.cat((input['loc'][:, 1:, :], input['window_starts'][:, 1:, None], input['window_ends'][:, 1:, None], input['demand'][:, 1:, None]), -1))
+                self.node_embed(torch.cat((input['loc'][:, 1:, :], window_starts, window_ends, input['demand'][:, 1:, None]), -1))
             ),
             1
             )

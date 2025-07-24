@@ -90,17 +90,24 @@ def dataset_to_input(dataset, problem, device):
                 'distance_matrix': move_to(dataset['distance_matrix'], device).unsqueeze(0),
                 'speed': move_to(dataset['speed'], device),
                 'time_horizon': move_to(dataset['time_horizon'], device), 
-                'gamma': move_to(dataset['gamma'], device)
+                'gamma': move_to(dataset['gamma'], device),
+                'theta': move_to(dataset['theta'], device),
             }
         elif problem == 'pdcvrptw':
             input = {
-                'loc': move_to(dataset['all_nodes'], device),
-                'service_times': move_to(dataset['service_times'], device),
-                'arrival_times': move_to(dataset['arrival_times'], device),
-                'demand': move_to(dataset['demand'], device),
-                'graph': move_to(dataset['graph'], device),
-                'window_starts': move_to(dataset['window_starts'], device),
-                'window_ends': move_to(dataset['window_ends'], device)
+                'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
+                'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
+                'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
+                'demand': move_to(dataset['demand'], device).unsqueeze(0),
+                'graph': move_to(dataset['graph'], device).unsqueeze(0),
+                'window_starts': move_to(dataset['window_starts'], device).unsqueeze(0),
+                'window_ends': move_to(dataset['window_ends'], device).unsqueeze(0),
+                'distance_matrix': move_to(dataset['distance_matrix'], device).unsqueeze(0),
+                'speed': move_to(dataset['speed'], device),
+                'time_horizon': move_to(dataset['time_horizon'], device),
+                'vehicle_capacity': move_to(dataset['vehicle_capacity'], device),
+                'gamma': move_to(dataset['gamma'], device),
+                'theta': move_to(dataset['theta'], device),
             }
     else:
         if problem == 'pdtrp':
@@ -136,7 +143,8 @@ def dataset_to_input(dataset, problem, device):
                 'distance_matrix': move_to(dataset['distance_matrix'], device),
                 'speed': move_to(dataset['speed'], device),
                 'time_horizon': move_to(dataset['time_horizon'], device), 
-                'gamma': move_to(dataset['gamma'], device)
+                'gamma': move_to(dataset['gamma'], device),
+                'theta': move_to(dataset['theta'], device),
             }
         elif problem == 'pdcvrptw':
             input = {
@@ -149,7 +157,10 @@ def dataset_to_input(dataset, problem, device):
                 'window_ends': move_to(dataset['window_ends'], device),
                 'distance_matrix': move_to(dataset['distance_matrix'], device),
                 'speed': move_to(dataset['speed'], device),
-                'time_horizon': move_to(dataset['time_horizon'], device)
+                'time_horizon': move_to(dataset['time_horizon'], device),
+                'vehicle_capacity': move_to(dataset['vehicle_capacity'], device),
+                'gamma': move_to(dataset['gamma'], device),
+                'theta': move_to(dataset['theta'], device),
             }
 
     return input

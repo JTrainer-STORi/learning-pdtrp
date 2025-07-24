@@ -160,6 +160,7 @@ class RolloutBaseline(Baseline):
             min_time_window=self.opts.min_time_window,
             max_time_window=self.opts.max_time_window,
             gamma=self.opts.gamma,
+            theta=self.opts.theta,
             latest_end=self.opts.latest_end,
             reaction_time=self.opts.reaction_time,
             vehicle_capacity=self.opts.vehicle_capacity,

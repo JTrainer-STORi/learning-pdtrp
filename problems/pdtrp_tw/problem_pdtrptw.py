@@ -15,7 +15,7 @@ class PDTRPTW(object):
 
     NAME = "pdtrptw"
 
-    def get_costs(input, pi, visit_times, gamma):
+    def get_costs(input, pi, visit_times, gamma, theta):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
         window_ends = input['window_ends']
@@ -50,7 +50,7 @@ class PDTRPTW(object):
 
         overall_lateness_penalty = torch.sum(lateness_penalties, dim=1)
 
-        return tour_lengths + gamma[0] * overall_lateness_penalty, {
+        return theta[0] * tour_lengths + gamma[0] * overall_lateness_penalty, {
             'distance_penalty': tour_lengths,
             'lateness_penalty': overall_lateness_penalty
         }
@@ -64,7 +64,7 @@ class PDTRPTW(object):
         return StatePDTRPTW.initialize(*args, **kwargs)
     
 class PDTRPTWDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=60, max_time_window=100, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=1.0, latest_end=2, reaction_time=60, vehicle_capacity=None, min_trips_required=None, use_ortec=None):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=60, max_time_window=100, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=1.0, theta=1.0, latest_end=2, reaction_time=60, vehicle_capacity=None, min_trips_required=None, use_ortec=None):
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total
@@ -74,6 +74,7 @@ class PDTRPTWDataset(Dataset):
         self.n_subregions = n_subregions
         self.time_horizon = time_horizon * 60 # convert to minutes
         self.gamma = gamma
+        self.theta = theta
         self.service_times_mean = service_times_mean
         self.service_times_std = np.sqrt(service_times_var)
         # self.service_times_sigma = service_times_sigma
@@ -125,7 +126,7 @@ class PDTRPTWDataset(Dataset):
                     self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         elif self.use_ortec is not None:
-            print("Generating PDTRP instances from ORTEC instance: {}".format(self.use_ortec))
+            print("Generating PDTRPTW instances from ORTEC instance: {}".format(self.use_ortec))
             # For this manner of generating 'Real' PDTRP instances, the dod arguments won't apply and instead the dod will be determined randomly based on the subsampling
             self.distance_matrix = []
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
@@ -136,12 +137,16 @@ class PDTRPTWDataset(Dataset):
                 arrival_times = []
                 service_times = []
                 distance_matrix = []
+                window_starts = []
+                window_ends = []
                 for _ in range(batch_size):
-                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix = subsample_ortec(instance_file=self.use_ortec, n_total=n_total, time_horizon=self.time_horizon, speed=self.speed)
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, batch_start_times, batch_end_times, _ = subsample_ortec(instance_file=self.use_ortec, problem='pdtrptw', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, latest_end=self.latest_end)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                     service_times.append(batch_service_times)
                     distance_matrix.append(batch_distance_matrix)
+                    window_starts.append(batch_start_times)
+                    window_ends.append(batch_end_times)
 
                 # step 3: sort the customers by arrival time
                 for i in range(batch_size):
@@ -150,12 +155,15 @@ class PDTRPTWDataset(Dataset):
                     arrival_times[i] = arrival_times[i][idx]
                     service_times[i] = service_times[i][idx]
                     distance_matrix[i] = distance_matrix[i][idx][:, idx]
+                    window_starts[i] = window_starts[i][idx]
+                    window_ends[i] = window_ends[i][idx]
 
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times
                 self.service_times += service_times
                 self.distance_matrix += distance_matrix
-
+                self.window_starts += window_starts
+                self.window_ends += window_ends
 
         else:
             # For now, spatial coordinates of customers will be generated using the subregion method rather than using a seed dataset
@@ -237,7 +245,11 @@ class PDTRPTWDataset(Dataset):
         service_times = self.service_times[idx]
         window_starts = self.window_starts[idx]
         window_ends = self.window_ends[idx]
-        nn_graph, distance_matrix = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)
+        if self.use_ortec is not None:
+            distance_matrix = self.distance_matrix[idx]
+            nn_graph, _ = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat, distance_matrix=distance_matrix)
+        else:
+            nn_graph, distance_matrix = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)
 
         # Add groundtruth labels in case of SL         
         item = {
@@ -251,6 +263,7 @@ class PDTRPTWDataset(Dataset):
             'time_horizon': torch.FloatTensor([self.time_horizon]),
             'distance_matrix': torch.FloatTensor(distance_matrix),
             'gamma': torch.FloatTensor([self.gamma]),
+            'theta': torch.FloatTensor([self.theta]),
         }
         if self.filename is not None:
            item['tour_nodes'] = torch.LongTensor(self.tours[idx])

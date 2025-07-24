@@ -64,6 +64,7 @@ class StatePDCVRP(NamedTuple):
             demands=demands,
             speed=speed,
             time_horizon=time_horizon,
+            vehicle_capacity= vehicle_capacity,
             distance_matrix=distance_matrix,
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
@@ -77,12 +78,6 @@ class StatePDCVRP(NamedTuple):
             arrival_occured=False,
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
         )
-    
-    def get_final_cost(self):
-
-        assert self.all_finished()
-
-        return self.lengths + (self.coords[self.ids, 0] - self.cur_coords).norm(p=2, dim=-1)
 
     def update(self, selected):
 
@@ -131,6 +126,13 @@ class StatePDCVRP(NamedTuple):
         # increase capacity if depot is not visited, otherwise reset to 0
         used_capacity = (self.used_cap + selected_demand) * (prev_a != 0).float()
 
+        # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
+        if visited_.all():
+            distances_back_to_depot = (self.coords[self.ids, 0] - cur_coords).norm(p=2, dim=-1)
+            time_back_at_depot = cur_times + torch.round((distances_back_to_depot / self.speed), decimals=4)
+            for i in range(batch_size):
+                self.visit_times[i].append(time_back_at_depot[i, 0].item())
+
         return self._replace(
             prev_a=prev_a,
             cur_times=cur_times,
@@ -153,7 +155,7 @@ class StatePDCVRP(NamedTuple):
         visited_loc = self.visited_[:, :, 1:]
         not_arrived_loc = self.not_arrived_[:, :, 1:]
         loc_mask = torch.logical_or(visited_loc, not_arrived_loc)
-        exceeds_cap = (self.demands[self.ids, 1:] + self.used_cap[:, :, None] > self.vehicle_capacity)
+        exceeds_cap = (self.demands[self.ids, 1:] + self.used_cap[self.ids] > self.vehicle_capacity[0])
 
         mask_loc = torch.logical_or(loc_mask, exceeds_cap)
 
@@ -175,3 +177,7 @@ class StatePDCVRP(NamedTuple):
             return scale_time(self.cur_times, self.time_horizon)
         else:
             return self.cur_times
+        
+    def get_remaining_capacity(self):
+        # return the remaining capacity for each environment in the batch
+        return self.vehicle_capacity - self.used_cap

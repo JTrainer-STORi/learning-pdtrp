@@ -124,7 +124,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
         for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
             node_index = manager.NodeToIndex(node)
             capacity_dimension.SlackVar(node_index).SetValue(0)
-            routing.AddDisjunction([node_index], 1_000_000)
+            routing.AddDisjunction([node_index], 10_000_000)
 
     if problem_type == 'PDCVRPTW' or problem_type == 'PDCVRP':
         # Add Capacity constraints
@@ -253,6 +253,8 @@ parser.add_argument('--read_data_filepath', type=str, default=None,
                     help='Filepath to read data from in real data scenario')
 parser.add_argument('--gamma', type=int, default=1,
                     help='How much to penalize lateness in time windows')
+parser.add_argument('--theta', type=float, default=1.0, 
+                    help='weighting for distance in costs for problems with time windows')
 parser.add_argument('--latest_end', type=int, default=2,
                         help='number of hours after the time horizon that a customer\'s time window can end, default is 2 hours (120 minutes)')
 parser.add_argument('--reaction_time', type=int, default=60,
@@ -297,9 +299,9 @@ if problem_type == 'PDTRP':
 elif problem_type == 'PDCVRP':
     dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required)
 elif problem_type == 'PDTRPTW':
-    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, latest_end=args.latest_end, reaction_time=args.reaction_time)
-# elif problem_type == 'PDCVRPTW':
-#     dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, arrival_weights=arrival_weights, real_data=real_data)
+    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time)
+elif problem_type == 'PDCVRPTW':
+    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -333,8 +335,8 @@ for input in tqdm(dataloader, ascii=True):
             window_starts = input['window_starts'][j]
             window_ends = input['window_ends'][j]
             time_windows = torch.stack([window_starts, window_ends], dim=1)
-            window_starts_list += [np.array(input['window_starts'][j])]
-            window_ends_list += [np.array(input['window_ends'][j])]
+            window_starts_list += [np.asarray(input['window_starts'][j])]
+            window_ends_list += [np.asarray(input['window_ends'][j])]
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             demands = input['demand'][j]
             vehicle_capacity = 1.0
@@ -342,9 +344,6 @@ for input in tqdm(dataloader, ascii=True):
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
             #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
             n_extra_depots = args.min_trips_required - 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
-            print("Sum of demands:", torch.sum(demands).item())
-            print(f"Number of extra depots: {n_extra_depots}")
-            print("Total Capacity:", (n_extra_depots + 1) * vehicle_capacity)
             # add n_extra depots to data
             all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
             demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
@@ -485,8 +484,7 @@ for input in tqdm(dataloader, ascii=True):
         sorted_route = sorted(route)
         stripped_sorted_route = [x for x in sorted_route if x != 0]
 
-        assert stripped_sorted_route == list(range(1, n_original_nodes)), \
-            f"Route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
+        assert stripped_sorted_route == list(range(1, n_original_nodes)), f"Stripped sorted route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
 
         batch_routes += [route]
         # if problem_type == 'PDCVRPTW':
@@ -498,7 +496,7 @@ for input in tqdm(dataloader, ascii=True):
 
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-    padded_batch_times = [times + [-1]*(max_len - len(times) - 1) for times in batch_times]
+    padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
 
     tours_list += padded_batch_routes
     visit_times_list += padded_batch_times

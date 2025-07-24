@@ -60,7 +60,7 @@ class PDTRP(object):
         return StatePDTRP.initialize(*args, **kwargs)
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, latest_end=None, reaction_time=None, vehicle_capacity=None, min_trips_required=None, use_ortec=None):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=None, reaction_time=None, vehicle_capacity=None, min_trips_required=None, use_ortec=None):
         """
         Use this function for either loading a dataset from a file or generating a new dataset.
 
@@ -144,7 +144,7 @@ class PDTRPDataset(Dataset):
                 service_times = []
                 distance_matrix = []
                 for _ in range(batch_size):
-                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix = subsample_ortec(instance_file=self.use_ortec, problem='pdtrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed)
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _, _ = subsample_ortec(instance_file=self.use_ortec, problem='pdtrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                     service_times.append(batch_service_times)

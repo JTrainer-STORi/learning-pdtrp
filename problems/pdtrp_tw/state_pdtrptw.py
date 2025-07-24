@@ -54,6 +54,9 @@ class StatePDTRPTW(NamedTuple):
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
         visited[:, :, 0] = True
+
+        ids = torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None]
+
         return StatePDTRPTW(
             coords=loc,
             service_times=service_times,
@@ -63,7 +66,7 @@ class StatePDTRPTW(NamedTuple):
             distance_matrix=distance_matrix,
             window_starts=window_starts,
             window_ends=window_ends,
-            ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
+            ids=ids,
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env

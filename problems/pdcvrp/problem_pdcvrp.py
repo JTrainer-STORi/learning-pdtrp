@@ -13,12 +13,13 @@ class PDCVRP(object):
     NAME = 'pdcvrp'
 
     @staticmethod
-    def get_costs(dataset, pi):
+    def get_costs(input, pi):
 
         distance_matrix = input['distance_matrix']
         vehicle_capacity = input['vehicle_capacity']
+        demand = input['demand'] 
 
-        B, N = pi.size()
+        B, N = demand.size()
         graph_size = N - 1
         # Check that tours are valid, i.e. contain 0 to n -1
         sorted_pi = pi.data.sort(1)[0]
@@ -32,19 +33,19 @@ class PDCVRP(object):
         # Visiting depot resets capacity so we add demand = -capacity (we make sure it does not become negative)
         demand_with_depot = torch.cat(
             (
-                torch.full_like(dataset['demand'][:, :1], -vehicle_capacity[0]),
-                dataset['demand'][:, 1:]
+                torch.full_like(demand[:, :1], -vehicle_capacity[0].item()),
+                demand[:, 1:]
             ),
             1
         )
         dem = demand_with_depot.gather(1, pi)
 
-        used_cap = torch.zeros_like(dataset['demand'][:, 0])
+        used_cap = torch.zeros_like(demand[:, 0])
         for i in range(pi.size(1)):
             used_cap += dem[:, i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
             # Cannot use less than 0
             used_cap[used_cap < 0] = 0
-            assert (used_cap <= PDCVRP.VEHICLE_CAPACITY + 1e-5).all(), "Used more than capacity"
+            assert (used_cap <= vehicle_capacity[0].item() + 1e-5).all(), "Used more than capacity"
 
         # Gather distances along the tour
         idx_from = pi[:, :-1]
@@ -71,7 +72,7 @@ class PDCVRP(object):
         return StatePDCVRP.initialize(*args, **kwargs)
     
 class PDCVRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, latest_end=None, reaction_time=None, vehicle_capacity=1.0, min_trips_required=3, use_ortec=False):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=None, reaction_time=None, vehicle_capacity=1.0, min_trips_required=3, use_ortec=False):
         super(PDCVRPDataset, self).__init__()
         self.filename = filename
         self.min_total = min_total
@@ -117,7 +118,52 @@ class PDCVRPDataset(Dataset):
                 self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
                 self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
+        elif self.use_ortec is not None:
+            print("Generating PDCVRP instances from ORTEC instance: {}".format(self.use_ortec))
+            # For this manner of generating 'Real' PDTRP instances, the dod arguments won't apply and instead the dod will be determined randomly based on the subsampling
+            self.distance_matrix = []
+            for _ in tqdm(range(num_samples//batch_size), ascii=True):
+                # Step 1: Generate the total number of customers
+                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1
+                # Step 2: Generate the locations and arrival times of the customers by subsampling ortec instances
+                all_nodes = []
+                arrival_times = []
+                service_times = []
+                distance_matrix = []
+                demands = []
+                for _ in range(batch_size):
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _,batch_demands = subsample_ortec(instance_file=self.use_ortec, problem='pdcvrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, vehicle_capacity=self.vehicle_capacity, min_trips_required=self.min_trips_required)
+                    all_nodes.append(batch_nodes)
+                    arrival_times.append(batch_arrival_times)
+                    service_times.append(batch_service_times)
+                    distance_matrix.append(batch_distance_matrix)
+                    demands.append(batch_demands)
+
+                # step 3: sort the customers by arrival time
+                for i in range(batch_size):
+                    idx = np.argsort(arrival_times[i])
+                    all_nodes[i] = all_nodes[i][idx]
+                    arrival_times[i] = arrival_times[i][idx]
+                    service_times[i] = service_times[i][idx]
+                    distance_matrix[i] = distance_matrix[i][idx][:, idx]
+                    demands[i] = demands[i][idx]
+
+                self.all_nodes += all_nodes
+                self.arrival_times += arrival_times
+                self.service_times += service_times
+                self.distance_matrix += distance_matrix
+                self.demands += demands
+
         else:
+            if arrival_weights is not None and arrival_skews is not None:
+                print("Generating PDCVRP instances with {} subregion(s) with arrival weights {} and skews {}...".format(self.n_subregions, self.arrival_weights, self.arrival_skews))
+            elif arrival_weights is not None:
+                print("Generating PDCVRP instances with {} subregion(s) with arrival weights {} and uniform arrival skews...".format(self.n_subregions, self.arrival_weights))
+            elif arrival_skews is not None:
+                print("Generating PDCVRP instances with {} subregion(s) with dirichlet arrival weights and skews {}...".format(self.n_subregions, self.arrival_skews))
+            else:
+                print("Generating PDCVRP instances with {} subregion(s) with dirichlet arrival weights and uniform skews...".format(self.n_subregions))  
+            print("Vehicle Capacity: {}, Min Trips Required: {}".format(self.vehicle_capacity, self.min_trips_required))    
 
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
@@ -177,7 +223,8 @@ class PDCVRPDataset(Dataset):
         demands = self.demands[idx]
         service_times = self.service_times[idx]
         if self.use_ortec is not None:
-            pass
+            distance_matrix = self.distance_matrix[idx]
+            nn_graph, _ = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat, distance_matrix=distance_matrix)
         else:
             nn_graph, distance_matrix = nearest_neighbor_graph(all_nodes, self.neighbors, self.knn_strat)
 
