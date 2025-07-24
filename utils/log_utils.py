@@ -371,9 +371,11 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
 
             visit_times_by_index = torch.full_like(window_starts[1:], float('nan'))
 
-            visit_times_wo_depots = visit_times[pi != 0]
+            depot_mask = pi != 0
+            pi_wo_depots = pi[depot_mask]
+            visit_times_wo_depots = visit_times[depot_mask]
 
-            visit_times_by_index[pi[1:-1] - 1] = visit_times_wo_depots
+            visit_times_by_index[pi_wo_depots - 1] = visit_times_wo_depots
 
             on_time_visits = (window_starts[1:] <= visit_times_by_index) & (visit_times_by_index <= window_ends[1:])
 
@@ -434,10 +436,10 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
             for node in current_tour[1:]:
                 current_route.append(node)
                 if node == 0:
-                    routes.append(current_route)
+                    routes.append(torch.tensor(current_route, device=coords.device))
                     current_route = [0]
             if len(current_route) > 1:  # leftover
-                routes.append(current_route)
+                routes.append(torch.tensor(current_route, device=coords.device))
 
             # Color map for routes
             cmap = cm.get_cmap('tab10', len(routes))
@@ -480,8 +482,11 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     ax.add_collection(pc_dem)
                     artists.append(pc_dem)
                     
+            lateness_including_depot = torch.cat((torch.tensor([0.0], device=lateness.device), lateness))
 
-            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f} | Accumulated Lateness {lateness[current_tour].sum():.2f} Minutes")
+            accumulated_lateness = lateness_including_depot[current_tour].sum()
+
+            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f} | Accumulated Lateness {accumulated_lateness:.2f} Minutes")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             # Position the legend to the right

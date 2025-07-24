@@ -70,8 +70,6 @@ class PDCVRPTW(object):
         # add the final depot visit to the pis so they match the visit times
 
         pi_with_depot_return = torch.cat((pi, torch.zeros((B, 1), dtype=torch.int64, device=pi.device)), dim=1)  # shape: [B, T+1]
-
-        print(visit_times.shape, pi.shape, pi_with_depot_return.shape)
         
         mask = pi_with_depot_return != 0  # [B, T]
         batch_indices = torch.arange(B, device=pi.device).unsqueeze(1).expand_as(pi_with_depot_return)  # [B, T]
@@ -79,8 +77,6 @@ class PDCVRPTW(object):
         # Get valid pi indices and batch indices (flattened where mask is True)
         pi_wo_depot = pi_with_depot_return[mask]  # [N]
         batch_idx_flat = batch_indices[mask]  # [N]
-
-        print("pi_wo_depot shape:", pi_wo_depot.shape)
 
         # Gather visit_times and corresponding window_ends values
         visit_times_wo_depots = visit_times[mask]  # [N]

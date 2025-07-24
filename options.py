@@ -61,8 +61,6 @@ def get_options(args=None):
                         help='mean of service times')
     parser.add_argument('--stvar', type=float, default=5,
                         help='variance of service times')
-    parser.add_argument('--L', type=float, default=2,
-                        help = 'Maximum time any customer can be serviced after the time horizon')
     parser.add_argument('--gamma', type=float, default=1, 
                         help='weighting for missed time windows in costs for problems with time windows')
     parser.add_argument('--theta', type=float, default=1.0, 

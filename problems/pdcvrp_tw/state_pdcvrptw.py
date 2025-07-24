@@ -62,6 +62,8 @@ class StatePDCVRPTW(NamedTuple):
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
+        visited[:, :, 0] = True  # depot starts visited
+        
         return StatePDCVRPTW(
             coords=loc,
             arrival_times=arrival_times,

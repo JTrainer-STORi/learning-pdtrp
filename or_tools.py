@@ -267,6 +267,10 @@ parser.add_argument('--min_time_window', type=int, default=60,
                         help='Minimum time window length in minutes')
 parser.add_argument('--max_time_window', type=int, default=100,
                         help='Maximum time window length in minutes')
+parser.add_argument('--stmean', type=float, default=3,
+                    help='mean of service times')
+parser.add_argument('--stvar', type=float, default=5,
+                    help='variance of service times')
 
 # import debugpy
 # debugpy.listen(5678)  # 5678 is port

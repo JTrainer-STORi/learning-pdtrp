@@ -57,6 +57,8 @@ class StatePDCVRP(NamedTuple):
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
+        visited[:, :, 0] = True  # depot starts visited
+        
         return StatePDCVRP(
             coords=loc,
             arrival_times=arrival_times,
@@ -105,7 +107,7 @@ class StatePDCVRP(NamedTuple):
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
         # if, for any of the environments in the batch, after checking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
-        for i in range(batch_size):            
+        for i in range(batch_size):
             if torch.logical_or(visited_[i], new_arrival_mask[i]).all():
                 if not visited_[i].all():
                     # fast forward the current time to the minimum of the remaining arrival times ...

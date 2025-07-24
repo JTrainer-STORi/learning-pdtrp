@@ -67,4 +67,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --val_batch_size "$VAL_BATCH_SIZE" \
     --no_tensorboard --n_subregions "$N_SUBREGIONS" --use_time_feature --scale_times \
     --rollout_batch_size "$ROLLOUT_BATCH_SIZE" \
-    --gamma 1.0 --no_wandb
+    --gamma 1.0 
