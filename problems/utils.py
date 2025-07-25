@@ -31,9 +31,12 @@ def nearest_neighbor_graph(nodes, neighbors, knn_strat, distance_matrix = None):
     return W, W_val
 
 def sample_lognorm(mean, std_dev, size):
-    shape = np.sqrt(np.log((std_dev**2 / mean**2) + 1))
-    scale = mean / np.exp(shape**2 / 2)
-    return np.random.lognormal(mean=np.log(scale), sigma=shape, size=size)
+    if std_dev == 0 and mean == 0:
+        return np.zeros(size)
+    else:
+        shape = np.sqrt(np.log((std_dev**2 / mean**2) + 1))
+        scale = mean / np.exp(shape**2 / 2)
+        return np.random.lognormal(mean=np.log(scale), sigma=shape, size=size)
 
 def normalize_coordinates(coords):
     coords = np.array(coords)

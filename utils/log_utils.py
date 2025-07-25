@@ -6,6 +6,8 @@ import numpy as np
 
 import torch
 
+plt.rcParams['figure.constrained_layout.use'] = True
+
 def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, 
                reinforce_loss, bl_loss, tb_logger, wandb_run, opts, info):
     avg_cost = cost.mean().item()
@@ -248,8 +250,10 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
 
         vehicle_capacity = data['vehicle_capacity'].squeeze().cpu()
         demands = data['demand'].squeeze().cpu()
+        cmap = cm.get_cmap('tab10')
 
         def update(i):
+
             current_time = visit_times[i]
             current_tour = pi[:i+1]
             visited_mask[current_tour] = True
@@ -296,13 +300,13 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
             if len(current_route) > 1:  # leftover
                 routes.append(torch.tensor(current_route, device=coords.device))
 
-            # Color map for routes
-            cmap = cm.get_cmap('tab10', len(routes))
             total_length = 0.0
 
             dem_rects = []
             used_rects = []
             cap_rects = []
+
+            route_handles = [] # for legend
 
             current_capacity = vehicle_capacity.item()
 
@@ -326,6 +330,10 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     lc = mc.LineCollection(lines, colors=[cmap(idx)], linewidths=2)
                     ax.add_collection(lc)
                     artists.append(lc)
+
+                    # add a custom legend handle for the route
+                    route_handle = plt.Line2D([0], [0], color=cmap(idx), lw=2, label=f'Route {idx + 1}')
+                    route_handles.append(route_handle)
                 if dem_rects:
                     pc_cap = mc.PatchCollection(cap_rects, facecolor='whitesmoke', edgecolor='lightgray', alpha=1.0)
                     ax.add_collection(pc_cap)
@@ -342,11 +350,17 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             # Position the legend to the right
-            ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), borderaxespad=0.)
 
-            # Adjust the figure to make space for the legend
-            fig.subplots_adjust(right=0.75)
+            leg1 = ax.legend(title='points', loc='upper left', bbox_to_anchor=(1.02, 1.0))
 
+            ax.add_artist(leg1)
+
+            leg2 = ax.legend(handles=route_handles, title='routes', loc='upper left', bbox_to_anchor=(1.02, 0.5))
+
+            ax.add_artist(leg2)
+
+            # Adjust the figure to make space for the legends
+            fig.subplots_adjust(right=0.7)
 
             return artists
         
@@ -356,6 +370,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
         demands = data['demand'].squeeze().cpu()
         window_starts = data['window_starts'].squeeze().cpu()
         window_ends = data['window_ends'].squeeze().cpu()
+        cmap = cm.get_cmap('tab10')
 
         def update(i):
             current_time = visit_times[i]
@@ -442,7 +457,6 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 routes.append(torch.tensor(current_route, device=coords.device))
 
             # Color map for routes
-            cmap = cm.get_cmap('tab10', len(routes))
             total_length = 0.0
 
             dem_rects = []
