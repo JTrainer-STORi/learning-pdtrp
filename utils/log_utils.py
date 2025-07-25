@@ -6,8 +6,6 @@ import numpy as np
 
 import torch
 
-plt.rcParams['figure.constrained_layout.use'] = True
-
 def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, 
                reinforce_loss, bl_loss, tb_logger, wandb_run, opts, info):
     avg_cost = cost.mean().item()
@@ -108,7 +106,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 if len(available_customers) > 0:
                     artists.append(ax.scatter(available_customers[:, 0], available_customers[:, 1], c='blue', label='Available'))
             if len(unavailable_customers) > 0:
-                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
+                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Arrived Yet')
                 artists.append(unavail)
 
             # Customer labels
@@ -131,13 +129,16 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 ax.add_collection(lc)
                 artists.append(lc)
 
-            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units")
+            fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units", fontsize='medium')
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
-            ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), borderaxespad=0.)
+            
+            leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
+
+            ax.add_artist(leg1)
 
             # Adjust the figure to make space for the legend
-            fig.subplots_adjust(right=0.75)
+            fig.subplots_adjust(left=0.1, right=0.75, top=0.9, bottom=0.1)
 
             return artists  # This is key!
         
@@ -182,9 +183,9 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 visited_late = coords[1:][available_mask & visited_mask[1:] & late_visits]
 
                 if len(visited_on_time) > 0:
-                    artists.append(ax.scatter(visited_on_time[:, 0], visited_on_time[:, 1], c='green', label='Visited Within Time Window'))
+                    artists.append(ax.scatter(visited_on_time[:, 0], visited_on_time[:, 1], c='green', label='Visited In TW'))
                 if len(visited_late) > 0:
-                    artists.append(ax.scatter(visited_late[:, 0], visited_late[:, 1], c='purple', label='Visited After Time Window'))
+                    artists.append(ax.scatter(visited_late[:, 0], visited_late[:, 1], c='purple', label='Visited After TW'))
 
                 # Next deal with unvisited nodes
 
@@ -197,11 +198,11 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 after_not_visited = coords[1:][not_visited_mask[1:] & after_mask & available_mask]
 
                 if len(before) > 0:
-                    artists.append(ax.scatter(before[:, 0], before[:, 1], c='orange', label='Before Time Window'))
+                    artists.append(ax.scatter(before[:, 0], before[:, 1], c='orange', label='Before TW'))
                 if len(during_not_visited) > 0:
-                    artists.append(ax.scatter(during_not_visited[:, 0], during_not_visited[:, 1], c='blue', label='Within Time Window'))
+                    artists.append(ax.scatter(during_not_visited[:, 0], during_not_visited[:, 1], c='blue', label='In TW'))
                 if len(after_not_visited) > 0:
-                    artists.append(ax.scatter(after_not_visited[:, 0], after_not_visited[:, 1], c='red', label='After Time Window'))
+                    artists.append(ax.scatter(after_not_visited[:, 0], after_not_visited[:, 1], c='red', label='After TW'))
 
             if len(unavailable_customers) > 0:
                 unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
@@ -236,13 +237,15 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
 
             accumulated_lateness = lateness_including_depot[current_tour].sum()
 
-            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units \n Accumulated Lateness {accumulated_lateness:.2f} Minutes")
+            fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units \n Accumulated Lateness {accumulated_lateness:.2f} Minutes", fontsize='medium')
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
-            ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), borderaxespad=0.)
+            leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
+
+            ax.add_artist(leg1)
 
             # Adjust the figure to make space for the legend
-            fig.subplots_adjust(right=0.75)
+            fig.subplots_adjust(left=0.1, right=0.75, top=0.9, bottom=0.1)
 
             return artists  # This is key!
         
@@ -250,7 +253,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
 
         vehicle_capacity = data['vehicle_capacity'].squeeze().cpu()
         demands = data['demand'].squeeze().cpu()
-        cmap = cm.get_cmap('tab10')
+        cmap = cm.get_cmap('tab20')
 
         def update(i):
 
@@ -280,7 +283,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 if len(available_customers) > 0:
                     artists.append(ax.scatter(available_customers[:, 0], available_customers[:, 1], c='blue', label='Available'))
             if len(unavailable_customers) > 0:
-                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
+                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not   Arrived Yet')
                 artists.append(unavail)
 
             # Customer labels
@@ -316,23 +319,28 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 cum_demand = 0
                 lines = []
                 current_capacity = vehicle_capacity.item()
+                route_length = 0.0
                 for j in range(1, len(route)):
                     a = coords[route[j - 1]]
                     b = coords[route[j]]
                     lines.append([a, b])
+                    route_length += np.linalg.norm(a - b)
                     cap_rects.append(Rectangle(b, 0.01, 0.1))
                     used_rects.append(Rectangle(b, 0.01, 0.1 * cum_demand / vehicle_capacity))
                     dem_rects.append(Rectangle((b[0], b[1] + 0.1 * cum_demand / vehicle_capacity), 0.01, 0.1 * route_demands[j - 1].item() / vehicle_capacity))
                     cum_demand += route_demands[j].item()
                     total_length += np.linalg.norm(a - b)
                     current_capacity -= route_demands[j].item()
+                    if route[j] == 0:
+                        # reset capacity at depot
+                        current_capacity = vehicle_capacity.item()
                 if lines:
                     lc = mc.LineCollection(lines, colors=[cmap(idx)], linewidths=2)
                     ax.add_collection(lc)
                     artists.append(lc)
 
                     # add a custom legend handle for the route
-                    route_handle = plt.Line2D([0], [0], color=cmap(idx), lw=2, label=f'Route {idx + 1}')
+                    route_handle = plt.Line2D([0], [0], color=cmap(idx), lw=2, label=f'R{idx + 1}, #{len(route)}, c{cum_demand:.2f}, d{route_length:.2f}')
                     route_handles.append(route_handle)
                 if dem_rects:
                     pc_cap = mc.PatchCollection(cap_rects, facecolor='whitesmoke', edgecolor='lightgray', alpha=1.0)
@@ -346,21 +354,21 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     artists.append(pc_dem)
                     
 
-            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f}")
+            fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f}", fontsize='medium')
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             # Position the legend to the right
 
-            leg1 = ax.legend(title='points', loc='upper left', bbox_to_anchor=(1.02, 1.0))
+            leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
 
             ax.add_artist(leg1)
 
-            leg2 = ax.legend(handles=route_handles, title='routes', loc='upper left', bbox_to_anchor=(1.02, 0.5))
+            leg2 = ax.legend(handles=route_handles, title='Routes', loc='upper left', bbox_to_anchor=(1.02, 0.75), fontsize='x-small', title_fontsize='small')
 
             ax.add_artist(leg2)
 
-            # Adjust the figure to make space for the legends
-            fig.subplots_adjust(right=0.7)
+            # Adjust the figure to make space for the legend
+            fig.subplots_adjust(left=0.1, right=0.75, top=0.9, bottom=0.1)
 
             return artists
         
@@ -370,7 +378,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
         demands = data['demand'].squeeze().cpu()
         window_starts = data['window_starts'].squeeze().cpu()
         window_ends = data['window_ends'].squeeze().cpu()
-        cmap = cm.get_cmap('tab10')
+        cmap = cm.get_cmap('tab20')
 
         def update(i):
             current_time = visit_times[i]
@@ -410,9 +418,9 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 visited_late = coords[1:][available_mask & visited_mask[1:] & late_visits]
 
                 if len(visited_on_time) > 0:
-                    artists.append(ax.scatter(visited_on_time[:, 0], visited_on_time[:, 1], c='green', label='Visited Within Time Window'))
+                    artists.append(ax.scatter(visited_on_time[:, 0], visited_on_time[:, 1], c='green', label='Visited In TW'))
                 if len(visited_late) > 0:
-                    artists.append(ax.scatter(visited_late[:, 0], visited_late[:, 1], c='purple', label='Visited After Time Window'))
+                    artists.append(ax.scatter(visited_late[:, 0], visited_late[:, 1], c='purple', label='Visited After TW'))
 
                 # Next deal with unvisited nodes
 
@@ -425,14 +433,14 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 after_not_visited = coords[1:][not_visited_mask[1:] & after_mask & available_mask]
 
                 if len(before) > 0:
-                    artists.append(ax.scatter(before[:, 0], before[:, 1], c='orange', label='Before Time Window'))
+                    artists.append(ax.scatter(before[:, 0], before[:, 1], c='orange', label='Before TW'))
                 if len(during_not_visited) > 0:
-                    artists.append(ax.scatter(during_not_visited[:, 0], during_not_visited[:, 1], c='blue', label='Within Time Window'))
+                    artists.append(ax.scatter(during_not_visited[:, 0], during_not_visited[:, 1], c='blue', label='In TW'))
                 if len(after_not_visited) > 0:
-                    artists.append(ax.scatter(after_not_visited[:, 0], after_not_visited[:, 1], c='red', label='After Time Window'))
+                    artists.append(ax.scatter(after_not_visited[:, 0], after_not_visited[:, 1], c='red', label='After TW'))
 
             if len(unavailable_customers) > 0:
-                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Yet Arrived')
+                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Arrived Yet')
                 artists.append(unavail)
 
             # Customer labels - if customer was visited late, show the amount of time they were late
@@ -463,6 +471,8 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
             used_rects = []
             cap_rects = []
 
+            route_handles = []
+
             current_capacity = vehicle_capacity.item()
 
             #reminder this is CVRPTW
@@ -471,10 +481,12 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 cum_demand = 0
                 lines = []
                 current_capacity = vehicle_capacity.item()
+                route_length = 0.0
                 for j in range(1, len(route)):
                     a = coords[route[j - 1]]
                     b = coords[route[j]]
                     lines.append([a, b])
+                    route_length += np.linalg.norm(a - b)
                     cap_rects.append(Rectangle(b, 0.01, 0.1))
                     used_rects.append(Rectangle(b, 0.01, 0.1 * cum_demand / vehicle_capacity))
                     dem_rects.append(Rectangle((b[0], b[1] + 0.1 * cum_demand / vehicle_capacity), 0.01, 0.1 * route_demands[j].item() / vehicle_capacity))
@@ -485,6 +497,10 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     lc = mc.LineCollection(lines, colors=[cmap(idx)], linewidths=2)
                     ax.add_collection(lc)
                     artists.append(lc)
+
+                    # add a custom legend handle for the route
+                    route_handle = plt.Line2D([0], [0], color=cmap(idx), lw=2, label=f'R{idx + 1}, #{len(route)}, c{cum_demand:.2f}, d{route_length:.2f}')
+                    route_handles.append(route_handle)
                 if dem_rects:
                     pc_cap = mc.PatchCollection(cap_rects, facecolor='whitesmoke', edgecolor='lightgray', alpha=1.0)
                     ax.add_collection(pc_cap)
@@ -500,14 +516,21 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
 
             accumulated_lateness = lateness_including_depot[current_tour].sum()
 
-            ax.set_title(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f} | Accumulated Lateness {accumulated_lateness:.2f} Minutes")
+            fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f} | Accumulated Lateness {accumulated_lateness:.2f} Minutes", fontsize='medium')
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             # Position the legend to the right
-            ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), borderaxespad=0.)
+
+            leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
+
+            ax.add_artist(leg1)
+
+            leg2 = ax.legend(handles=route_handles, title='Routes', loc='upper left', bbox_to_anchor=(1.02, 0.65), fontsize='x-small', title_fontsize='small')
+
+            ax.add_artist(leg2)
 
             # Adjust the figure to make space for the legend
-            fig.subplots_adjust(right=0.75)
+            fig.subplots_adjust(left=0.1, right=0.75, top=0.9, bottom=0.1)
 
             return artists
         
