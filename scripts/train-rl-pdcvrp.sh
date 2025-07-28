@@ -64,4 +64,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" \
     --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" --use_time_feature --scale_times \
-    --no_tensorboard --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE" 
+    --no_tensorboard --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE"

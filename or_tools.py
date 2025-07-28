@@ -49,28 +49,28 @@ def get_times(solution, routing, manager, service_times=None):
         times.append(time)
     return times
 
-def resolve_route(current_input, partial_route = None, problem_type='PDTRP', solution_time_limit=3, visit_times=False, gamma=None):
+def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP', solution_time_limit=3, final_run=False, gamma=None, expected_service_times=None):
     """This function solves the problem PDTRP/PDTRPTW/PDCVRP/PDCVRPTW instance using an information dictionary about nodes currently present, the solution will have its first node visits according to the partial_route.
     
     inputs: 
     partial route (list): list of nodes visited so far that must be copied in this solution
-    current_input (dict): Dictionary containing information about nodes currently in the problem
+    input_to_or_tools (dict): Dictionary containing information about nodes currently in the problem
     problem_type (str): Type of the problem to be solved, PDTRP, PDTRPTW, PDCVRP, PDCVRPTW
 
     output:
     solution: A solution of the problem
     """
     data = {}
-    data['time_matrix'] = current_input['time_matrix']
+    data['time_matrix'] = input_to_or_tools['time_matrix']
     data['num_vehicles'] = 1
     data['depot'] = 0
-    data['service_times'] = current_input['service_times']
+    data['service_times'] = input_to_or_tools['service_times']
     if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-        data['time_windows'] = current_input['time_windows']
+        data['time_windows'] = input_to_or_tools['time_windows']
     if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-        data['demands'] = current_input['demands']
-        data['vehicle_capacity'] = current_input['vehicle_capacity']
-        data['n_extra_depots'] = current_input['n_extra_depots']
+        data['demands'] = input_to_or_tools['demands']
+        data['vehicle_capacity'] = input_to_or_tools['vehicle_capacity']
+        data['n_extra_depots'] = input_to_or_tools['n_extra_depots']
     if partial_route is not None:
         data['partial_routes'] = [partial_route]
 
@@ -79,12 +79,17 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
 
     # Create the time callback.
 
-    def time_callback(from_index, to_index):
+    def time_callback(from_index, to_index, expected_service_times=None):
         """Returns the travel time between the two nodes."""
         # Convert from routing variable Index to time matrix NodeIndex.
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
-        return data['time_matrix'][from_node][to_node] + data['service_times'][to_node]
+        if expected_service_times is not None:
+            # If expected service times are provided, use them
+            return data['time_matrix'][from_node][to_node] + expected_service_times
+        else:
+            # If not, just use the time matrix
+            return data['time_matrix'][from_node][to_node]
 
     transit_callback_index = routing.RegisterTransitCallback(time_callback)
 
@@ -182,26 +187,26 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
 
     route = get_routes(solution, routing, manager)[0]
 
-    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-        times = []
-        time_dimension = routing.GetDimensionOrDie("Time")
-        for vehicle_id in range(data["num_vehicles"]):
-            if not routing.IsVehicleUsed(solution, vehicle_id):
-                continue
-            index = routing.Start(vehicle_id)
-            while not routing.IsEnd(index):
-                time_var = time_dimension.CumulVar(index)
-                times.append(solution.Min(time_var))
-                index = solution.Value(routing.NextVar(index))
-            time_var = time_dimension.CumulVar(index)
-            times.append(solution.Min(time_var))
-    else:
-        if visit_times:
-            times = get_times(solution, routing, manager, data['service_times'])[0]
-        else:
-            times = get_times(solution, routing, manager)[0]
+    # if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+    #     times = []
+    #     time_dimension = routing.GetDimensionOrDie("Time")
+    #     for vehicle_id in range(data["num_vehicles"]):
+    #         if not routing.IsVehicleUsed(solution, vehicle_id):
+    #             continue
+    #         index = routing.Start(vehicle_id)
+    #         while not routing.IsEnd(index):
+    #             time_var = time_dimension.CumulVar(index)
+    #             times.append(solution.Min(time_var))
+    #             index = solution.Value(routing.NextVar(index))
+    #         time_var = time_dimension.CumulVar(index)
+    #         times.append(solution.Min(time_var))
+    # else:
+    #     if visit_times:
+    #         times = get_times(solution, routing, manager, data['service_times'])[0]
+    #     else:
+    #         times = get_times(solution, routing, manager)[0]
 
-    if visit_times:
+    if final_run:
         """Prints assignment on console."""
         print(f"Objective: {solution.ObjectiveValue()}")
         # Display dropped nodes.
@@ -213,7 +218,7 @@ def resolve_route(current_input, partial_route = None, problem_type='PDTRP', sol
                 dropped_nodes += f" {manager.IndexToNode(node)}"
         print(dropped_nodes)
 
-    return route, times
+    return route
 
 parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
 
@@ -271,6 +276,8 @@ parser.add_argument('--stmean', type=float, default=3,
                     help='mean of service times')
 parser.add_argument('--stvar', type=float, default=5,
                     help='variance of service times')
+parser.add_argument('--use_exp_service_times', action='store_true',
+                    help='Use exponentially distributed service times instead of normally distributed ones')
 
 # import debugpy
 # debugpy.listen(5678)  # 5678 is port
@@ -299,13 +306,17 @@ torch.manual_seed(args.seed)
 
 
 if problem_type == 'PDTRP':
-    dataset = PDTRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
+    problem = PDTRP()
+    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRP':
-    dataset = PDCVRP.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+    problem = PDCVRP()
+    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDTRPTW':
-    dataset = PDTRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
+    problem = PDTRPTW()
+    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRPTW':
-    dataset = PDCVRPTW.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+    problem = PDCVRPTW()
+    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -331,7 +342,7 @@ for input in tqdm(dataloader, ascii=True):
 
         all_nodes = input['all_nodes'][j]
         n_original_nodes = len(all_nodes)
-        arrival_times = input['arrival_times'][j]*1e4
+        arrival_times = input['arrival_times'][j]
         service_times = input['service_times'][j]
         distance_matrix = input['distance_matrix'][j]
         
@@ -380,45 +391,60 @@ for input in tqdm(dataloader, ascii=True):
 
         total_customers = len(all_nodes[mask])
 
-        total_time_advanced_by = 0
-
-        time_advances = {}
-
         done = False
         
         while not done:
 
-            current_input = {}
+            input_to_or_tools = {}
+            input_to_get_times = {}
 
-            current_input['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
-            current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
+            input_to_get_times['speed'] = SPEED
+            input_to_get_times['arrival_times'] = arrival_times[mask].unsqueeze(0)
+
+            input_to_or_tools['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
+            input_to_or_tools['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
+            input_to_get_times['distance_matrix'] = distance_matrix[mask,:][:, mask].unsqueeze(0)
+            input_to_get_times['service_times'] = service_times[mask].unsqueeze(0)
             if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-                current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
+                input_to_or_tools['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
+                input_to_get_times['window_starts'] = window_starts[mask].unsqueeze(0)
             if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-                current_input['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
-                current_input['vehicle_capacity'] = int((vehicle_capacity*1e3))
-                new_time_matrix = np.array(current_input['time_matrix'])
+                input_to_or_tools['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
+                input_to_or_tools['vehicle_capacity'] = int((vehicle_capacity*1e3))
+                new_time_matrix = np.array(input_to_or_tools['time_matrix'])
                 new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
-                current_input['time_matrix'] = new_time_matrix.tolist()
-                current_input['n_extra_depots'] = n_extra_depots  
+                input_to_or_tools['time_matrix'] = new_time_matrix.tolist()
+                input_to_or_tools['n_extra_depots'] = n_extra_depots  
 
-            route, times = resolve_route(current_input, partial_route, problem_type, gamma=args.gamma)
+            if args.use_exp_service_times:
+                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, expected_service_times=args.stmean*1e4)
+            else:
+                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma)
 
-            n_arrivals = 0
+            route_wo_final_depot_return  = route[:-1]  # remove the last depot return
 
-            for i, time in enumerate(times[1:]):
-                n_arrivals = torch.sum(arrival_times[total_customers:] < (time + total_time_advanced_by)).item()
-                if n_arrivals > 0:
-                    last_idx = min(i+2, len(times[1:]))
-                    partial_route = route[1:last_idx]
-                    break
+            visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
 
-            if n_arrivals == 0: 
-                time_advanced_by = arrival_times[total_customers] - (times[-1] + total_time_advanced_by - current_input['service_times'][route[-2]])
-                total_time_advanced_by += time_advanced_by
-                n_arrivals = torch.sum(arrival_times[total_customers:] <= (times[-1] + total_time_advanced_by)).item()
-                partial_route = route[1:-1]
-                time_advances[total_customers] = time_advanced_by.item()
+            visit_times = visit_times.squeeze(0)
+
+            vt_wo_final_depot_return = visit_times[:-1]  # remove the last depot return
+
+            end_of_service_times = vt_wo_final_depot_return + service_times[mask][torch.tensor(route_wo_final_depot_return)]
+
+            min_next_arrival = torch.min(arrival_times[total_customers:])
+            # if we end up in the case where the minimum next arrival time is greater than all times
+            if (min_next_arrival > end_of_service_times).all():
+                partial_route = route_wo_final_depot_return[1:]
+                time_at_end_of_partial_route = min_next_arrival.item()
+            # find the index of the first element in times that is greater than a non-zero element in arrival_times
+            else:
+                stopping_idx = torch.where(end_of_service_times > min_next_arrival)[0][0].item()
+                partial_route = route[1:stopping_idx+1]  # include the depot at the start of the route
+                time_at_end_of_partial_route = end_of_service_times[stopping_idx].item()
+                
+            n_arrivals = torch.sum(arrival_times[total_customers:] <= time_at_end_of_partial_route).item()
+
+            # Now we need to find how many arrivals we need to account for in the route
 
             mask[:total_customers+n_arrivals] = True
 
@@ -426,12 +452,12 @@ for input in tqdm(dataloader, ascii=True):
 
             # if the sum of new arrivals is greater than the remaining vehicle capacity and there are no more dummy depots to visit, we need to add a new dummy depot
             if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-                route_demands = [current_input['demands'][i] for i in partial_route]
+                route_demands = [input_to_or_tools['demands'][i] for i in partial_route]
                 # current_capacity is the sum of the demands since the last depot visit, indicated by a negative demand
                 depot_visits = [i for i, x in enumerate(route_demands) if x < 0]
                 if len(depot_visits) > 0:
                     last_depot_visit = np.max(depot_visits)
-                    current_capacity = current_input['vehicle_capacity'] - sum(route_demands[last_depot_visit+1:])
+                    current_capacity = input_to_or_tools['vehicle_capacity'] - sum(route_demands[last_depot_visit+1:])
                     unvisited_customers = [i for i in range(1, len(all_nodes)) if i not in partial_route]
                     remaining_demand = sum([(demands*1e3).to(torch.int32).tolist()[i] for i in unvisited_customers])
                     if current_capacity < remaining_demand:
@@ -459,25 +485,37 @@ for input in tqdm(dataloader, ascii=True):
 
             done = mask.all()
 
-        current_input = {}
+        input_to_or_tools = {}
+        input_to_get_times = {}
 
-        current_input['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
-        current_input['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
+        input_to_get_times['speed'] = SPEED
+        input_to_get_times['arrival_times'] = arrival_times[mask].unsqueeze(0)
+
+        input_to_or_tools['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
+        input_to_or_tools['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
+        input_to_get_times['distance_matrix'] = distance_matrix[mask,:][:, mask].unsqueeze(0)
+        input_to_get_times['service_times'] = service_times[mask].unsqueeze(0)
         if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-            current_input['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
+            input_to_or_tools['time_windows'] = (time_windows[mask]*1e4).to(torch.int32).tolist()
+            input_to_get_times['window_starts'] = window_starts[mask].unsqueeze(0)
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            current_input['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
-            current_input['vehicle_capacity'] = int(vehicle_capacity*1e3)
-            new_time_matrix = np.array(current_input['time_matrix'])
+            input_to_or_tools['demands'] = (demands[mask]*1e3).to(torch.int32).tolist()
+            input_to_or_tools['vehicle_capacity'] = int(vehicle_capacity*1e3)
+            new_time_matrix = np.array(input_to_or_tools['time_matrix'])
             new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
-            current_input['time_matrix'] = new_time_matrix.tolist()
-            current_input['n_extra_depots'] = n_extra_depots 
+            input_to_or_tools['time_matrix'] = new_time_matrix.tolist()
+            input_to_or_tools['n_extra_depots'] = n_extra_depots 
 
-        route, times = resolve_route(current_input, partial_route, problem_type, visit_times=True, gamma=args.gamma)
-        
-        if time_advances:
-            for key, value in time_advances.items():
-                times = [x + value if i >= key else x for i, x in enumerate(times)]
+        if args.use_exp_service_times:
+            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, expected_service_times=args.stmean*1e4)
+        else:
+            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma)
+
+        route_wo_final_depot_return = route[:-1]  # remove the last depot return
+
+        visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+
+        visit_times = visit_times.squeeze(0)
 
         # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
 
@@ -491,12 +529,8 @@ for input in tqdm(dataloader, ascii=True):
         assert stripped_sorted_route == list(range(1, n_original_nodes)), f"Stripped sorted route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
 
         batch_routes += [route]
-        # if problem_type == 'PDCVRPTW':
-        #     # remove extra visits to dummy depots from visit times
-        #     new_times = np.insert(np.array(times)[np.array(route) != 0], 0, times[0])
-        #     batch_times += [[np.round(x * 1e-4, decimals=4) for x in new_times]]
-        # else:
-        batch_times += [[np.round(x * 1e-4, decimals=4) for x in times]]
+
+        batch_times += [visit_times.tolist()]
 
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]

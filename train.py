@@ -273,7 +273,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                                         wandb.log({"videos_val{}/model_best/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
                                     else:
                                         wandb.log({"videos_val{}/model_worst/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
-                        else: # use the baseline  
+                        else: # use the baseline 
                             anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=move_to(dataset_instance['tour_nodes'], opts.device), visit_times=move_to(dataset_instance['visit_times'], opts.device)), frames=len(dataset_instance['visit_times']), blit=False)
 
                             with tempfile.TemporaryDirectory() as tmpdir:

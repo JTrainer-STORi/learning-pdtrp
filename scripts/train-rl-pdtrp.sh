@@ -17,14 +17,14 @@ KNN_STRAT="percentage"
 N_SUBREGIONS=1
 
 VAL_DATASET1="new_data/pdtrp/pdtrp50dod0.5_val_ortools.txt"
-VAL_DATASET2="new_data/pdtrp/pdtrp50dod0.8_val_ortools.txt"
+VAL_DATASET2="new_data/pdtrp/pdtrp50dod0.5expst_val_ortools.txt"
 
 N_EPOCHS=100
 EPOCH_SIZE=160
 BATCH_SIZE=16
 ACCUMULATION_STEPS=1
 
-VAL_SIZE=128
+VAL_SIZE=4
 ROLLOUT_SIZE=256
 VAL_BATCH_SIZE=1
 ROLLOUT_BATCH_SIZE=16

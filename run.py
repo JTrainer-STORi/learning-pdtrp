@@ -33,6 +33,8 @@ def run_rl(opts) -> None:
 
     # set the random seeds
     torch.manual_seed(opts.seed)
+    torch.cuda.manual_seed(opts.seed)
+    torch.cuda.manual_seed_all(opts.seed)
     np.random.seed(opts.seed)
 
     # Optionally configure tensorboard
@@ -60,10 +62,6 @@ def run_rl(opts) -> None:
 
     # Load the problem
     problem = load_problem(opts.problem)
-
-    if problem.NAME == 'pdtsp-rd':
-        problem = problem()
-        problem.get_route_info(opts.route_name, opts.device)
 
     # load data from load path
     load_data = {}
