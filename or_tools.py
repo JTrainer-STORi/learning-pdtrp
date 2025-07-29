@@ -49,7 +49,7 @@ def get_times(solution, routing, manager, service_times=None):
         times.append(time)
     return times
 
-def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP', solution_time_limit=3, final_run=False, gamma=None, expected_service_times=None, num_workers=1):
+def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP', solution_time_limit=3, final_run=False, gamma=None, expected_service_times=None):
     """This function solves the problem PDTRP/PDTRPTW/PDCVRP/PDCVRPTW instance using an information dictionary about nodes currently present, the solution will have its first node visits according to the partial_route.
     
     inputs: 
@@ -177,7 +177,6 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
     search_parameters.time_limit.FromSeconds(solution_time_limit)
-    search_parameters.number_of_workers = num_workers
 
     if partial_route is not None:
         routing.CloseModel()
@@ -279,7 +278,6 @@ parser.add_argument('--stvar', type=float, default=5,
                     help='variance of service times')
 parser.add_argument('--use_exp_service_times', action='store_true',
                     help='Use exponentially distributed service times instead of normally distributed ones')
-parser.add_argument('--num_workers', type=int, default=1, help='Number of workers for OR Tools routing solver')
 
 args = parser.parse_args()
 
@@ -415,9 +413,9 @@ for input in tqdm(dataloader, ascii=True):
                 input_to_or_tools['n_extra_depots'] = n_extra_depots  
 
             if args.use_exp_service_times:
-                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, expected_service_times=args.stmean*1e4, num_workers=args.num_workers)
+                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, expected_service_times=args.stmean*1e4)
             else:
-                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, num_workers=args.num_workers)
+                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma)
 
             route_wo_final_depot_return  = route[:-1]  # remove the last depot return
 
@@ -505,9 +503,9 @@ for input in tqdm(dataloader, ascii=True):
             input_to_or_tools['n_extra_depots'] = n_extra_depots 
 
         if args.use_exp_service_times:
-            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, expected_service_times=args.stmean*1e4, num_workers=args.num_workers)
+            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, expected_service_times=args.stmean*1e4)
         else:
-            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, num_workers=args.num_workers)
+            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma)
 
         route_wo_final_depot_return = route[:-1]  # remove the last depot return
 
