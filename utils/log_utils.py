@@ -283,7 +283,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 if len(available_customers) > 0:
                     artists.append(ax.scatter(available_customers[:, 0], available_customers[:, 1], c='blue', label='Available'))
             if len(unavailable_customers) > 0:
-                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not   Arrived Yet')
+                unavail = ax.scatter(unavailable_customers[:, 0], unavailable_customers[:, 1], c='gray', label='Not Arrived Yet')
                 artists.append(unavail)
 
             # Customer labels
@@ -325,9 +325,10 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     b = coords[route[j]]
                     lines.append([a, b])
                     route_length += np.linalg.norm(a - b)
-                    cap_rects.append(Rectangle(b, 0.01, 0.1))
-                    used_rects.append(Rectangle(b, 0.01, 0.1 * cum_demand / vehicle_capacity))
-                    dem_rects.append(Rectangle((b[0], b[1] + 0.1 * cum_demand / vehicle_capacity), 0.01, 0.1 * route_demands[j - 1].item() / vehicle_capacity))
+                    if route[j] != 0:  # don't draw demand rectangles for depot
+                        cap_rects.append(Rectangle(b, 0.01, 0.1))
+                        used_rects.append(Rectangle(b, 0.01, 0.1 * cum_demand / vehicle_capacity))
+                        dem_rects.append(Rectangle((b[0], b[1] + 0.1 * cum_demand / vehicle_capacity), 0.01, 0.1 * route_demands[j - 1].item() / vehicle_capacity))
                     cum_demand += route_demands[j].item()
                     total_length += np.linalg.norm(a - b)
                     current_capacity -= route_demands[j].item()
@@ -487,9 +488,10 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     b = coords[route[j]]
                     lines.append([a, b])
                     route_length += np.linalg.norm(a - b)
-                    cap_rects.append(Rectangle(b, 0.01, 0.1))
-                    used_rects.append(Rectangle(b, 0.01, 0.1 * cum_demand / vehicle_capacity))
-                    dem_rects.append(Rectangle((b[0], b[1] + 0.1 * cum_demand / vehicle_capacity), 0.01, 0.1 * route_demands[j].item() / vehicle_capacity))
+                    if route[j] != 0:
+                        cap_rects.append(Rectangle(b, 0.01, 0.1))
+                        used_rects.append(Rectangle(b, 0.01, 0.1 * cum_demand / vehicle_capacity))
+                        dem_rects.append(Rectangle((b[0], b[1] + 0.1 * cum_demand / vehicle_capacity), 0.01, 0.1 * route_demands[j].item() / vehicle_capacity))
                     cum_demand += route_demands[j].item()
                     total_length += np.linalg.norm(a - b)
                     current_capacity -= route_demands[j].item()

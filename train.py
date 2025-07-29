@@ -17,7 +17,7 @@ from torch.nn import DataParallel
 
 from utils.log_utils import log_values, update_anim
 from utils.data_utils import BatchedRandomSampler, dataset_to_input
-from utils import move_to
+from utils import move_to, count_trailing_zeros
 
 
 def get_inner_model(model):
@@ -274,7 +274,11 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                                     else:
                                         wandb.log({"videos_val{}/model_worst/model".format(val_idx + 1): wandb.Video(video_path, format="mp4")}, step=step)
                         else: # use the baseline 
-                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=move_to(dataset_instance['tour_nodes'], opts.device), visit_times=move_to(dataset_instance['visit_times'], opts.device)), frames=len(dataset_instance['visit_times']), blit=False)
+                            # remove any padding from the baseline
+                            padding = count_trailing_zeros(dataset_instance['tour_nodes'])
+                            tour = dataset_instance['tour_nodes'][:-padding] if padding > 0 else dataset_instance['tour_nodes']
+                            visit_times = dataset_instance['visit_times'][:-(padding - 1)] if padding > 1 else dataset_instance['visit_times']
+                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=move_to(tour, opts.device), visit_times=move_to(visit_times, opts.device)), frames=len(visit_times), blit=False)
 
                             with tempfile.TemporaryDirectory() as tmpdir:
                                 video_path = os.path.join(tmpdir, 'validation.mp4')

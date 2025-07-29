@@ -314,3 +314,11 @@ def scale_time(time, time_horizon):
     if isinstance(time, torch.Tensor):
         return time / time_horizon
     return np.array(time) / time_horizon if isinstance(time, np.ndarray) else float(time) / time_horizon
+
+def count_trailing_zeros(tensor):
+    tensor = tensor.flatten()  # Ensure 1D
+    reversed_tensor = tensor.flip(0)
+    zero_mask = (reversed_tensor == 0)
+    # Find first non-zero from the end
+    nonzero_idx = (~zero_mask).nonzero(as_tuple=True)[0]
+    return int(nonzero_idx[0]) if nonzero_idx.numel() > 0 else len(tensor)
