@@ -286,6 +286,7 @@ if args.arrival_weights is not None:
 if args.arrival_skews is not None:
     assert len(args.arrival_skews) == args.n_subregions, "The number of arrival skews must match the number of subregions"
 
+print("Starting to solve the problem with OR-Tools...")
 
 # Set the parameters for the problem here
 
@@ -326,8 +327,6 @@ if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
     demands_list = []
 if args.use_ortec is not None:
     distance_matrix_list = []
-
-print("starting to solve with OR-Tools...")
 
 for input in tqdm(dataloader, ascii=True):
 
