@@ -14,6 +14,7 @@ import sys
 from functools import partial
 from tqdm import tqdm
 import os
+import time
 
 def get_routes(solution, routing, manager):
     """Get vehicle routes from a solution and store them in an array."""
@@ -177,7 +178,6 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
     search_parameters.time_limit.FromSeconds(solution_time_limit)
-
     if partial_route is not None:
         routing.CloseModel()
         partial_route_list = data['partial_routes']
@@ -328,6 +328,8 @@ if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
 if args.use_ortec is not None:
     distance_matrix_list = []
 
+run_times = []
+
 for input in tqdm(dataloader, ascii=True):
 
     batch_routes = []
@@ -387,6 +389,8 @@ for input in tqdm(dataloader, ascii=True):
         total_customers = len(all_nodes[mask])
 
         done = False
+
+        start_time = time.perf_counter()
         
         while not done:
 
@@ -527,6 +531,9 @@ for input in tqdm(dataloader, ascii=True):
 
         batch_times += [visit_times.tolist()]
 
+        finish_time = time.perf_counter()
+        run_times.append(finish_time - start_time)
+
     max_len = max(len(route) for route in batch_routes)
     padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
     padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
@@ -535,6 +542,15 @@ for input in tqdm(dataloader, ascii=True):
     visit_times_list += padded_batch_times
 
 # for each run, we need to save the information to file so that it can be used to validate the model
+
+os.makedirs("runtime_stats/", exist_ok=True)
+
+with open("runtime_stats/" + filename + "_run_times.txt", "w") as f:
+    f.write("Run times for each sample:\n")
+    for i, run_time in enumerate(run_times):
+        f.write(f"Sample {i+1}: {run_time:.4f} seconds\n")
+    f.write(f"Average run time: {np.mean(run_times):.4f} seconds\n")
+    f.write(f"Std dev of run times: {np.std(run_times):.4f} seconds\n")
 
 os.makedirs("new_data/" + args.problem.lower(), exist_ok=True)
 
