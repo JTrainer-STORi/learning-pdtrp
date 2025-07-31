@@ -301,19 +301,31 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
 
 def train_batch(model, optimizer, baseline, epoch, 
                 batch_id, step, batch, tb_logger, wandb_run, opts):
-    # Unwrap baseline
-    bat, bl_val = baseline.unwrap_batch(batch)
-
-    input = dataset_to_input(bat, opts.problem, opts.device)
     
-    # Optionally move Tensors to GPU
-    bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
+    use_pomo = opts.pomo_batch_size > 1 
+
+    if use_pomo:
+        bat = batch
+    else:
+        # if not using pomo then the baseline can be calculated before passing the input to the model
+        bat, bl_val = baseline.unwrap_batch(batch)
+        # Optionally move Tensors to GPU
+        bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
+    
+
+    input = dataset_to_input(bat, opts.problem, opts.device, opts.pomo_batch_size)
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood, info = model(input)
+    cost, log_likelihood, info = model(input, pomo_batch_size=opts.pomo_batch_size)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
-    bl_val, bl_loss = baseline.eval(input, cost) if bl_val is None else (bl_val, 0)
+    if use_pomo:
+        cost_grouped = cost.view(-1, opts.pomo_batch_size)
+        baseline_per_batch = cost_grouped.mean(dim=1, keepdim=True)
+        bl_val = baseline_per_batch.expand(-1, opts.pomo_batch_size).reshape(-1)
+        bl_loss = 0
+    else:
+        bl_val, bl_loss = baseline.eval(input, cost) if bl_val is None else (bl_val, 0)
 
     # Calculate loss
     reinforce_loss = ((cost - bl_val) * log_likelihood).mean()

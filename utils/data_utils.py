@@ -1,6 +1,7 @@
 import os
 import pickle
 import numpy as np
+import torch
 
 from torch.utils.data import Sampler
 from utils import move_to
@@ -54,9 +55,10 @@ class BatchedRandomSampler(Sampler):
     def __len__(self):
         return len(self.data_source)
 
-def dataset_to_input(dataset, problem, device):
+def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
     """Convert a dataset to a model input format"""
     if dataset['all_nodes'].dim() == 2:
+        # If the dataset is not batched, we add a batch dimension
         if problem == 'pdtrp':
             input = {
                 'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
@@ -163,4 +165,9 @@ def dataset_to_input(dataset, problem, device):
                 'theta': move_to(dataset['theta'], device),
             }
 
-    return input
+            
+    if pomo_batch_size > 1:
+        # If the dataset is batched, we assume it is already in the correct format
+        return {k: torch.repeat_interleave(v, repeats=pomo_batch_size, dim=0) for k, v in input.items()}
+    else:
+        return input

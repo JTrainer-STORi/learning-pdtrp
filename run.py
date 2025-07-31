@@ -145,6 +145,9 @@ def run_rl(opts) -> None:
     elif opts.baseline == 'rollout':
         baseline = RolloutBaseline(model, problem, opts)
     
+    elif opts.baseline == 'pomo':
+        # pomo baseline is handled in the model itself
+        baseline = NoBaseline()
     else:
         assert opts.baseline is None, "Unknown baseline: {}".format(opts.baseline)
         baseline = NoBaseline()
@@ -213,7 +216,7 @@ def run_rl(opts) -> None:
             opts
         )
 
-    # finish wand run
+    # finish wandb run
     if not opts.no_wandb:
         wandb.finish()
 

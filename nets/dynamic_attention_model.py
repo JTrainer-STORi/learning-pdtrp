@@ -178,7 +178,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False, return_times=False, mode='masked'):
+    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1):
         """
             Args:
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
@@ -198,7 +198,7 @@ class DynamicAttentionModel(nn.Module):
             
             embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
-            log_p, pi, visit_times = self._inner(input, embeddings)
+            log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size)
 
         elif mode == 'recursive':
             
@@ -250,7 +250,7 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, input, embeddings):
+    def _inner(self, input, embeddings, pomo_batch_size=1):
         # create lists to track the log probabilities and the selected nodes
         outputs = []
         sequences = []
@@ -260,21 +260,28 @@ class DynamicAttentionModel(nn.Module):
 
         fixed = self._precompute(embeddings)
 
+        batch_size = int(input['loc'].size(0) / pomo_batch_size)
+
         while not state.all_finished():
 
-            mask = state.get_mask()
+            # If we are in a POMO setting, we select the start nodes for each instance in the batch
 
-            # get log probabilities of next action
-            log_p, mask = self._get_log_p(fixed, state, mask)
+            if pomo_batch_size > 1 and state.i == 0:
+                selected = torch.arange(1, pomo_batch_size + 1, device=input['loc'].device).repeat(batch_size)
+                log_p = torch.zeros((batch_size * pomo_batch_size, 1, input['loc'].size(1)), device=input['loc'].device)
+            else:
+                mask = state.get_mask()
 
-            # we query the policy
-            selected = self._select_node(
-                log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+                # get log probabilities of next action
+                log_p, mask = self._get_log_p(fixed, state, mask)
 
+                # we query the policy
+                selected = self._select_node(
+                    log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+                
             #update problem state
             state = state.update(selected)
 
-            # Collect output of step
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
 

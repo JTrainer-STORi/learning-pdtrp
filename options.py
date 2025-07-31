@@ -128,7 +128,7 @@ def get_options(args=None):
     parser.add_argument('--exp_beta', type=float, default=0.8,
                         help='Exponential moving average baseline decay')
     parser.add_argument('--baseline', default='rollout',
-                        help="Baseline to use: 'rollout', 'critic' or 'exponential'.")
+                        help="Baseline to use: 'rollout', 'critic', 'pomo' or 'exponential'.")
     parser.add_argument('--bl_alpha', type=float, default=0.05,
                         help='Significance in the t-test for updating rollout baseline')
     parser.add_argument('--bl_warmup_epochs', type=int, default=None,
@@ -177,6 +177,8 @@ def get_options(args=None):
                         help='run cuda profiler')
     parser.add_argument('--watch_gradients', action='store_true',
                         help='Watch gradients in Weights & Biases')
+    parser.add_argument('--pomo_batch_size', type=int, default=1,
+                        help='Batch size for POMO training, i.e. number of start points per instance')
 
     opts = parser.parse_args(args)
 

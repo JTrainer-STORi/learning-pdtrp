@@ -7,24 +7,24 @@ PROBLEM="pdtrp"
 DEVICES="0"
 NUM_WORKERS=0
 
-MIN_TOTAL=20
+MIN_TOTAL=50
 MAX_TOTAL=50
-MIN_DOD=0.2
-MAX_DOD=0.8
+MIN_DOD=0.5
+MAX_DOD=0.5
 NEIGHBORS=0.2
 KNN_STRAT="percentage"
 
 N_SUBREGIONS=1
 
 VAL_DATASET1="new_data/pdtrp/pdtrp50dod0.5_val_ortools.txt"
-VAL_DATASET2="new_data/pdtrp/pdtrp50dod0.5expst_val_ortools.txt"
+VAL_DATASET2="new_data/pdtrp/pdtrp50dod0.8_val_ortools.txt"
 
 N_EPOCHS=100
 EPOCH_SIZE=160
 BATCH_SIZE=16
 ACCUMULATION_STEPS=1
 
-VAL_SIZE=4
+VAL_SIZE=64
 ROLLOUT_SIZE=256
 VAL_BATCH_SIZE=1
 ROLLOUT_BATCH_SIZE=16
@@ -43,7 +43,6 @@ BASELINE="rollout"
 LR_MODEL=0.0001
 MAX_NORM=1
 CHECKPOINT_EPOCHS=0
-SET_START=True
 
 CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --model "$MODEL" --baseline "$BASELINE" \

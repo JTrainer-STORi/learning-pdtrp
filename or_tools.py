@@ -278,6 +278,8 @@ parser.add_argument('--stvar', type=float, default=5,
                     help='variance of service times')
 parser.add_argument('--use_exp_service_times', action='store_true',
                     help='Use exponentially distributed service times instead of normally distributed ones')
+parser.add_argument('--solution_time_limit', type=int, default=3,
+                    help='Time limit for solving each instance in seconds')
 
 args = parser.parse_args()
 
@@ -380,7 +382,7 @@ for input in tqdm(dataloader, ascii=True):
         arrival_times_list += [np.asarray(input['arrival_times'][j])]
         service_times_list += [np.asarray(input['service_times'][j])]
         if args.use_ortec is not None:
-            distance_matrix_list += [np.array(input['distance_matrix'][j])]
+            distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
 
         mask = arrival_times == 0
 
@@ -416,9 +418,9 @@ for input in tqdm(dataloader, ascii=True):
                 input_to_or_tools['n_extra_depots'] = n_extra_depots  
 
             if args.use_exp_service_times:
-                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, expected_service_times=args.stmean*1e4)
+                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, expected_service_times=args.stmean*1e4, solution_time_limit=args.solution_time_limit)
             else:
-                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma)
+                route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
 
             route_wo_final_depot_return  = route[:-1]  # remove the last depot return
 
@@ -506,9 +508,9 @@ for input in tqdm(dataloader, ascii=True):
             input_to_or_tools['n_extra_depots'] = n_extra_depots 
 
         if args.use_exp_service_times:
-            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, expected_service_times=args.stmean*1e4)
+            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, expected_service_times=args.stmean*1e4, solution_time_limit=args.solution_time_limit)
         else:
-            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma)
+            route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
 
         route_wo_final_depot_return = route[:-1]  # remove the last depot return
 
