@@ -49,9 +49,11 @@ elif args.problem == "pdcvrptw":
 ablation_datasets = ['new_data/pdtrp/ablation_testset_20total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.2dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.8dod.txt']
 
 model_name = args.model_path.split("/")[-1].split("_")[0]  # Extract model name from path
+print(model_name)
 
 for dataset_path in ablation_datasets:
-    dataset_name = dataset_path.split("/")[-1].split(".")[0].split("_")[1:]
+    dataset_name = ''.join('.'.join(dataset_path.split("/")[-1].split(".")[:-1]).split("_")[1:])
+    print(dataset_name)
     dataset = problem.make_dataset(filename=dataset_path, 
                                 batch_size=args.batch_size)
 
