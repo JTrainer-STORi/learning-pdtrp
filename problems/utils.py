@@ -54,7 +54,9 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
 
     speed = 4.0 / 60.0
     time_horizon = 8 * 60
-    distance_matrix = rl_instance['duration_matrix'][np.ix_(indices_plus_depot, indices_plus_depot)] * speed / 60.0
+    unscaled_distance_matrix = rl_instance['duration_matrix']* speed / 60.0
+    scaled_distance_matrix = unscaled_distance_matrix / np.max(unscaled_distance_matrix)
+    distance_matrix = scaled_distance_matrix[np.ix_(indices_plus_depot, indices_plus_depot)] 
     arrival_times = (rl_instance['time_windows'][indices, 0] - np.min(rl_instance['time_windows'][indices, 0])) # shift to start at 0
     arrival_times = arrival_times * time_horizon / np.max(arrival_times)  # normalize to [0, time_horizon]
     arrival_times = np.concatenate(([0], arrival_times))  # depot has arrival time 0
