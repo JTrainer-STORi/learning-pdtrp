@@ -174,7 +174,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     # Generate new training data for each epoch
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
-            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, speed=opts.speed, batch_size=opts.batch_size, n_subregions=opts.n_subregions, num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mean = opts.stmean, service_times_var = opts.stvar, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = opts.arrival_weights, arrival_skews=opts.arrival_skews, min_time_window=opts.min_time_window, max_time_window=opts.max_time_window, gamma = opts.gamma, theta=opts.theta, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required=opts.min_trips_required, use_ortec = opts.use_ortec
+            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, speed=opts.speed, batch_size=opts.batch_size, n_subregions=opts.n_subregions, num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mean = opts.stmean, service_times_var = opts.stvar, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = opts.arrival_weights, arrival_skews=opts.arrival_skews, min_time_window=opts.min_time_window, max_time_window=opts.max_time_window, gamma = opts.gamma, theta=opts.theta, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required_lb=opts.min_trips_required_lb, min_trips_required_ub=opts.min_trips_required_ub, use_ortec = opts.use_ortec
         ))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
@@ -316,7 +316,7 @@ def train_batch(model, optimizer, baseline, epoch,
     input = dataset_to_input(bat, opts.problem, opts.device, opts.pomo_batch_size)
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood, info = model(input, pomo_batch_size=opts.pomo_batch_size)
+    cost, log_likelihood, info = model(input, pomo_batch_size=opts.pomo_batch_size, print_query_times=opts.print_query_times)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
     if use_pomo:

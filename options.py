@@ -75,8 +75,10 @@ def get_options(args=None):
                         help='Maximum time window length in minutes')
     parser.add_argument('--vehicle_capacity', type=float, default=1.0,
                         help='Vehicle capacity, default is 1.0 (1 unit of demand)')
-    parser.add_argument('--min_trips_required', type=int, default=3,
-                        help='Minimum number of trips required to service all customers, default is 3')
+    parser.add_argument('--min_trips_required_lb', type=int, default=3,
+                        help='lower bound on the minimum number of trips required to service all customers, default is 3')
+    parser.add_argument('--min_trips_required_ub', type=int, default=5, 
+                        help='upper bound on the minimum number of trips required to service all customers, default is 5')
     parser.add_argument('--use_ortec', type=str, default=None,
                         help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
     
@@ -117,6 +119,8 @@ def get_options(args=None):
     help='scale time features to an approximate [0,1] range by dividing by the time horizon')
 
     # Training
+    parser.add_argument('--pomo_batch_size', type=int, default=1,
+                        help='Batch size for POMO training, i.e. number of start points per instance')
     parser.add_argument('--lr_model', type=float, default=1e-4, 
                         help="Set the learning rate for the actor network, i.e. the main model")
     parser.add_argument('--lr_critic', type=float, default=1e-4, 
@@ -177,8 +181,9 @@ def get_options(args=None):
                         help='run cuda profiler')
     parser.add_argument('--watch_gradients', action='store_true',
                         help='Watch gradients in Weights & Biases')
-    parser.add_argument('--pomo_batch_size', type=int, default=1,
-                        help='Batch size for POMO training, i.e. number of start points per instance')
+    parser.add_argument('--print_query_times', action='store_true',
+                        help='Print query times for the model to stdout')
+
 
     opts = parser.parse_args(args)
 

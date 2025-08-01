@@ -44,7 +44,7 @@ def normalize_coordinates(coords):
     max_y = np.max(coords[:, 1])
     return coords / np.array([max_x, max_y])
 
-def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required=None):
+def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None):
 
     # choose n_locations - 1 random indices (always retain depot)
     indices = np.random.choice(range(1, len(rl_instance['coords'])), n_locations - 1, replace=False)
@@ -72,7 +72,8 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
             batch_size=1,
             n_total=len(raw_demands),
             vehicle_capacity=vehicle_capacity,
-            min_trips_required=min_trips_required,
+            min_trips_required_lb=min_trips_required_lb,
+            min_trips_required_ub=min_trips_required_ub,
             raw_demands=raw_demands[None, :]
         )[0]
         # depot has no demand
@@ -163,11 +164,11 @@ def read_vrplib(filename, rounded=True):
         'duration_matrix': np.array(duration_matrix) if len(duration_matrix) > 0 else None
     }
     
-def subsample_ortec(instance_file, problem, n_total, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required=None):
+def subsample_ortec(instance_file, problem, n_total, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None):
     raw_dict = read_vrplib(instance_file)
     return transform_and_subsample_rl_instance(raw_dict, problem, n_total, time_horizon, speed, latest_end, vehicle_capacity, min_trips_required)
 
-def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_required, raw_demands=None):
+def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_required_lb, min_trips_required_ub, raw_demands=None):
 
     # Step 1: Generate raw uniform demands in shape [batch, customers]
     if raw_demands is None:
@@ -176,6 +177,8 @@ def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_req
             high=vehicle_capacity,
             size=(batch_size, n_total)
         )
+
+    min_trips_required = np.random.randint(min_trips_required_lb, min_trips_required_ub + 1, size=(batch_size, 1))  # shape [batch, 1]
 
     # Step 2: Random target total demand ∈ [(min_trips - 1) * cap, min_trips * cap]
     lower = (min_trips_required - 1) * vehicle_capacity

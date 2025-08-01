@@ -266,8 +266,10 @@ parser.add_argument('--reaction_time', type=int, default=60,
                         help="Reaction time in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
 parser.add_argument('--vehicle_capacity', type=float, default=1.0,
                     help='Vehicle capacity, default is 1.0 (1 unit of demand)')
-parser.add_argument('--min_trips_required', type=int, default=3,
-                    help='Minimum number of trips required to service all customers, default is 3')
+parser.add_argument('--min_trips_required_lb', type=int, default=3,
+                    help='lower bound on the minimum number of trips required to service all customers, default is 3')
+parser.add_argument('--min_trips_required_ub', type=int, default=5, 
+                    help='upper bound on the minimum number of trips required to service all customers, default is 5')
 parser.add_argument('--min_time_window', type=int, default=60,
                         help='Minimum time window length in minutes')
 parser.add_argument('--max_time_window', type=int, default=100,
@@ -288,7 +290,16 @@ if args.arrival_weights is not None:
 if args.arrival_skews is not None:
     assert len(args.arrival_skews) == args.n_subregions, "The number of arrival skews must match the number of subregions"
 
-print("Starting to solve the problem with OR-Tools...")
+print("Parameters for the problem:")
+print(f"Problem type: {args.problem}")
+print(f"Number of samples: {args.num_samples}")
+print(f"Batch size: {args.batch_size}")
+print(f"Filename: {args.filename}")
+print(f"Min total nodes: {args.min_total}")
+print(f"Max total nodes: {args.max_total}")
+print(f"Min dod: {args.min_dod}")
+print(f"Max dod: {args.max_dod}")
+print(f"solution time limit: {args.solution_time_limit} seconds")
 
 # Set the parameters for the problem here
 
@@ -307,13 +318,13 @@ if problem_type == 'PDTRP':
     dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRP':
     problem = PDCVRP()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDTRPTW':
     problem = PDTRPTW()
     dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRPTW':
     problem = PDCVRPTW()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -357,7 +368,7 @@ for input in tqdm(dataloader, ascii=True):
             demands_list += [np.asarray(demands)]
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
             #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
-            n_extra_depots = args.min_trips_required - 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
+            n_extra_depots = args.min_trips_required_ub # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
             # add n_extra depots to data
             all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
             demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
@@ -404,6 +415,12 @@ for input in tqdm(dataloader, ascii=True):
 
             input_to_or_tools['time_matrix'] = torch.round((distance_matrix[mask,:][:, mask]/SPEED)*1e4).to(torch.int32).tolist()
             input_to_or_tools['service_times'] = (service_times[mask]*1e4).to(torch.int32).tolist()
+
+            # for the nodes in the partial tour, we add their service times to the time matrix
+            if partial_route is not None:
+                for i in range(1, len(partial_route)):
+                    input_to_or_tools['time_matrix'][partial_route[i -1] - 1][partial_route[i] - 1] += int(service_times[mask][torch.tensor(partial_route[i])]*1e4)
+
             input_to_get_times['distance_matrix'] = distance_matrix[mask,:][:, mask].unsqueeze(0)
             input_to_get_times['service_times'] = service_times[mask].unsqueeze(0)
             if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':

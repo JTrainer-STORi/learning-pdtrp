@@ -112,7 +112,7 @@ class PDCVRP(object):
         return StatePDCVRP.initialize(*args, **kwargs)
     
 class PDCVRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=None, reaction_time=None, vehicle_capacity=1.0, min_trips_required=3, use_ortec=False):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=None, reaction_time=None, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=False):
         super(PDCVRPDataset, self).__init__()
         self.filename = filename
         self.min_total = min_total
@@ -131,7 +131,8 @@ class PDCVRPDataset(Dataset):
         self.arrival_skews = arrival_skews
         self.speed = speed / 60.0 # convert to units/minute
         self.vehicle_capacity = vehicle_capacity
-        self.min_trips_required = min_trips_required
+        self.min_trips_required_lb = min_trips_required_lb
+        self.min_trips_required_ub = min_trips_required_ub
         self.use_ortec = use_ortec        
 
         self.all_nodes = []
@@ -172,7 +173,7 @@ class PDCVRPDataset(Dataset):
                 distance_matrix = []
                 demands = []
                 for _ in range(batch_size):
-                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _,batch_demands = subsample_ortec(instance_file=self.use_ortec, problem='pdcvrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, vehicle_capacity=self.vehicle_capacity, min_trips_required=self.min_trips_required)
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _,batch_demands = subsample_ortec(instance_file=self.use_ortec, problem='pdcvrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, vehicle_capacity=self.vehicle_capacity, min_trips_required_lb=self.min_trips_required_lb, min_trips_required_ub=self.min_trips_required_ub)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                     service_times.append(batch_service_times)
@@ -203,7 +204,7 @@ class PDCVRPDataset(Dataset):
                 print("Generating PDCVRP instances with {} subregion(s) with dirichlet arrival weights and skews {}...".format(self.n_subregions, self.arrival_skews))
             else:
                 print("Generating PDCVRP instances with {} subregion(s) with dirichlet arrival weights and uniform skews...".format(self.n_subregions))  
-            print("Vehicle Capacity: {}, Min Trips Required: {}".format(self.vehicle_capacity, self.min_trips_required))    
+            print("Vehicle Capacity: {}, Min Trips Required Lower Bound: {}, Upper Bound: {}".format(self.vehicle_capacity, self.min_trips_required_lb, self.min_trips_required_ub))    
 
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
@@ -235,7 +236,7 @@ class PDCVRPDataset(Dataset):
                 
                 # Step 9: Generate the demands for each customer
 
-                demands_without_depot = generate_scaled_demands(batch_size, n_total, self.vehicle_capacity, self.min_trips_required)
+                demands_without_depot = generate_scaled_demands(batch_size, n_total, self.vehicle_capacity, self.min_trips_required_lb, self.min_trips_required_ub)
             
                 
                 # step 10: Prepend the depot to the customers

@@ -5,6 +5,7 @@ import math
 import numpy as np
 from typing import NamedTuple
 import resource
+import time
 
 import torch
 from torch import nn
@@ -178,7 +179,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1):
+    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1, print_query_times=False):
         """
             Args:
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
@@ -198,11 +199,11 @@ class DynamicAttentionModel(nn.Module):
             
             embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
-            log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size)
+            log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
 
         elif mode == 'recursive':
             
-            pi, visit_times = self._inner_recursive(input)
+            pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times)
 
         visit_times = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
 
@@ -250,7 +251,7 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, input, embeddings, pomo_batch_size=1):
+    def _inner(self, input, embeddings, pomo_batch_size=1, print_query_times=False):
         # create lists to track the log probabilities and the selected nodes
         outputs = []
         sequences = []
@@ -272,8 +273,15 @@ class DynamicAttentionModel(nn.Module):
             else:
                 mask = state.get_mask()
 
+                if print_query_times:
+                    start_time = time.time()
+
                 # get log probabilities of next action
                 log_p, mask = self._get_log_p(fixed, state, mask)
+
+                if print_query_times:
+                    end_time = time.time()
+                    print(f"Query time: {end_time - start_time:.4f} seconds")
 
                 # we query the policy
                 selected = self._select_node(
@@ -290,7 +298,7 @@ class DynamicAttentionModel(nn.Module):
 
         return all_outputs, all_sequences, state.visit_times
     
-    def _inner_recursive(self, input):
+    def _inner_recursive(self, input, print_query_times=False):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
         # note that due to it being annoying to do this for anything other than a single instance, this function is designed to only work for a single instance
         assert input['loc'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
@@ -318,8 +326,15 @@ class DynamicAttentionModel(nn.Module):
         while not state.all_finished():
             mask = state.get_mask()[~state.not_arrived_][None, None, :]
 
+            if print_query_times:
+                start_time = time.perf_counter()
+
             # get log probabilities of next action
             log_p, mask = self._get_log_p(decoder_input, state, mask)
+
+            if print_query_times:
+                end_time = time.perf_counter()
+                print(f"Query time: {end_time - start_time:.4f} seconds")
 
             # we query the policy
             selected = self._select_node(

@@ -24,7 +24,7 @@ def load_problem(name):
 
 
 def torch_load_cpu(load_path):
-    return torch.load(load_path, map_location=lambda storage, loc: storage)  # Load on CPU
+    return torch.load(load_path, map_location=lambda storage, loc: storage, weights_only=False)  # Load on CPU
 
 
 def move_to(var, device):
@@ -44,7 +44,7 @@ def _load_model_file(load_path, model):
         os.path.join(
             os.getcwd(),
             load_path
-        ), map_location=lambda storage, loc: storage)
+        ), map_location=lambda storage, loc: storage, weights_only=False)
 
     if isinstance(load_data, dict):
         load_optimizer_state_dict = load_data.get('optimizer', None)
@@ -130,8 +130,13 @@ def load_model(path, epoch=None, extra_logging=False, route_id=None):
         mask_graph=False,
         checkpoint_encoder=args['checkpoint_encoder'],
         shrink_size=args['shrink_size'],
+        edge_features=args['edge_features'],
+        use_time_feature=args['use_time_feature'],
+        project_time_feature=args['project_time_feature'],
+        knn_strat=args['knn_strat'],
+        neighbors=args['neighbors'],
+        scale_times=args['scale_times'],
         extra_logging=extra_logging,
-        set_start=args['set_start']
     )    
     
     # Overwrite model parameters by parameters to load

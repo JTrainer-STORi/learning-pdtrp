@@ -13,9 +13,10 @@ solomon_datasets/
 or_tools_new.ipynb
 or_tools_tidy.ipynb
 or_tools.ipynb
-models_HEC/
+models_hec/
 *.ipynb
 pretrained/
 *.ipynb
 scripts/
 runtime_stats/
+test_results/

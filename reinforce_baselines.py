@@ -164,7 +164,8 @@ class RolloutBaseline(Baseline):
             latest_end=self.opts.latest_end,
             reaction_time=self.opts.reaction_time,
             vehicle_capacity=self.opts.vehicle_capacity,
-            min_trips_required=self.opts.min_trips_required,
+            min_trips_required_lb=self.opts.min_trips_required_lb,
+            min_trips_required_ub=self.opts.min_trips_required_ub,
             use_ortec=self.opts.use_ortec
         )
         
