@@ -84,7 +84,7 @@ for dataset_path in ablation_datasets:
         f.write("Test results:\n")
         f.write(f"Problem: {args.problem}\n")
         f.write(f"Model Path: {args.model_path}\n")
-        f.write(f"Test Dataset Path: {args.test_dataset_path}\n")
+        f.write(f"Test Dataset Path: {dataset_path}\n")
         f.write(f"Seed: {args.seed}\n")
         for i, cost in enumerate(costs):
             f.write(f"Sample {i+1}: Cost = {cost}\n")
