@@ -48,8 +48,10 @@ elif args.problem == "pdcvrptw":
 
 ablation_datasets = ['new_data/pdtrp/ablation_testset_20total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.2dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.8dod.txt']
 
+model_name = args.model_path.split("/")[-1]
 
 for dataset_path in ablation_datasets:
+    dataset_name = dataset_path.split("/")[-1].split(".")[0]
     dataset = problem.make_dataset(filename=dataset_path, 
                                 batch_size=args.batch_size)
 
@@ -69,7 +71,7 @@ for dataset_path in ablation_datasets:
 
     os.makedirs("runtime_stats/", exist_ok=True)
 
-    with open("runtime_stats/" + dataset_path + "_run_times.txt", "w") as f:
+    with open("runtime_stats/" + model_name + dataset_name + "_run_times.txt", "w") as f:
         f.write("Run times for each sample:\n")
         for i, run_time in enumerate(run_times):
             f.write(f"Sample {i+1}: {run_time:.4f} seconds\n")
@@ -78,7 +80,7 @@ for dataset_path in ablation_datasets:
 
     os.makedirs("test_results/", exist_ok=True)
 
-    with open("test_results/" + dataset_path + "_results.txt", "w") as f:
+    with open("test_results/" + model_name + dataset_name + "_results.txt", "w") as f:
         f.write("Test results:\n")
         f.write(f"Problem: {args.problem}\n")
         f.write(f"Model Path: {args.model_path}\n")
