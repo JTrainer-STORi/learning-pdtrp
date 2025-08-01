@@ -26,6 +26,10 @@ parser.add_argument('--model_mode', type=str, default='recursive', choices=['rec
 args = parser.parse_args()
 
 use_cuda = args.use_gpu and torch.cuda.is_available()
+if use_cuda:
+    device_type = "GPU"
+else:
+    device_type = "CPU"
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
 model, model_args = load_model(args.model_path)
@@ -49,11 +53,9 @@ elif args.problem == "pdcvrptw":
 ablation_datasets = ['new_data/pdtrp/ablation_testset_20total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.2dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.8dod.txt']
 
 model_name = args.model_path.split("/")[-1].split("_")[0]  # Extract model name from path
-print(model_name)
 
 for dataset_path in ablation_datasets:
     dataset_name = ''.join('.'.join(dataset_path.split("/")[-1].split(".")[:-1]).split("_")[1:])
-    print(dataset_name)
     dataset = problem.make_dataset(filename=dataset_path, 
                                 batch_size=args.batch_size)
 
@@ -73,8 +75,13 @@ for dataset_path in ablation_datasets:
 
     os.makedirs("runtime_stats/", exist_ok=True)
 
-    with open("runtime_stats/" + model_name + dataset_name + "_run_times.txt", "w") as f:
+    with open("runtime_stats/" + model_name + dataset_name + device_type + "_run_times.txt", "w") as f:
         f.write("Run times for each sample:\n")
+        f.write(f"Problem: {args.problem}\n")
+        f.write(f"Model Path: {args.model_path}\n")
+        f.write(f"Test Dataset Path: {dataset_path}\n")
+        f.write(f"Seed: {args.seed}\n")
+        f.write(f"Device: {device_type}\n")
         for i, run_time in enumerate(run_times):
             f.write(f"Sample {i+1}: {run_time:.4f} seconds\n")
         f.write(f"Average run time: {np.mean(run_times):.4f} seconds\n")
@@ -82,12 +89,13 @@ for dataset_path in ablation_datasets:
 
     os.makedirs("test_results/", exist_ok=True)
 
-    with open("test_results/" + model_name + dataset_name + "_results.txt", "w") as f:
+    with open("test_results/" + model_name + dataset_name + device_type + "_results.txt", "w") as f:
         f.write("Test results:\n")
         f.write(f"Problem: {args.problem}\n")
         f.write(f"Model Path: {args.model_path}\n")
         f.write(f"Test Dataset Path: {dataset_path}\n")
         f.write(f"Seed: {args.seed}\n")
+        f.write(f"Device: {device_type}\n")
         for i, cost in enumerate(costs):
             f.write(f"Sample {i+1}: Cost = {cost}\n")
         f.write(f"Average Cost: {np.mean(costs)}\n")
