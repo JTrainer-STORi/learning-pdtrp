@@ -94,6 +94,8 @@ def run_rl(opts) -> None:
         knn_strat=opts.knn_strat,
         neighbors=opts.neighbors,
         scale_times=opts.scale_times,
+        memory_dim=opts.memory_dim,
+        message_dim=opts.message_dim,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
@@ -227,5 +229,7 @@ if __name__ == "__main__":
     # debugpy.listen(5678)  # 5678 is port
     # print("Waiting for debugger attach")
     # debugpy.wait_for_client()
+
+    torch.autograd.set_detect_anomaly(True)  # un-comment this line for help detecting specific Pytorch autograd errors
 
     run_rl(get_options())

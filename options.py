@@ -117,6 +117,10 @@ def get_options(args=None):
                         help='Project time feature to embedding dimension using an MLP')
     parser.add_argument('--scale_times', action='store_true',
     help='scale time features to an approximate [0,1] range by dividing by the time horizon')
+    parser.add_argument('--memory_dim', type=int, default=None,
+                        help='Memory dimension for the encoder, if None, then memory is not utilized')
+    parser.add_argument('--message_dim', type=int, default=None,
+                        help='Message dimension for the encoder')
 
     # Training
     parser.add_argument('--pomo_batch_size', type=int, default=1,

@@ -6,6 +6,7 @@ import numpy as np
 from typing import NamedTuple
 import resource
 import time
+from collections import defaultdict
 
 import torch
 from torch import nn
@@ -16,6 +17,7 @@ from torch.nn import DataParallel
 from utils.tensor_functions import compute_in_batches
 from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
+from nets.encoders.tgnn_encoder import TGNMemory, TGNEmbedding, IdentityMessageFunction, get_message_aggregator
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -63,6 +65,8 @@ class DynamicAttentionModel(nn.Module):
                  scale_times=False,
                  knn_strat='percentage',
                  neighbors=20,
+                 memory_dim=None,
+                 message_dim=None,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -114,6 +118,8 @@ class DynamicAttentionModel(nn.Module):
         self.knn_strat = knn_strat
         self.neighbors = neighbors
         self.scale_times = scale_times
+        self.memory_dim = memory_dim
+        self.message_dim = message_dim
         self.is_pdcvrp = problem.NAME == 'pdcvrp'
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
@@ -138,11 +144,21 @@ class DynamicAttentionModel(nn.Module):
         if self.use_time_feature and not self.project_time_feature:
             step_context_dim += 1
 
+        if self.memory_dim is not None:
+            self.use_memory = True
+            self.message_aggregator = get_message_aggregator("mean")
+            self.tgn_embedding = TGNEmbedding(self.memory_dim, self.embedding_dim)
+            self.raw_message_dimension = 2 * self.memory_dim + self.embedding_dim # this will need to be changed if we ever decide to use a different message function
+        else:
+            self.use_memory = False
+
         # Special embedding projection for the depot node
         self.init_embed_depot = nn.Linear(2, embedding_dim)
 
         # Node Embedding Layer
         self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)
+
+        # if node memory is used, then we use a different embedding 
 
         if self.edge_features == 'adjacency':
             self.edge_embed = nn.Embedding(2, embedding_dim)
@@ -190,14 +206,25 @@ class DynamicAttentionModel(nn.Module):
 
         assert mode in ['masked', 'recursive'], "Mode must be either 'masked' or 'recursive'"
 
+        # If we're using Node Memory, then we need to initialize it:
+        if self.use_memory:
+            self.memory = TGNMemory(
+                batch_size=input['loc'].size(0),
+                num_nodes=input['loc'].size(1),
+                memory_dim=self.memory_dim,
+                message_dim=self.raw_message_dimension,
+            )
+
         if self.edge_features == 'adjacency':
             edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
         elif self.edge_features == 'distance':
             edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
 
+        self.embedded_edges = self.edge_embed(edge_features)
+
         if mode == 'masked':
             
-            embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
+            embeddings = self.embedder(self._init_embed(input), self.embedded_edges, input['graph'])
 
             log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
 
@@ -289,6 +316,22 @@ class DynamicAttentionModel(nn.Module):
                 
             #update problem state
             state = state.update(selected)
+
+            # if we're using TGN node memory, then we need to identify which environments have had arrivals and update memorys and node embeddings
+            if self.use_memory:
+                envs_to_update = state.arrival_occured.nonzero(as_tuple=False).squeeze(-1)
+                if envs_to_update.numel() > 0:
+                    for env_id in envs_to_update:
+                        arrival_ids = torch.nonzero(torch.logical_and(~state.get_mask()[env_id, 0], mask[env_id, 0]), as_tuple=False).squeeze(-1)
+                        for arrival in arrival_ids:
+                            neighbouring_ids = input['graph'][env_id, arrival].nonzero(as_tuple=False).squeeze(-1)  # Exclude the arrival node itself
+                            unique_sources, source_id_to_messages = self.get_raw_messages(env_id, arrival.expand_as(neighbouring_ids), neighbouring_ids)
+                            unique_destinations, destination_id_to_messages = self.get_raw_messages(env_id, neighbouring_ids, arrival.expand_as(neighbouring_ids))
+                            self.update_memory(env_id, unique_sources, source_id_to_messages)
+                            self.update_memory(env_id, unique_destinations, destination_id_to_messages)
+                            # get embeddings for new arrival
+                            tgn_embedding = self.tgn_embedding(self.memory.get_memory(env_id, arrival))
+                            fixed.node_embeddings[env_id, arrival] += tgn_embedding
 
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
@@ -581,3 +624,28 @@ class DynamicAttentionModel(nn.Module):
             .expand(v.size(0), v.size(1) if num_steps is None else num_steps, v.size(2), self.n_heads, -1)
             .permute(3, 0, 1, 2, 4)  # (n_heads, batch_size, num_steps, graph_size, head_dim)
         )
+
+    def get_raw_messages(self, batch_idx, source_nodes, destination_nodes):
+
+        source_memory = self.memory.get_memory(batch_idx, source_nodes)
+        destination_memory = self.memory.get_memory(batch_idx, destination_nodes)
+
+        # skip the time encoding for now ...
+
+        edge_features = self.embedded_edges[batch_idx, source_nodes, destination_nodes]
+
+        source_message = torch.cat([source_memory, destination_memory, edge_features], dim=1)
+
+        messages = defaultdict(list)
+        unique_sources = source_nodes.unique()
+
+        for i in range(len(source_nodes)):
+            messages[source_nodes[i].item()].append(source_message[i])
+
+        return unique_sources, messages
+
+    def update_memory(self, batch_id, nodes, message):
+        unique_nodes, unique_messages, _ = self.message_aggregator.aggregate(nodes, message)
+        
+        self.memory.update_memory(batch_id, unique_nodes, unique_messages)
+        
