@@ -26,7 +26,7 @@ class StatePDCVRP(NamedTuple):
     used_cap: torch.Tensor
     visited_: torch.Tensor
     not_arrived_: torch.Tensor
-    arrival_occured: bool
+    arrival_occured: torch.Tensor # Tracks if a new arrival has occurred in the last step for each environment
     i: torch.Tensor # current timestep
 
     def __getitem__(self, key):
@@ -77,7 +77,7 @@ class StatePDCVRP(NamedTuple):
             visit_times=[[0.0] for _ in range(batch_size)],
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
-            arrival_occured=False,
+            arrival_occured=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
         )
 
@@ -98,11 +98,15 @@ class StatePDCVRP(NamedTuple):
         for i in range(batch_size):
             self.visit_times[i].append(service_starts[i, 0].item())
 
+        arrival_occured = torch.zeros(batch_size, dtype=torch.bool, device=self.coords.device)
+
         # find out which dynamic nodes have arrived in the meantime
         new_arrival_mask = self.not_arrived_.clone()
         for i in range(batch_size):
             new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
             new_arrival_mask[i, 0, new_arrivals] = False
+            if new_arrivals.numel() > 0:
+                arrival_occured[i] = True
 
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
@@ -116,11 +120,8 @@ class StatePDCVRP(NamedTuple):
                     # ... and update the mask accordingly
                     new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
                     new_arrival_mask[i, 0, new_arrivals] = False
-
-        if len(new_arrivals) == 0:
-            arrival_occured = False
-        else:
-            arrival_occured = True
+                    if new_arrivals.numel() > 0:
+                        arrival_occured[i] = True
 
         # update the used capacity
         selected_demand = self.demands[self.ids, prev_a]

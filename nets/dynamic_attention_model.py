@@ -317,21 +317,23 @@ class DynamicAttentionModel(nn.Module):
             #update problem state
             state = state.update(selected)
 
-            # if we're using TGN node memory, then we need to identify which environments have had arrivals and update memorys and node embeddings
+            # if we're using TGN node memory, then we need to identify which environments have had arrivals and update memories and node embeddings
             if self.use_memory:
                 envs_to_update = state.arrival_occured.nonzero(as_tuple=False).squeeze(-1)
+                new_embeddings = embeddings.clone()
                 if envs_to_update.numel() > 0:
                     for env_id in envs_to_update:
                         arrival_ids = torch.nonzero(torch.logical_and(~state.get_mask()[env_id, 0], mask[env_id, 0]), as_tuple=False).squeeze(-1)
                         for arrival in arrival_ids:
+                            # get embeddings for new arrival
                             neighbouring_ids = input['graph'][env_id, arrival].nonzero(as_tuple=False).squeeze(-1)  # Exclude the arrival node itself
-                            unique_sources, source_id_to_messages = self.get_raw_messages(env_id, arrival.expand_as(neighbouring_ids), neighbouring_ids)
-                            unique_destinations, destination_id_to_messages = self.get_raw_messages(env_id, neighbouring_ids, arrival.expand_as(neighbouring_ids))
+                            unique_sources, source_id_to_messages = self.get_raw_messages(env_id, arrival.expand_as(neighbouring_ids), neighbouring_ids, self.embedded_edges)
+                            unique_destinations, destination_id_to_messages = self.get_raw_messages(env_id, neighbouring_ids, arrival.expand_as(neighbouring_ids), self.embedded_edges)
                             self.update_memory(env_id, unique_sources, source_id_to_messages)
                             self.update_memory(env_id, unique_destinations, destination_id_to_messages)
-                            # get embeddings for new arrival
                             tgn_embedding = self.tgn_embedding(self.memory.get_memory(env_id, arrival))
-                            fixed.node_embeddings[env_id, arrival] += tgn_embedding
+                            new_embeddings[env_id, arrival] = embeddings.clone()[env_id, arrival] + tgn_embedding
+                fixed = self._precompute(new_embeddings)
 
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
@@ -396,8 +398,22 @@ class DynamicAttentionModel(nn.Module):
                     edge_features = masked_input['graph'].long()
                 elif self.edge_features == 'distance':
                     edge_features = masked_input['distance_matrix'].unsqueeze(-1)
-                embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
-                decoder_input = self._precompute(embeddings, num_steps=1)
+                embedded_edges = self.edge_embed(edge_features)
+                embeddings = self.embedder(self._init_embed(masked_input), embedded_edges, masked_input['graph'])
+                new_embeddings = embeddings.clone()
+                if self.use_memory:
+                    arrival_ids = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1)))  # Get the indices of the newly arrived nodes
+                    for arrival in arrival_ids:
+                        neighbouring_ids = masked_input['graph'][arrival.item()].nonzero(as_tuple=False).squeeze(-1)
+                        unique_sources, source_id_to_messages = self.get_raw_messages(0, arrival.expand_as(neighbouring_ids), neighbouring_ids, embedded_edges.unsqueeze(0))
+                        unique_destinations, destination_id_to_messages = self.get_raw_messages(0, neighbouring_ids, arrival.expand_as(neighbouring_ids), embedded_edges.unsqueeze(0))
+                        self.update_memory(0, unique_sources, source_id_to_messages)
+                        self.update_memory(0, unique_destinations, destination_id_to_messages)
+                        tgn_embedding = self.tgn_embedding(self.memory.get_memory(0, arrival))
+                        new_embeddings[0, arrival] = embeddings.clone()[0, arrival] + tgn_embedding
+
+
+                decoder_input = self._precompute(new_embeddings)
 
         all_sequences = torch.stack(sequences, 1)
 
@@ -409,11 +425,12 @@ class DynamicAttentionModel(nn.Module):
         masked_input = {}
         # first step is to mask the coordinates, very simple
         masked_input['loc'] = input['loc'][mask].unsqueeze(0)  # (batch_size, num_nodes, 2)
-        # for now, going to do this the easy way and simply put the masked locations into the nearest neighbour function and get the new distance matrix and graph from that
+        masked_input['distance_matrix'] = torch.FloatTensor(input['distance_matrix'][0][mask[0]][:, mask[0]]).to(masked_input['loc'].device).unsqueeze(0)
         locs_on_cpu = masked_input['loc'].squeeze(0).cpu().numpy()
-        nn_graph, distance_matrix = nearest_neighbor_graph(locs_on_cpu, self.neighbors, self.knn_strat)
+        distance_matrix_on_cpu = masked_input['distance_matrix'].squeeze(0).cpu().numpy()
+        nn_graph, distance_matrix = nearest_neighbor_graph(locs_on_cpu, self.neighbors, self.knn_strat, distance_matrix_on_cpu)
         masked_input['graph'] = ~torch.BoolTensor(nn_graph).to(masked_input['loc'].device)
-        masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix).to(masked_input['loc'].device)
+
         masked_input['time_horizon'] = input['time_horizon']
         if 'window_starts' in input:
             masked_input['window_starts'] = input['window_starts'][mask].unsqueeze(0)
@@ -440,7 +457,7 @@ class DynamicAttentionModel(nn.Module):
     def _get_log_p(self, fixed, state, mask=None, normalize=True):
         # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
         query = fixed.context_node_projected + \
-                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
+                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings.clone(), state))
 
 
         # Compute keys and values for the nodes
@@ -625,27 +642,18 @@ class DynamicAttentionModel(nn.Module):
             .permute(3, 0, 1, 2, 4)  # (n_heads, batch_size, num_steps, graph_size, head_dim)
         )
 
-    def get_raw_messages(self, batch_idx, source_nodes, destination_nodes):
-
+    def get_raw_messages(self, batch_idx, source_nodes, destination_nodes, edge_embeddings):
         source_memory = self.memory.get_memory(batch_idx, source_nodes)
         destination_memory = self.memory.get_memory(batch_idx, destination_nodes)
+        edge_features = edge_embeddings[batch_idx, source_nodes, destination_nodes]
 
-        # skip the time encoding for now ...
-
-        edge_features = self.embedded_edges[batch_idx, source_nodes, destination_nodes]
-
+        # [B, D]
         source_message = torch.cat([source_memory, destination_memory, edge_features], dim=1)
 
-        messages = defaultdict(list)
-        unique_sources = source_nodes.unique()
+        # Pass along source node IDs for grouping later
+        return source_nodes, source_message
 
-        for i in range(len(source_nodes)):
-            messages[source_nodes[i].item()].append(source_message[i])
 
-        return unique_sources, messages
-
-    def update_memory(self, batch_id, nodes, message):
-        unique_nodes, unique_messages, _ = self.message_aggregator.aggregate(nodes, message)
-        
-        self.memory.update_memory(batch_id, unique_nodes, unique_messages)
-        
+    def update_memory(self, batch_id, node_ids, messages):
+        unique_ids, aggregated_messages = self.message_aggregator.aggregate(node_ids, messages)
+        self.memory.update_memory(batch_id, unique_ids, aggregated_messages)     
