@@ -94,6 +94,7 @@ def run_rl(opts) -> None:
         knn_strat=opts.knn_strat,
         neighbors=opts.neighbors,
         scale_times=opts.scale_times,
+        use_arrival_lstm=opts.use_arrival_lstm,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:

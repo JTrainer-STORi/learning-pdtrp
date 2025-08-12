@@ -12,6 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from torch.nn import DataParallel
+from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 
 from utils.tensor_functions import compute_in_batches
 from utils import move_to, scale_time
@@ -63,6 +64,7 @@ class DynamicAttentionModel(nn.Module):
                  scale_times=False,
                  knn_strat='percentage',
                  neighbors=20,
+                 use_arrival_lstm=False,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -118,6 +120,7 @@ class DynamicAttentionModel(nn.Module):
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
         self.is_pdcvrptw = problem.NAME == 'pdcvrptw'
+        self.use_arrival_lstm = use_arrival_lstm
 
         self.decode_type = None
         self.temp = 1.0
@@ -137,6 +140,11 @@ class DynamicAttentionModel(nn.Module):
 
         if self.use_time_feature and not self.project_time_feature:
             step_context_dim += 1
+
+        if self.use_arrival_lstm:
+            self.lstm = nn.LSTM(input_size=embedding_dim + 1, hidden_size=embedding_dim, num_layers=1, batch_first=True)
+            self.lstm_hidden = None
+            step_context_dim += embedding_dim  # Add the LSTM hidden state to the step context
 
         # Special embedding projection for the depot node
         self.init_embed_depot = nn.Linear(2, embedding_dim)
@@ -207,18 +215,6 @@ class DynamicAttentionModel(nn.Module):
 
         visit_times = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
 
-        # Should only be necesary to pad for capacitated problems as these are the only ones that could have varing route lengths within a batch due to different numbers of depot visits
-        # if self.is_pdcvrp or self.is_pdcvrptw:
-            
-        #     max_len = max(len(route) for route in visit_times)
-
-        #     padded_visit_times = [route + [-1] * (max_len - len(route)) for route in visit_times]
-
-        #     input['visit_times'] = torch.tensor(padded_visit_times, dtype=torch.float32, device=input['loc'].device)
-        # else:
-        #     input['visit_times'] = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
-    
-
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
         if self.is_pdtrptw or self.is_pdcvrptw:
@@ -263,6 +259,10 @@ class DynamicAttentionModel(nn.Module):
 
         batch_size = int(input['loc'].size(0) / pomo_batch_size)
 
+
+        if self.use_arrival_lstm:
+            self.lstm_hidden = (torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device))
+
         while not state.all_finished():
 
             # If we are in a POMO setting, we select the start nodes for each instance in the batch
@@ -290,6 +290,18 @@ class DynamicAttentionModel(nn.Module):
             #update problem state
             state = state.update(selected)
 
+            # if we're using the decoder LSTM, we need to input any arrivals that occurred to it
+            if self.use_arrival_lstm:
+                arrival_sequences = []
+                for i in range(batch_size):
+                    if state.arrival_occured[i]:
+                        arrival_indices = torch.nonzero(torch.logical_and(~state.get_mask()[i, 0], mask[i, 0]), as_tuple=False).squeeze(-1)
+                        arrival_features = torch.cat([torch.gather(embeddings[i, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), input['arrival_times'][i, arrival_indices][:, None]], dim=-1)
+                    else: 
+                        arrival_sequences.append(torch.empty((0,)))
+                
+            self.update_lstm_with_arrivals_packed(arrival_sequences)
+
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
 
@@ -302,6 +314,8 @@ class DynamicAttentionModel(nn.Module):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
         # note that due to it being annoying to do this for anything other than a single instance, this function is designed to only work for a single instance
         assert input['loc'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
+
+        batch_size = input['loc'].size(0)
 
         # This bit is the same as the training inner method
         outputs = []
@@ -321,6 +335,10 @@ class DynamicAttentionModel(nn.Module):
         embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
 
         decoder_input = self._precompute(embeddings)
+
+        if self.use_arrival_lstm:
+            # Initialize hidden state if not set
+            self.lstm_hidden = (torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device))
 
         # This is the main loop for the decoder
         while not state.all_finished():
@@ -355,6 +373,17 @@ class DynamicAttentionModel(nn.Module):
                     edge_features = masked_input['distance_matrix'].unsqueeze(-1)
                 embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
                 decoder_input = self._precompute(embeddings, num_steps=1)
+                if self.use_arrival_lstm:
+                    arrival_sequences = []
+                    # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
+                    arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1)))
+                    if arrival_indices.numel() > 0:
+                        arrival_features = torch.cat([torch.gather(embeddings[0, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), input['arrival_times'][0, arrival_indices][:, None]], dim=-1)
+                        arrival_sequences.append(arrival_features)
+                    else:
+                        arrival_features = torch.empty((0,))
+                    
+                self.update_lstm_with_arrivals_packed(arrival_sequences)
 
         all_sequences = torch.stack(sequences, 1)
 
@@ -402,16 +431,6 @@ class DynamicAttentionModel(nn.Module):
 
         # Compute keys and values for the nodes
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
-
-        # # this mask is returned by the state and tells us which nodes have been visited
-        # visited_mask = state.get_mask().bool()
-
-        # # use an or operation to combine the visited mask with the mask from the previous timestep which has arrivals masked correctly
-
-        # if mask is not None:
-        #     mask = torch.logical_or(mask, visited_mask)
-        # else:
-        #     mask = visited_mask
         
         graph_mask = None
         if self.mask_graph:
@@ -478,6 +497,16 @@ class DynamicAttentionModel(nn.Module):
                 (
                     context,
                     state.get_remaining_capacity()[:, :, None]
+                ),
+                -1
+            )
+
+        if self.use_arrival_lstm: 
+            h, _ = self.lstm_hidden
+            context = torch.cat(
+                (
+                    context,
+                    h
                 ),
                 -1
             )
@@ -581,3 +610,45 @@ class DynamicAttentionModel(nn.Module):
             .expand(v.size(0), v.size(1) if num_steps is None else num_steps, v.size(2), self.n_heads, -1)
             .permute(3, 0, 1, 2, 4)  # (n_heads, batch_size, num_steps, graph_size, head_dim)
         )
+
+    def update_lstm_with_arrivals_packed(self, arrival_sequences):
+        """
+        arrival_sequences: list of length batch_size
+            each entry is a tensor [num_arrivals_i, input_dim]
+            num_arrivals_i can be 0 if no arrivals for that env.
+        """
+        h, c = self.lstm_hidden  # h: [num_layers, batch, hidden_dim]
+
+        # Collect only the sequences with length > 0
+        nonempty_indices = [i for i, seq in enumerate(arrival_sequences) if seq.size(0) > 0]
+        if len(nonempty_indices) == 0:
+            # No arrivals in any env — do nothing
+            return
+
+        # Step 1: Build packed sequences with correct initial hidden states
+        # Sort by sequence length (descending) for pack_sequence
+        nonempty_sequences = [arrival_sequences[i] for i in nonempty_indices]
+        lengths = [seq.size(0) for seq in nonempty_sequences]
+        sorted_idx = sorted(range(len(nonempty_sequences)), key=lambda x: lengths[x], reverse=True)
+        
+        sorted_sequences = [nonempty_sequences[i] for i in sorted_idx]
+        sorted_indices_in_batch = [nonempty_indices[i] for i in sorted_idx]
+        sorted_lengths = [lengths[i] for i in sorted_idx]
+
+        # Pack into [seq_total_len, input_dim] → PackedSequence
+        packed = pack_sequence(sorted_sequences, enforce_sorted=True)
+
+        # Extract initial states for only those envs with arrivals, sorted
+        h_init = h[:, sorted_indices_in_batch, :]  # [num_layers, sub_batch, hidden_dim]
+        c_init = c[:, sorted_indices_in_batch, :]
+
+        # Step 2: Run the LSTM
+        _, (h_out, c_out) = self.lstm(packed, (h_init, c_init))
+
+        # Step 3: Put updated states back into the full batch
+        h_new, c_new = h.clone(), c.clone()
+        for pos, env_idx in enumerate(sorted_indices_in_batch):
+            h_new[:, env_idx:env_idx+1, :] = h_out[:, pos:pos+1, :]
+            c_new[:, env_idx:env_idx+1, :] = c_out[:, pos:pos+1, :]
+
+        self.lstm_hidden = (h_new, c_new)

@@ -21,7 +21,7 @@ class StatePDTRP(NamedTuple):
     visited_: torch.Tensor # Tracks which nodes have been visited
     visit_times: list # Tracks the time at which each node was visited
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
-    arrival_occured: bool # Tracks if a new arrival has occurred in the last step
+    arrival_occured: torch.Tensor # Tracks if a new arrival has occurred in the last step
     i: torch.Tensor # Current timestep
 
     def __getitem__(self, key):
@@ -64,7 +64,7 @@ class StatePDTRP(NamedTuple):
             visited_= visited,
             visit_times=[[0.0] for _ in range(batch_size)],
             not_arrived_= (arrival_times > 0).unsqueeze(1),
-            arrival_occured=False,
+            arrival_occured=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
         )
@@ -89,11 +89,15 @@ class StatePDTRP(NamedTuple):
         for i in range(batch_size):
             self.visit_times[i].append(service_starts[i, 0].item())
 
+        arrival_occured = torch.zeros(batch_size, dtype=torch.bool, device=self.coords.device)
+
         # find out which dynamic nodes have arrived in the meantime
         new_arrival_mask = self.not_arrived_.clone()
         for i in range(batch_size):
-            new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
+            new_arrivals = torch.nonzero(torch.logical_and(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]), self.arrival_times[i] > 0))
             new_arrival_mask[i, 0, new_arrivals] = False
+            if new_arrivals.numel() > 0:
+                arrival_occured[i] = True
         
         visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
 
@@ -105,13 +109,10 @@ class StatePDTRP(NamedTuple):
                     min_arrival_times = torch.min(self.arrival_times[i][new_arrival_mask[i][0]])
                     cur_times[i] = torch.maximum(cur_times[i], min_arrival_times)
                     # ... and update the mask accordingly
-                    new_arrivals = torch.nonzero(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]))
+                    new_arrivals = torch.nonzero(torch.logical_and(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]), self.arrival_times[i] > 0))
                     new_arrival_mask[i, 0, new_arrivals] = False
-        
-        if len(new_arrivals) == 0:
-            arrival_occured = False
-        else:
-            arrival_occured = True
+                    if new_arrivals.numel() > 0:
+                        arrival_occured[i] = True       
 
         # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
         if visited_.all():
@@ -119,6 +120,7 @@ class StatePDTRP(NamedTuple):
             time_back_at_depot = cur_times + torch.round((distances_back_to_depot / self.speed), decimals=4)
             for i in range(batch_size):
                 self.visit_times[i].append(time_back_at_depot[i, 0].item())
+            arrival_occured = torch.zeros(batch_size, dtype=torch.bool, device=self.coords.device)  # All nodes visited, so arrival has occurred
 
         return self._replace(prev_a=prev_a, cur_coords=cur_coords, cur_times=cur_times, lengths=self.lengths + distances_travelled, visited_=visited_, not_arrived_=new_arrival_mask, i=self.i + 1, arrival_occured=arrival_occured)
 
