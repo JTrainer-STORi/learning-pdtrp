@@ -382,8 +382,8 @@ class DynamicAttentionModel(nn.Module):
                         arrival_sequences.append(arrival_features)
                     else:
                         arrival_features = torch.empty((0,))
-                    
-                self.update_lstm_with_arrivals_packed(arrival_sequences)
+                
+                    self.update_lstm_with_arrivals_packed(arrival_sequences)
 
         all_sequences = torch.stack(sequences, 1)
 
