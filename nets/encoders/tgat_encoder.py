@@ -83,6 +83,8 @@ class TGNNLayer(nn.Module):
             Updated node and edge features
         """
         batch_size, num_nodes, hidden_dim = h.shape
+        e = e.detach()  # Detach edge features to avoid gradients through edges
+        h = h.detach()  # Detach node features to avoid gradients through nodes
         h_in = h
         e_in = e
 
