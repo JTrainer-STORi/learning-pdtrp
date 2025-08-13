@@ -65,6 +65,7 @@ class DynamicAttentionModel(nn.Module):
                  knn_strat='percentage',
                  neighbors=20,
                  use_arrival_lstm=False,
+                 use_temporal_masking=False,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -121,6 +122,7 @@ class DynamicAttentionModel(nn.Module):
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
         self.is_pdcvrptw = problem.NAME == 'pdcvrptw'
         self.use_arrival_lstm = use_arrival_lstm
+        self.use_temporal_masking = use_temporal_masking
 
         self.decode_type = None
         self.temp = 1.0
@@ -203,7 +205,11 @@ class DynamicAttentionModel(nn.Module):
         elif self.edge_features == 'distance':
             edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
 
-        if mode == 'masked':
+        if self.use_temporal_masking:
+
+            log_p, pi, visit_times = self._inner(input, None, pomo_batch_size, print_query_times=print_query_times)
+
+        elif mode == 'masked':
             
             embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
 
@@ -255,10 +261,16 @@ class DynamicAttentionModel(nn.Module):
         # create the problem state for tracking which nodes are masked
         state = self.problem.make_state(input)
 
-        fixed = self._precompute(embeddings)
+        if not self.use_temporal_masking:
+            fixed = self._precompute(embeddings)
+        else:
+            if self.edge_features == 'adjacency':
+                edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
+            elif self.edge_features == 'distance':
+                edge_features = input['distance_matrix'].unsqueeze(-1) 
+            edge_indices_sparse, edge_features_sparse = self.dense_to_sparse(input['graph'], self.edge_embed(edge_features))
 
         batch_size = int(input['loc'].size(0) / pomo_batch_size)
-
 
         if self.use_arrival_lstm:
             self.lstm_hidden = (torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device))
@@ -272,6 +284,13 @@ class DynamicAttentionModel(nn.Module):
                 log_p = torch.zeros((batch_size * pomo_batch_size, 1, input['loc'].size(1)), device=input['loc'].device)
             else:
                 mask = state.get_mask()
+
+                if self.use_temporal_masking:
+                    temporal_mask = ~state.not_arrived_[:, 0, :]
+                    current_time = state.get_timestep()
+                    # if using the sparse encoder, we need to change the graph to be a list of edges and the edge features to be a list of features associated with each edge
+                    embeddings = self.embedder(self._init_embed(input), edge_features_sparse, edge_indices_sparse, temporal_mask, current_time)
+                    fixed = self._precompute(embeddings)
 
                 if print_query_times:
                     start_time = time.time()
@@ -427,7 +446,6 @@ class DynamicAttentionModel(nn.Module):
         # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
         query = fixed.context_node_projected + \
                 self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
-
 
         # Compute keys and values for the nodes
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
@@ -652,3 +670,32 @@ class DynamicAttentionModel(nn.Module):
             c_new[:, env_idx:env_idx+1, :] = c_out[:, pos:pos+1, :]
 
         self.lstm_hidden = (h_new, c_new)
+
+    import torch
+
+    def dense_to_sparse(self, graph, edge_features):
+        """
+        Convert dense adjacency & edge features to sparse format.
+        
+        Args:
+            graph: (B x V x V) adjacency matrix (1 = edge exists, 0 = no edge)
+            edge_features: (B x V x V x H) dense edge features
+
+        Returns:
+            edge_index: (2 x E) tensor of source/destination indices (shared across batch)
+            edge_attr: (B x E x H) batch-specific edge features
+        """
+
+        B, V, _, H = edge_features.shape
+
+        # Get edges (using first batch as reference)
+        edge_mask = (graph[0] == 1)
+        edge_mask.fill_diagonal_(False)  # no self-loops
+
+        src, dst = torch.nonzero(edge_mask, as_tuple=True)
+        edge_index = torch.stack([src, dst], dim=0)  # 2 x E
+
+        # Gather edge features for each batch
+        edge_attr = edge_features[:, src, dst, :]  # B x E x H
+
+        return edge_index, edge_attr

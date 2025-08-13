@@ -119,6 +119,7 @@ def get_options(args=None):
     help='scale time features to an approximate [0,1] range by dividing by the time horizon')
     parser.add_argument('--use_arrival_lstm', action='store_true',
                         help='Use an LSTM hidden state as part of the decoder context')
+    parser.add_argument('--use_temporal_masking', action='store_true', help='Use temporal masking in the encoder')
 
     # Training
     parser.add_argument('--pomo_batch_size', type=int, default=1,

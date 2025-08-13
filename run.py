@@ -15,6 +15,7 @@ from train import train_epoch, get_inner_model
 from tensorboard_logger import Logger as TbLogger
 from nets.dynamic_attention_model import DynamicAttentionModel
 from nets.encoders.gnn_encoder import GNNEncoder
+from nets.encoders.tgat_encoder import TGNNEncoder
 from nets.critic_network import CriticNetwork
 
 from reinforce_baselines import ExponentialBaseline, CriticBaseline, RolloutBaseline, NoBaseline, WarmupBaseline
@@ -26,7 +27,7 @@ def run_rl(opts) -> None:
     Top Level Function for running RL experiments
     """
 
-    # torch.autograd.set_detect_anomaly(True) # un-comment this line for help detecting specific Pytorch autograd errors
+    torch.autograd.set_detect_anomaly(True) # un-comment this line for help detecting specific Pytorch autograd errors
 
     # pretty print the run args
     pp.pprint(vars(opts))
@@ -71,10 +72,15 @@ def run_rl(opts) -> None:
         print('\nLoading data from {}'.format(load_path))
         load_data = torch_load_cpu(load_path)
 
+    if opts.use_temporal_masking:
+        encoder_class = TGNNEncoder
+    else:
+        encoder_class = GNNEncoder
+
     model = DynamicAttentionModel(
         problem=problem,
         embedding_dim=opts.embedding_dim,
-        encoder_class=GNNEncoder, # change this at some point if we only go with this encoder 
+        encoder_class=encoder_class, # change this at some point if we only go with this encoder 
         n_encode_layers=opts.n_encode_layers, 
         aggregation=opts.aggregation,
         aggregation_graph=opts.aggregation_graph,
@@ -95,6 +101,7 @@ def run_rl(opts) -> None:
         neighbors=opts.neighbors,
         scale_times=opts.scale_times,
         use_arrival_lstm=opts.use_arrival_lstm,
+        use_temporal_masking=opts.use_temporal_masking,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
