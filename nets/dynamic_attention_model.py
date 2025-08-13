@@ -376,7 +376,7 @@ class DynamicAttentionModel(nn.Module):
                 if self.use_arrival_lstm:
                     arrival_sequences = []
                     # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
-                    arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1)))
+                    arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1))).to(input['loc'].device)
                     if arrival_indices.numel() > 0:
                         arrival_features = torch.cat([torch.gather(embeddings[0, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), input['arrival_times'][0, arrival_indices][:, None]], dim=-1)
                         arrival_sequences.append(arrival_features)
