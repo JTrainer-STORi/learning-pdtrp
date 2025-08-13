@@ -295,7 +295,7 @@ class DynamicAttentionModel(nn.Module):
                 arrival_sequences = []
                 for i in range(batch_size):
                     if state.arrival_occured[i]:
-                        arrival_indices = torch.nonzero(torch.logical_and(~state.get_mask()[i, 0], mask[i, 0]), as_tuple=False).squeeze(-1)
+                        arrival_indices = torch.nonzero(torch.logical_and(~state.get_mask()[i, 0], mask[i, 0]), as_tuple=False).squeeze(-1).to(input['loc'].device)
                         arrival_features = torch.cat([torch.gather(embeddings[i, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), input['arrival_times'][i, arrival_indices][:, None]], dim=-1)
                     else: 
                         arrival_sequences.append(torch.empty((0,)))
