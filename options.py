@@ -113,12 +113,14 @@ def get_options(args=None):
                         help='Edge features to use: distance or adjacency')
     parser.add_argument('--use_time_feature', action='store_true',
                         help='Use time as an additional feature during decoding')
-    parser.add_argument('--project_time_feature', action='store_true',
-                        help='Project time feature to embedding dimension using an MLP')
+    parser.add_argument('--functional_time_encoding', action='store_true',
+                        help='Whether to pass any time features in the model through thte functional time encoding from TGAT paper')
     parser.add_argument('--scale_times', action='store_true',
     help='scale time features to an approximate [0,1] range by dividing by the time horizon')
     parser.add_argument('--use_arrival_lstm', action='store_true',
                         help='Use an LSTM hidden state as part of the decoder context')
+    parser.add_argument('--use_arrival_times', action='store_true',
+                        help='Use arrival time as an additional node feature in the encoder')
 
     # Training
     parser.add_argument('--pomo_batch_size', type=int, default=1,

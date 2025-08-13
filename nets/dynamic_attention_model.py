@@ -17,6 +17,7 @@ from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 from utils.tensor_functions import compute_in_batches
 from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
+from nets.encoders.gnn_encoder import TimeEncoding
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -60,11 +61,12 @@ class DynamicAttentionModel(nn.Module):
                  mask_graph= False,
                  edge_features='adjacency',
                  use_time_feature=False,
-                 project_time_feature=False,
+                 functional_time_encoding=False,
                  scale_times=False,
                  knn_strat='percentage',
                  neighbors=20,
                  use_arrival_lstm=False,
+                 use_arrival_times=False,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -112,7 +114,7 @@ class DynamicAttentionModel(nn.Module):
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
         self.use_time_feature = use_time_feature
-        self.project_time_feature = project_time_feature
+        self.functional_time_encoding = functional_time_encoding
         self.knn_strat = knn_strat
         self.neighbors = neighbors
         self.scale_times = scale_times
@@ -121,6 +123,7 @@ class DynamicAttentionModel(nn.Module):
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
         self.is_pdcvrptw = problem.NAME == 'pdcvrptw'
         self.use_arrival_lstm = use_arrival_lstm
+        self.use_arrival_times = use_arrival_times
 
         self.decode_type = None
         self.temp = 1.0
@@ -135,14 +138,25 @@ class DynamicAttentionModel(nn.Module):
         if self.is_pdtrptw:
             node_dim = 4 # x,y, window_start, window_end
         if self.is_pdcvrptw:
+            if self.functional_time_encoding:
+                node_dim = 4 + embedding_dim * 2
             node_dim = 5 # x,y, window_start, window_end, demand
             step_context_dim += 1 # for the capacity
 
-        if self.use_time_feature and not self.project_time_feature:
+        if self.use_time_feature and not self.functional_time_encoding:
             step_context_dim += 1
+        
+        if self.use_arrival_times:
+            if self.functional_time_encoding:
+                node_dim += embedding_dim
+            else:
+                node_dim += 1
 
         if self.use_arrival_lstm:
-            self.lstm = nn.LSTM(input_size=embedding_dim + 1, hidden_size=embedding_dim, num_layers=1, batch_first=True)
+            if self.functional_time_encoding:
+                self.lstm = nn.LSTM(input_size=embedding_dim*2, hidden_size=embedding_dim, num_layers=1, batch_first=True)
+            else:
+                self.lstm = nn.LSTM(input_size=embedding_dim + 1, hidden_size=embedding_dim, num_layers=1, batch_first=True)
             self.lstm_hidden = None
             step_context_dim += embedding_dim  # Add the LSTM hidden state to the step context
 
@@ -171,12 +185,9 @@ class DynamicAttentionModel(nn.Module):
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
         self.project_fixed_context = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_step_context = nn.Linear(step_context_dim, embedding_dim, bias=False)
-        if self.project_time_feature:
-            self.project_time_feature = nn.Sequential(
-                nn.Linear(1, embedding_dim),
-                nn.SiLU(),
-                nn.Linear(embedding_dim, embedding_dim, bias=False),
-            )
+        if self.functional_time_encoding:
+            self.time_encoding = TimeEncoding(embedding_dim)
+            step_context_dim += embedding_dim  # Add time encoding to step context
         
         assert embedding_dim % n_heads == 0
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
@@ -259,9 +270,8 @@ class DynamicAttentionModel(nn.Module):
 
         batch_size = int(input['loc'].size(0) / pomo_batch_size)
 
-
         if self.use_arrival_lstm:
-            self.lstm_hidden = (torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device))
+            self.lstm_hidden = (torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['loc'].device))
 
         while not state.all_finished():
 
@@ -296,10 +306,17 @@ class DynamicAttentionModel(nn.Module):
                 for i in range(batch_size):
                     if state.arrival_occured[i]:
                         arrival_indices = torch.nonzero(torch.logical_and(~state.get_mask()[i, 0], mask[i, 0]), as_tuple=False).squeeze(-1).to(input['loc'].device)
-                        arrival_features = torch.cat([torch.gather(embeddings[i, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), input['arrival_times'][i, arrival_indices][:, None]], dim=-1)
+                        if self.scale_times:
+                            arrival_times = scale_time(input['arrival_times'][i, arrival_indices][:, None], input['time_horizon'][0])
+                        else:
+                            arrival_times = input['arrival_times'][i, arrival_indices][:, None]
+                        if self.functional_time_encoding:
+                            arrival_times = self.time_encoding(arrival_times)
+                        arrival_features = torch.cat([torch.gather(embeddings[i, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), arrival_times], dim=-1)
                     else: 
-                        arrival_sequences.append(torch.empty((0,)))
-                
+                        arrival_features = torch.empty((0,))
+                    arrival_sequences.append(arrival_features)
+
                 self.update_lstm_with_arrivals_packed(arrival_sequences)
 
             outputs.append(log_p[:, 0, :])
@@ -337,8 +354,7 @@ class DynamicAttentionModel(nn.Module):
         decoder_input = self._precompute(embeddings)
 
         if self.use_arrival_lstm:
-            # Initialize hidden state if not set
-            self.lstm_hidden = (torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((batch_size, 1, self.lstm.hidden_size), device=input['loc'].device))
+            self.lstm_hidden = (torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['loc'].device))
 
         # This is the main loop for the decoder
         while not state.all_finished():
@@ -378,10 +394,16 @@ class DynamicAttentionModel(nn.Module):
                     # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
                     arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1))).to(input['loc'].device)
                     if arrival_indices.numel() > 0:
-                        arrival_features = torch.cat([torch.gather(embeddings[0, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), input['arrival_times'][0, arrival_indices][:, None]], dim=-1)
-                        arrival_sequences.append(arrival_features)
+                        if self.scale_times:
+                            arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], masked_input['time_horizon'][0])
+                        else:
+                            arrival_times = masked_input['arrival_times'][0, arrival_indices][:, None]
+                        if self.functional_time_encoding:
+                            arrival_times = self.time_encoding(arrival_times)
+                        arrival_features = torch.cat([torch.gather(embeddings[0, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), arrival_times], dim=-1)
                     else:
                         arrival_features = torch.empty((0,))
+                    arrival_sequences.append(arrival_features)
                 
                     self.update_lstm_with_arrivals_packed(arrival_sequences)
 
@@ -395,6 +417,7 @@ class DynamicAttentionModel(nn.Module):
         masked_input = {}
         # first step is to mask the coordinates, very simple
         masked_input['loc'] = input['loc'][mask].unsqueeze(0)  # (batch_size, num_nodes, 2)
+        masked_input['arrival_times'] = input['arrival_times'][mask].unsqueeze(0)  # (batch_size, num_nodes)
         # for now, going to do this the easy way and simply put the masked locations into the nearest neighbour function and get the new distance matrix and graph from that
         locs_on_cpu = masked_input['loc'].squeeze(0).cpu().numpy()
         nn_graph, distance_matrix = nearest_neighbor_graph(locs_on_cpu, self.neighbors, self.knn_strat)
@@ -487,8 +510,14 @@ class DynamicAttentionModel(nn.Module):
                     ).view(batch_size, num_steps, embeddings.size(-1))
 
         if self.use_time_feature:
-            if self.project_time_feature:
-                context = context + self.project_time_feature(state.get_timestep(normalize=self.scale_times)[:,:, None])
+            if self.functional_time_encoding:
+                context = torch.cat(
+                    (
+                        context,
+                        self.time_encoding(state.get_timestep(normalize=self.scale_times)[:,:, None])
+                    ),
+                    -1
+                )
             else:
                 context = torch.cat((context, state.get_timestep(normalize=self.scale_times)[:,:, None]), -1)
         
@@ -503,6 +532,7 @@ class DynamicAttentionModel(nn.Module):
 
         if self.use_arrival_lstm: 
             h, _ = self.lstm_hidden
+            h = h[-1].unsqueeze(1) # Get the last layer of the LSTM hidden state and unsqueeze to match context shape
             context = torch.cat(
                 (
                     context,
@@ -557,50 +587,52 @@ class DynamicAttentionModel(nn.Module):
         return fixed.glimpse_key, fixed.glimpse_val, fixed.logit_key
     
     def _init_embed(self, input):
-        if self.is_pdcvrp:
-            return torch.cat(
-            (
-                self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
-                self.node_embed(torch.cat((input['loc'][:, 1:, :], input['demand'][:, 1:, None]), -1))
-            ),
-            1
-            )
-        if self.is_pdtrp:
-            return torch.cat(
-            (
-                self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
-                self.node_embed(input['loc'][:, 1:, :])
-            ),
-            1
-            )
-        if self.is_pdtrptw:
+        node_feats  = input['loc'][:, 1:, :]
+        if self.is_pdcvrp or self.is_pdcvrptw:
+            node_feats = torch.cat((node_feats, input['demand'][:, 1:, None]), -1)
+        if self.is_pdtrptw or self.is_pdcvrptw:
             if self.scale_times:
                 window_starts = scale_time(input['window_starts'][:, 1:, None], input['time_horizon'][0])
                 window_ends = scale_time(input['window_ends'][:, 1:, None], input['time_horizon'][0])
             else:
                 window_starts = input['window_starts'][:, 1:, None]
                 window_ends = input['window_ends'][:, 1:, None]
-            return torch.cat(
-            (
-                self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
-                self.node_embed(torch.cat((input['loc'][:, 1:, :], window_starts, window_ends), -1))
-            ),
-            1
+            if self.functional_time_encoding:
+                window_starts = self.time_encoding(window_starts)
+                window_ends = self.time_encoding(window_ends)
+            node_feats = torch.cat(
+                (node_feats, window_starts, window_ends),
+                -1
             )
-        if self.is_pdcvrptw:
+        if self.use_arrival_times:        
             if self.scale_times:
-                window_starts = scale_time(input['window_starts'][:, 1:, None], input['time_horizon'][0])
-                window_ends = scale_time(input['window_ends'][:, 1:, None], input['time_horizon'][0])
+                arrival_times = scale_time(input['arrival_times'][:, 1:, None], input['time_horizon'][0])    
             else:
-                window_starts = input['window_starts'][:, 1:, None]
-                window_ends = input['window_ends'][:, 1:, None]
-            return torch.cat(
+                arrival_times = input['arrival_times'][:, 1:, None]    
+            if self.functional_time_encoding:
+                node_feats = torch.cat(
+                    (
+                        node_feats,
+                        self.time_encoding(arrival_times)
+                    ),
+                    -1
+                )
+            else:
+                node_feats = torch.cat(
+                    (
+                        node_feats,
+                        arrival_times
+                    ),
+                    -1
+                )
+        embed = torch.cat(
             (
                 self.init_embed_depot(input['loc'][:, 0, :])[:, None, :],
-                self.node_embed(torch.cat((input['loc'][:, 1:, :], window_starts, window_ends, input['demand'][:, 1:, None]), -1))
+                self.node_embed(node_feats)
             ),
             1
             )
+        return embed
 
     def _make_heads(self, v, num_steps=None):
         assert num_steps is None or v.size(1) == 1 or v.size(1) == num_steps

@@ -3,6 +3,18 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+class TimeEncoding(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.linear = nn.Linear(1, 1)
+        self.freqs = nn.Parameter(torch.randn(dim - 1))
+        self.phases = nn.Parameter(torch.randn(dim - 1))
+
+    def forward(self, t):
+        lin = self.linear(t)
+        arg = t * self.freqs.unsqueeze(0) + self.phases.unsqueeze(0)
+        sin = torch.sin(arg)
+        return torch.cat([lin, sin], dim=-1)
 
 class GNNLayer(nn.Module):
     """Configurable GNN Layer
