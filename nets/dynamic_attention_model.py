@@ -18,6 +18,7 @@ from utils.tensor_functions import compute_in_batches
 from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
 from nets.encoders.gnn_encoder import TimeEncoding
+from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -109,7 +110,7 @@ class DynamicAttentionModel(nn.Module):
         self.gated = gated
         self.n_heads = n_heads
         self.tanh_clipping = tanh_clipping
-        self.edge_features = edge_features
+        self.edge_feature_type = edge_features
         self.mask_inner = mask_inner
         self.mask_logits = mask_logits
         self.mask_graph = mask_graph
@@ -170,9 +171,9 @@ class DynamicAttentionModel(nn.Module):
         # Node Embedding Layer
         self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)
 
-        if self.edge_features == 'adjacency':
+        if self.edge_feature_type == 'adjacency':
             self.edge_embed = nn.Embedding(2, embedding_dim)
-        elif self.edge_features == 'distance':
+        elif self.edge_feature_type == 'distance':
             self.edge_embed = nn.Linear(1, embedding_dim, bias=True)
 
         # Encoder model
@@ -210,14 +211,18 @@ class DynamicAttentionModel(nn.Module):
 
         assert mode in ['masked', 'recursive'], "Mode must be either 'masked' or 'recursive'"
 
-        if self.edge_features == 'adjacency':
-            edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
-        elif self.edge_features == 'distance':
-            edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
+        if self.edge_feature_type == 'adjacency':
+            self.edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
+        elif self.edge_feature_type == 'distance':
+            self.edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
 
-        if mode == 'masked':
+        if isinstance(self.embedder, IncrementalUpdateEncoder):
+
+            log_p, pi, visit_times = self._inner(input, None, pomo_batch_size, print_query_times=print_query_times)
+
+        elif mode == 'masked':
             
-            embeddings = self.embedder(self._init_embed(input), self.edge_embed(edge_features), input['graph'])
+            embeddings = self.embedder(self._init_embed(input), self.edge_embed(self.edge_features), input['graph'])
 
             log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
 
@@ -267,7 +272,8 @@ class DynamicAttentionModel(nn.Module):
         # create the problem state for tracking which nodes are masked
         state = self.problem.make_state(input)
 
-        fixed = self._precompute(embeddings)
+        if embeddings is not None:
+            fixed = self._precompute(embeddings)
 
         batch_size = int(input['loc'].size(0) / pomo_batch_size)
 
@@ -283,6 +289,11 @@ class DynamicAttentionModel(nn.Module):
                 log_p = torch.zeros((batch_size * pomo_batch_size, 1, input['loc'].size(1)), device=input['loc'].device)
             else:
                 mask = state.get_mask()
+
+                if isinstance(self.embedder, IncrementalUpdateEncoder):
+                    temporal_mask = ~(state.not_arrived_[:, 0, :])
+                    embeddings = self.embedder(self._init_embed(input), self.edge_embed(self.edge_features), input['graph'], temporal_mask)
+                    fixed = self._precompute(embeddings)
 
                 if print_query_times:
                     start_time = time.time()
@@ -345,9 +356,9 @@ class DynamicAttentionModel(nn.Module):
 
         masked_input = self._mask_input(input, arrival_mask)
 
-        if self.edge_features == 'adjacency':
+        if self.edge_feature_type == 'adjacency':
             edge_features = masked_input['graph'].long()
-        elif self.edge_features == 'distance':
+        elif self.edge_feature_type == 'distance':
             edge_features = masked_input['distance_matrix'].unsqueeze(-1)
 
         embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
@@ -384,9 +395,9 @@ class DynamicAttentionModel(nn.Module):
             # if an arrival has occurred, we need to update the embeddings and decoder input
             if state.arrival_occured:
                 masked_input = self._mask_input(input, ~state.not_arrived_[:,0,:])
-                if self.edge_features == 'adjacency':
+                if self.edge_feature_type == 'adjacency':
                     edge_features = masked_input['graph'].long()
-                elif self.edge_features == 'distance':
+                elif self.edge_feature_type == 'distance':
                     edge_features = masked_input['distance_matrix'].unsqueeze(-1)
                 embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
                 decoder_input = self._precompute(embeddings, num_steps=1)
