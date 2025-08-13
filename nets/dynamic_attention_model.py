@@ -145,6 +145,10 @@ class DynamicAttentionModel(nn.Module):
 
         if self.use_time_feature and not self.functional_time_encoding:
             step_context_dim += 1
+
+        if self.functional_time_encoding:
+            self.time_encoding = TimeEncoding(embedding_dim)
+            step_context_dim += embedding_dim  # Add time encoding to step context
         
         if self.use_arrival_times:
             if self.functional_time_encoding:
@@ -185,9 +189,6 @@ class DynamicAttentionModel(nn.Module):
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
         self.project_fixed_context = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_step_context = nn.Linear(step_context_dim, embedding_dim, bias=False)
-        if self.functional_time_encoding:
-            self.time_encoding = TimeEncoding(embedding_dim)
-            step_context_dim += embedding_dim  # Add time encoding to step context
         
         assert embedding_dim % n_heads == 0
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
