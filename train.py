@@ -54,10 +54,14 @@ def rollout(model, dataset, opts):
     # Put in greedy evaluation mode!
     set_decode_type(model, "greedy")
     model.eval()
+    if opts.val_batch_size == 1:
+        mode = 'recursive'
+    else:
+        mode='masked'
     def eval_model_bat(bat):
         input = dataset_to_input(bat, opts.problem, opts.device)
         with torch.no_grad():
-            cost, _, info = model(input, mode='recursive')
+            cost, _, info = model(input, mode=mode)
         return cost, info
     
     costs = []
