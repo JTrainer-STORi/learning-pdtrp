@@ -290,9 +290,9 @@ class IncrementalUpdateEncoder(nn.Module):
             self._scatter_back(h_out[b], e_out[b], h_sub[0], e_sub_out[0], affected_idx)
 
         # Refresh cache (detach to avoid backprop through time unless you want it)
-        self._cached_h = h_out.detach()
-        self._cached_e = e_out.detach()
-        self._cached_mask = mask.detach().clone()
-        self._cached_graph = graph.detach().clone()
+        self._cached_h = h_out
+        self._cached_e = e_out
+        self._cached_mask = mask.clone()
+        self._cached_graph = graph.clone()
 
         return h_out
