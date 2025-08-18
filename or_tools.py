@@ -531,10 +531,7 @@ for input in tqdm(dataloader, ascii=True):
 
         route_wo_final_depot_return = route[:-1]  # remove the last depot return
 
-        visit_times, info = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
-
-        print(info['waiting_times'])
-        print(sum([val for val in info['waiting_times'][0].values()]))
+        visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
 
         visit_times = visit_times.squeeze(0)
 
