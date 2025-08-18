@@ -130,7 +130,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
         for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
             node_index = manager.NodeToIndex(node)
             capacity_dimension.SlackVar(node_index).SetValue(0)
-            routing.AddDisjunction([node_index], 10_000_000)
+            routing.AddDisjunction([node_index], 100_000_000)
 
     if problem_type == 'PDCVRPTW' or problem_type == 'PDCVRP':
         # Add Capacity constraints
