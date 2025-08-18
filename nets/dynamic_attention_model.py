@@ -68,6 +68,7 @@ class DynamicAttentionModel(nn.Module):
                  neighbors=20,
                  use_arrival_lstm=False,
                  use_arrival_times=False,
+                 recursively_remove_visited_nodes=False,
                  *args, **kwargs):
         """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
 
@@ -125,6 +126,7 @@ class DynamicAttentionModel(nn.Module):
         self.is_pdcvrptw = problem.NAME == 'pdcvrptw'
         self.use_arrival_lstm = use_arrival_lstm
         self.use_arrival_times = use_arrival_times
+        self.recursively_remove_visited_nodes = recursively_remove_visited_nodes
 
         self.decode_type = None
         self.temp = 1.0
@@ -211,6 +213,8 @@ class DynamicAttentionModel(nn.Module):
 
         assert mode in ['masked', 'recursive'], "Mode must be either 'masked' or 'recursive'"
 
+        self.mode = mode
+
         if self.edge_feature_type == 'adjacency':
             self.edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
         elif self.edge_feature_type == 'distance':
@@ -220,13 +224,13 @@ class DynamicAttentionModel(nn.Module):
 
             log_p, pi, visit_times = self._inner(input, None, pomo_batch_size, print_query_times=print_query_times)
 
-        elif mode == 'masked':
+        elif self.mode == 'masked':
             
             embeddings = self.embedder(self._init_embed(input), self.edge_embed(self.edge_features), input['graph'])
 
             log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
 
-        elif mode == 'recursive':
+        elif self.mode == 'recursive':
             
             pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times)
 
@@ -352,7 +356,11 @@ class DynamicAttentionModel(nn.Module):
 
         state = self.problem.make_state(input)
 
-        arrival_mask = ~state.not_arrived_[:,0,:]
+        if self.recursively_remove_visited_nodes:
+            arrival_mask = torch.logical_and(~state.not_arrived_[:,0,:], ~state.visited_[:,0,:])
+            arrival_mask[0, 0] = True  # Ensure the depot is always included
+        else:
+            arrival_mask = ~state.not_arrived_[:,0,:]
 
         masked_input = self._mask_input(input, arrival_mask)
 
@@ -368,15 +376,23 @@ class DynamicAttentionModel(nn.Module):
         if self.use_arrival_lstm:
             self.lstm_hidden = (torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['loc'].device),torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['loc'].device))
 
+        prev_selected=None
+
         # This is the main loop for the decoder
         while not state.all_finished():
-            mask = state.get_mask()[~state.not_arrived_][None, None, :]
+            if self.recursively_remove_visited_nodes:
+                arrival_mask = torch.logical_and(~state.not_arrived_[:,0,:], ~state.visited_[:,0,:])
+                arrival_mask[0, 0] = True  # Ensure the depot is always included
+                mask = state.get_mask()[arrival_mask.unsqueeze(0)][None, None, :]
+                self.current_indices = torch.arange(0, input['loc'].size(1), device=input['loc'].device)[arrival_mask[0]]
+            else:
+                mask = state.get_mask()[~state.not_arrived_][None, None, :]
 
             if print_query_times:
                 start_time = time.perf_counter()
 
             # get log probabilities of next action
-            log_p, mask = self._get_log_p(decoder_input, state, mask)
+            log_p, mask = self._get_log_p(decoder_input, state, mask, prev_selected=prev_selected)
 
             if print_query_times:
                 end_time = time.perf_counter()
@@ -386,14 +402,33 @@ class DynamicAttentionModel(nn.Module):
             selected = self._select_node(
                 log_p.exp()[:, 0, :], mask[:, 0, :])
             
-            state = state.update(selected)
-
-            # Collect output of step
-            outputs.append(log_p[:, 0, :])
-            sequences.append(selected)
+            if self.recursively_remove_visited_nodes:
+                #we need to correct selected to account for the visited nodes we've removed
+                true_selected = self.current_indices[selected]
+                state = state.update(true_selected)
+                # Collect output of step
+                outputs.append(log_p[:, 0, :])
+                sequences.append(true_selected)
+            else:
+                state = state.update(selected)
+                # Collect output of step
+                outputs.append(log_p[:, 0, :])
+                sequences.append(selected)
 
             # if an arrival has occurred, we need to update the embeddings and decoder input
-            if state.arrival_occured:
+            if self.recursively_remove_visited_nodes and not state.all_finished():
+                arrival_mask = torch.logical_and(~state.not_arrived_[:,0,:], ~state.visited_[:,0,:])
+                arrival_mask[0, 0] = True  # Ensure the depot is always included
+                arrival_mask = arrival_mask.unsqueeze(0)
+                masked_input = self._mask_input(input, arrival_mask[:,0,:])
+                if self.edge_feature_type == 'adjacency':
+                    edge_features = masked_input['graph'].long()
+                elif self.edge_feature_type == 'distance':
+                    edge_features = masked_input['distance_matrix'].unsqueeze(-1)
+                prev_selected = embeddings[0, selected].unsqueeze(0)
+                embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
+                decoder_input = self._precompute(embeddings)
+            elif state.arrival_occured:
                 masked_input = self._mask_input(input, ~state.not_arrived_[:,0,:])
                 if self.edge_feature_type == 'adjacency':
                     edge_features = masked_input['graph'].long()
@@ -401,23 +436,23 @@ class DynamicAttentionModel(nn.Module):
                     edge_features = masked_input['distance_matrix'].unsqueeze(-1)
                 embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
                 decoder_input = self._precompute(embeddings, num_steps=1)
-                if self.use_arrival_lstm:
-                    arrival_sequences = []
-                    # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
-                    arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1))).to(input['loc'].device)
-                    if arrival_indices.numel() > 0:
-                        if self.scale_times:
-                            arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], masked_input['time_horizon'][0])
-                        else:
-                            arrival_times = masked_input['arrival_times'][0, arrival_indices][:, None]
-                        if self.functional_time_encoding:
-                            arrival_times = self.time_encoding(arrival_times)
-                        arrival_features = torch.cat([torch.gather(embeddings[0, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), arrival_times], dim=-1)
+            if self.use_arrival_lstm and state.arrival_occured:
+                arrival_sequences = []
+                # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
+                arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1))).to(input['loc'].device)
+                if arrival_indices.numel() > 0:
+                    if self.scale_times:
+                        arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], masked_input['time_horizon'][0])
                     else:
-                        arrival_features = torch.empty((0,))
-                    arrival_sequences.append(arrival_features)
-                
-                    self.update_lstm_with_arrivals_packed(arrival_sequences)
+                        arrival_times = masked_input['arrival_times'][0, arrival_indices][:, None]
+                    if self.functional_time_encoding:
+                        arrival_times = self.time_encoding(arrival_times)
+                    arrival_features = torch.cat([torch.gather(embeddings[0, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), arrival_times], dim=-1)
+                else:
+                    arrival_features = torch.empty((0,))
+                arrival_sequences.append(arrival_features)
+            
+                self.update_lstm_with_arrivals_packed(arrival_sequences)
 
         all_sequences = torch.stack(sequences, 1)
 
@@ -458,10 +493,10 @@ class DynamicAttentionModel(nn.Module):
         
         return selected
 
-    def _get_log_p(self, fixed, state, mask=None, normalize=True):
+    def _get_log_p(self, fixed, state, mask=None, normalize=True, prev_selected=None):
         # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
         query = fixed.context_node_projected + \
-                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
+                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state, prev_selected=prev_selected))
 
 
         # Compute keys and values for the nodes
@@ -510,16 +545,19 @@ class DynamicAttentionModel(nn.Module):
         )
         return AttentionModelFixed(embeddings, fixed_context, *fixed_attention_node_data)
     
-    def _get_parallel_step_context(self, embeddings, state):
-        current_node = state.get_current_node()
-        batch_size, num_steps = current_node.size()
+    def _get_parallel_step_context(self, embeddings, state, prev_selected=None):
+        if prev_selected is None:
+            current_node = state.get_current_node()
+            batch_size, num_steps = current_node.size()
+            context = torch.gather(
+                embeddings,
+                1,
+                current_node.contiguous().view(batch_size, num_steps, 1)
+                .expand(batch_size, num_steps, embeddings.size(-1))
+            ).view(batch_size, num_steps, embeddings.size(-1))
 
-        context = torch.gather(
-                        embeddings,
-                        1,
-                        current_node.contiguous().view(batch_size, num_steps, 1)
-                        .expand(batch_size, num_steps, embeddings.size(-1))
-                    ).view(batch_size, num_steps, embeddings.size(-1))
+        else:
+            context = prev_selected
 
         if self.use_time_feature:
             if self.functional_time_encoding:

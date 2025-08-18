@@ -181,7 +181,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
         time = 'Time'
         routing.AddDimension(
             true_time_callback_index,
-            sys.maxsize,  # allow waiting time
+            0,  # allow waiting time
             sys.maxsize,  # maximum time per vehicle
             True,  # start cumul to zero
             time)
@@ -193,11 +193,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
                 continue
             index = manager.NodeToIndex(location_idx)
             time_dimension.CumulVar(index).SetRange(arrival_time, sys.maxsize)
-            slack_var = time_dimension.SlackVar(index)
-            routing.AddVariableMinimizedByFinalizer(slack_var) 
 
-    WAITING_PENALTY = 1
-    time_dimension.SetSlackCostCoefficientForAllVehicles(WAITING_PENALTY) # This will ensure that the vehicle only waits when it absolutely has to
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_MOST_CONSTRAINED_ARC)  # pylint: disable=no-member
@@ -220,7 +216,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
             if solution.Value(routing.NextVar(node)) == node:
                 dropped_nodes += f" {manager.IndexToNode(node)}"
         print(dropped_nodes)
-
+        
     return route
 
 parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
@@ -281,6 +277,8 @@ parser.add_argument('--stvar', type=float, default=5,
                     help='variance of service times')
 parser.add_argument('--solution_time_limit', type=int, default=3,
                     help='Time limit for solving each instance in seconds')
+parser.add_argument('--source_file', type=str, default=None,
+                    help='Path to the an or tools file for the problem instances')
 
 args = parser.parse_args()
 
@@ -314,7 +312,10 @@ torch.manual_seed(args.seed)
 
 if problem_type == 'PDTRP':
     problem = PDTRP()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
+    if args.source_file is not None:
+        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
+    else:
+        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRP':
     problem = PDCVRP()
     dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
@@ -422,7 +423,10 @@ for input in tqdm(dataloader, ascii=True):
 
         route_wo_final_depot_return = route[:-1]  # remove the last depot return
 
-        visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+        visit_times, info = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+
+        print(info['waiting_times'])
+        print(sum([val for val in info['waiting_times'][0].values()]))
 
         visit_times = visit_times.squeeze(0)
 

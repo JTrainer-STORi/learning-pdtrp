@@ -60,13 +60,13 @@ class PDTRP(object):
         visit_times = torch.zeros(batch_size, tour_length + 1, device=pi.device)  # Initialize visit times tensor +1 for return to depot
         total_travel_times = torch.zeros(batch_size, device=pi.device)  # Initialize total travel time tensor
         total_service_times = torch.zeros(batch_size, device=pi.device)  # Initialize total service time tensor
-        total_waiting_times = torch.zeros(batch_size, device=pi.device)  # Initialize total waiting time tensor
+        waiting_times = []
 
         for b in range(batch_size):
             time = 0.0
             total_travel_time = 0.0
             total_service_time = 0.0
-            total_waiting_time = 0.0
+            waiting_times_dict = {}
             for i in range(tour_length):
                 if i == 0:
                     visit_times[b, i] = time
@@ -78,8 +78,8 @@ class PDTRP(object):
                     service_time = input['service_times'][b, curr_node]
                     total_service_time += service_time
                     visit_time = max(time + travel_time, input['arrival_times'][b, curr_node] + travel_time)
-                    total_waiting_time += visit_time - (time + travel_time)  # Calculate waiting time if any
-                    visit_times[b, i] = visit_time 
+                    waiting_times_dict[curr_node.item()] = (visit_time - (time + travel_time)).item()  # Calculate waiting time if any
+                    visit_times[b, i] = visit_time
                     time = visit_time + service_time
             # calculate the return time back to the depot
             return_time = input['distance_matrix'][b, pi[b, -1], pi[b, 0]] / input['speed']
@@ -87,9 +87,9 @@ class PDTRP(object):
 
             total_travel_times[b] = total_travel_time
             total_service_times[b] = total_service_time
-            total_waiting_times[b] = total_waiting_time
-        
-        return visit_times, {"total_travel_times": total_travel_times, "total_service_times": total_service_times, 'total_waiting_times': total_waiting_times}
+            waiting_times.append(waiting_times_dict)
+
+        return visit_times, {"total_travel_times": total_travel_times, "total_service_times": total_service_times, 'waiting_times': waiting_times}
 
     @staticmethod
     def make_dataset(*args, **kwargs):

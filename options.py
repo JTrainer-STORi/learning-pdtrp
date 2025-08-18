@@ -122,6 +122,7 @@ def get_options(args=None):
     parser.add_argument('--use_arrival_times', action='store_true',
                         help='Use arrival time as an additional node feature in the encoder')
     parser.add_argument('--use_incremental_encoder', action='store_true', help='Use incremental encoder for the model')
+    parser.add_argument('--recursively_remove_visited_nodes', action='store_true', help='Recursively remove visited nodes from the graph')
 
     # Training
     parser.add_argument('--pomo_batch_size', type=int, default=1,
