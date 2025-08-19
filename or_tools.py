@@ -126,11 +126,11 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
             node_index = manager.NodeToIndex(node)
             routing.AddDisjunction([node_index], 0)
 
-        # Allow to drop regular node with a cost.
-        for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
-            node_index = manager.NodeToIndex(node)
-            capacity_dimension.SlackVar(node_index).SetValue(0)
-            routing.AddDisjunction([node_index], 100_000_000)
+        # # Allow to drop regular node with a cost.
+        # for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
+        #     node_index = manager.NodeToIndex(node)
+        #     capacity_dimension.SlackVar(node_index).SetValue(0)
+        #     routing.AddDisjunction([node_index], 100_000_000)
 
     if problem_type == 'PDCVRPTW' or problem_type == 'PDCVRP':
         # Add Capacity constraints
