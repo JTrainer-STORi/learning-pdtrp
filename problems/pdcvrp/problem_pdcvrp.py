@@ -45,7 +45,7 @@ class PDCVRP(object):
             used_cap += dem[:, i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
             # Cannot use less than 0
             used_cap[used_cap < 0] = 0
-            assert (used_cap <= vehicle_capacity[0].item() + 1e-5).all(), "Used more than capacity"
+            assert (used_cap <= vehicle_capacity[0].item() + 1e-5).all(), "Used more than capacity, {}".format(used_cap)
 
         # Gather distances along the tour
         idx_from = pi[:, :-1]
@@ -112,7 +112,7 @@ class PDCVRP(object):
         return StatePDCVRP.initialize(*args, **kwargs)
     
 class PDCVRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=None, reaction_time=None, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=False):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=None, reaction_time=None, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=None):
         super(PDCVRPDataset, self).__init__()
         self.filename = filename
         self.min_total = min_total

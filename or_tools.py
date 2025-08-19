@@ -126,11 +126,11 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
             node_index = manager.NodeToIndex(node)
             routing.AddDisjunction([node_index], 0)
 
-        # # Allow to drop regular node with a cost.
-        # for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
-        #     node_index = manager.NodeToIndex(node)
-        #     capacity_dimension.SlackVar(node_index).SetValue(0)
-        #     routing.AddDisjunction([node_index], 100_000_000)
+        # Allow to drop regular node with a cost.
+        for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
+            node_index = manager.NodeToIndex(node)
+            capacity_dimension.SlackVar(node_index).SetValue(0)
+            routing.AddDisjunction([node_index], 10_000_000)
 
     if problem_type == 'PDCVRPTW' or problem_type == 'PDCVRP':
         # Add Capacity constraints
@@ -185,24 +185,21 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
 
     solution = routing.SolveWithParameters(search_parameters)
 
-    if solution is None:
-        return None
-    else:
-        route = get_routes(solution, routing, manager)[0]
+    route = get_routes(solution, routing, manager)[0]
 
-        if final_run:
-            """Prints assignment on console."""
-            print(f"Objective: {solution.ObjectiveValue()}")
-            # Display dropped nodes.
-            dropped_nodes = "Dropped nodes:"
-            for node in range(routing.Size()):
-                if routing.IsStart(node) or routing.IsEnd(node):
-                    continue
-                if solution.Value(routing.NextVar(node)) == node:
-                    dropped_nodes += f" {manager.IndexToNode(node)}"
-            print(dropped_nodes)
+    if final_run:
+        """Prints assignment on console."""
+        print(f"Objective: {solution.ObjectiveValue()}")
+        # Display dropped nodes.
+        dropped_nodes = "Dropped nodes:"
+        for node in range(routing.Size()):
+            if routing.IsStart(node) or routing.IsEnd(node):
+                continue
+            if solution.Value(routing.NextVar(node)) == node:
+                dropped_nodes += f" {manager.IndexToNode(node)}"
+        print(dropped_nodes)
 
-        return route
+    return route
 
 parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
 
@@ -424,75 +421,69 @@ for input in tqdm(dataloader, ascii=True):
             else:
                 route = resolve_route(input_to_or_tools, partial_route, problem_type, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
 
-            if route is None:
-                break
+            route_wo_final_depot_return  = route[:-1]  # remove the last depot return
+
+            visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+
+            visit_times = visit_times.squeeze(0)
+
+            vt_wo_final_depot_return = visit_times[:-1]  # remove the last depot return
+
+            end_of_service_times = vt_wo_final_depot_return + service_times[mask][torch.tensor(route_wo_final_depot_return)]
+
+            min_next_arrival = torch.min(arrival_times[total_customers:])
+            # if we end up in the case where the minimum next arrival time is greater than all times
+            if (min_next_arrival > end_of_service_times).all():
+                partial_route = route_wo_final_depot_return[1:]
+                time_at_end_of_partial_route = min_next_arrival.item()
+            # find the index of the first element in times that is greater than a non-zero element in arrival_times
             else:
-                route_wo_final_depot_return  = route[:-1]  # remove the last depot return
+                stopping_idx = torch.where(end_of_service_times > min_next_arrival)[0][0].item()
+                partial_route = route[1:stopping_idx+1]  # include the depot at the start of the route
+                time_at_end_of_partial_route = end_of_service_times[stopping_idx].item()
+                
+            n_arrivals = torch.sum(arrival_times[total_customers:] <= time_at_end_of_partial_route).item()
 
-                visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+            # Now we need to find how many arrivals we need to account for in the route
 
-                visit_times = visit_times.squeeze(0)
+            mask[:total_customers+n_arrivals] = True
 
-                vt_wo_final_depot_return = visit_times[:-1]  # remove the last depot return
+            total_customers += n_arrivals
 
-                end_of_service_times = vt_wo_final_depot_return + service_times[mask][torch.tensor(route_wo_final_depot_return)]
+            # if the sum of new arrivals is greater than the remaining vehicle capacity and there are no more dummy depots to visit, we need to add a new dummy depot
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                route_demands = [input_to_or_tools['demands'][i] for i in partial_route]
+                # current_capacity is the sum of the demands since the last depot visit, indicated by a negative demand
+                depot_visits = [i for i, x in enumerate(route_demands) if x < 0]
+                if len(depot_visits) > 0:
+                    last_depot_visit = np.max(depot_visits)
+                    current_capacity = input_to_or_tools['vehicle_capacity'] - sum(route_demands[last_depot_visit+1:])
+                    unvisited_customers = [i for i in range(1, len(all_nodes)) if i not in partial_route]
+                    remaining_demand = sum([(demands*1e3).to(torch.int32).tolist()[i] for i in unvisited_customers])
+                    if current_capacity < remaining_demand:
+                        # in this case we need to add a new depot
+                        n_extra_depots += 1
+                        all_nodes = torch.cat([all_nodes[0].repeat(1,1), all_nodes], dim=0)
+                        demands = torch.cat([-torch.tensor(vehicle_capacity).repeat(1), demands], dim=0)
+                        arrival_times = torch.cat([torch.tensor(0).repeat(1), arrival_times], dim=0)
+                        service_times = torch.cat([torch.tensor(0).repeat(1), service_times], dim=0)
+                        mask = torch.cat([torch.tensor(True).repeat(1), mask], dim=0)
+                        # need to modify distance matrix to account for the new depot
+                        temp_distance_matrix = np.zeros((len(all_nodes), len(all_nodes)))
+                        for i in range(n_extra_depots):
+                            temp_distance_matrix[i, 1:] = np.asarray(distance_matrix[0, :])
+                            temp_distance_matrix[1:, i] = np.asarray(distance_matrix[:, 0])
+                        temp_distance_matrix[1:, 1:] = np.asarray(distance_matrix)
+                        distance_matrix = torch.tensor(temp_distance_matrix)
+                        if problem_type == 'PDCVRPTW':
+                            window_starts = torch.cat([window_starts[0].repeat(1), window_starts], dim=0)
+                            window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(1), window_ends[1:]], dim=0)
 
-                min_next_arrival = torch.min(arrival_times[total_customers:])
-                # if we end up in the case where the minimum next arrival time is greater than all times
-                if (min_next_arrival > end_of_service_times).all():
-                    partial_route = route_wo_final_depot_return[1:]
-                    time_at_end_of_partial_route = min_next_arrival.item()
-                # find the index of the first element in times that is greater than a non-zero element in arrival_times
-                else:
-                    stopping_idx = torch.where(end_of_service_times > min_next_arrival)[0][0].item()
-                    partial_route = route[1:stopping_idx+1]  # include the depot at the start of the route
-                    time_at_end_of_partial_route = end_of_service_times[stopping_idx].item()
-                    
-                n_arrivals = torch.sum(arrival_times[total_customers:] <= time_at_end_of_partial_route).item()
+                            time_windows = torch.stack([window_starts, window_ends], dim=1)
+                        # add 1 to every node index in the partial route to account for the new depot being added at index 0
+                        partial_route = [x + 1 for x in partial_route]
 
-                # Now we need to find how many arrivals we need to account for in the route
-
-                mask[:total_customers+n_arrivals] = True
-
-                total_customers += n_arrivals
-
-                # if the sum of new arrivals is greater than the remaining vehicle capacity and there are no more dummy depots to visit, we need to add a new dummy depot
-                if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-                    route_demands = [input_to_or_tools['demands'][i] for i in partial_route]
-                    # current_capacity is the sum of the demands since the last depot visit, indicated by a negative demand
-                    depot_visits = [i for i, x in enumerate(route_demands) if x < 0]
-                    if len(depot_visits) > 0:
-                        last_depot_visit = np.max(depot_visits)
-                        current_capacity = input_to_or_tools['vehicle_capacity'] - sum(route_demands[last_depot_visit+1:])
-                        unvisited_customers = [i for i in range(1, len(all_nodes)) if i not in partial_route]
-                        remaining_demand = sum([(demands*1e3).to(torch.int32).tolist()[i] for i in unvisited_customers])
-                        if current_capacity < remaining_demand:
-                            # in this case we need to add a new depot
-                            n_extra_depots += 1
-                            all_nodes = torch.cat([all_nodes[0].repeat(1,1), all_nodes], dim=0)
-                            demands = torch.cat([-torch.tensor(vehicle_capacity).repeat(1), demands], dim=0)
-                            arrival_times = torch.cat([torch.tensor(0).repeat(1), arrival_times], dim=0)
-                            service_times = torch.cat([torch.tensor(0).repeat(1), service_times], dim=0)
-                            mask = torch.cat([torch.tensor(True).repeat(1), mask], dim=0)
-                            # need to modify distance matrix to account for the new depot
-                            temp_distance_matrix = np.zeros((len(all_nodes), len(all_nodes)))
-                            for i in range(n_extra_depots):
-                                temp_distance_matrix[i, 1:] = np.asarray(distance_matrix[0, :])
-                                temp_distance_matrix[1:, i] = np.asarray(distance_matrix[:, 0])
-                            temp_distance_matrix[1:, 1:] = np.asarray(distance_matrix)
-                            distance_matrix = torch.tensor(temp_distance_matrix)
-                            if problem_type == 'PDCVRPTW':
-                                window_starts = torch.cat([window_starts[0].repeat(1), window_starts], dim=0)
-                                window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(1), window_ends[1:]], dim=0)
-
-                                time_windows = torch.stack([window_starts, window_ends], dim=1)
-                            # add 1 to every node index in the partial route to account for the new depot being added at index 0
-                            partial_route = [x + 1 for x in partial_route]
-
-                done = mask.all()
-
-        if not done:
-            continue
+            done = mask.all()
 
         input_to_or_tools = {}
         input_to_get_times = {}
@@ -520,36 +511,33 @@ for input in tqdm(dataloader, ascii=True):
         else:
             route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
 
-        if route is None:
-            continue
+        route_wo_final_depot_return = route[:-1]  # remove the last depot return
+
+        visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+
+        visit_times = visit_times.squeeze(0)
+
+        # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
+
+        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+            route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
+
+        # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
+        sorted_route = sorted(route)
+        stripped_sorted_route = [x for x in sorted_route if x != 0]
+
+        if stripped_sorted_route == list(range(1, n_original_nodes)):
+            pass
         else:
-            route_wo_final_depot_return = route[:-1]  # remove the last depot return
+            continue 
+        
+        batch_routes += [route]
 
-            visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+        batch_times += [visit_times.tolist()]
 
-            visit_times = visit_times.squeeze(0)
+        finish_time = time.perf_counter()
+        run_times.append(finish_time - start_time)
 
-            # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
-
-            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-                route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
-
-            # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
-            sorted_route = sorted(route)
-            stripped_sorted_route = [x for x in sorted_route if x != 0]
-
-            assert stripped_sorted_route == list(range(1, n_original_nodes)), f"Stripped sorted route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
-
-            batch_routes += [route]
-
-            batch_times += [visit_times.tolist()]
-
-            finish_time = time.perf_counter()
-            run_times.append(finish_time - start_time)
-
-    if route is None:
-        continue
-    else:
         max_len = max(len(route) for route in batch_routes)
         padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
         padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
