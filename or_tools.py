@@ -289,7 +289,7 @@ print(f"solution time limit: {args.solution_time_limit} seconds")
 
 problem_type = args.problem
 NUM_SAMPLES = args.num_samples
-n_samples_plus_extras = int(args.num_samples + np.ceil(args.num_samples * 0.1)) # Add 10% more samples so that if we get a failed run, we can replace it with another instance
+n_samples_plus_extras = int(args.num_samples + np.ceil(args.num_samples * 0.5)) # Add 50% more samples so that if we get a failed run, we can replace it with another instance
 BATCH_SIZE = args.batch_size
 filename = args.filename
 SPEED = args.speed / 60.0
