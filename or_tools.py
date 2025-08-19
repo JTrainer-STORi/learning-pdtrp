@@ -185,40 +185,24 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
 
     solution = routing.SolveWithParameters(search_parameters)
 
-    route = get_routes(solution, routing, manager)[0]
+    if solution is None:
+        return None
+    else:
+        route = get_routes(solution, routing, manager)[0]
 
-    # if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-    #     times = []
-    #     time_dimension = routing.GetDimensionOrDie("Time")
-    #     for vehicle_id in range(data["num_vehicles"]):
-    #         if not routing.IsVehicleUsed(solution, vehicle_id):
-    #             continue
-    #         index = routing.Start(vehicle_id)
-    #         while not routing.IsEnd(index):
-    #             time_var = time_dimension.CumulVar(index)
-    #             times.append(solution.Min(time_var))
-    #             index = solution.Value(routing.NextVar(index))
-    #         time_var = time_dimension.CumulVar(index)
-    #         times.append(solution.Min(time_var))
-    # else:
-    #     if visit_times:
-    #         times = get_times(solution, routing, manager, data['service_times'])[0]
-    #     else:
-    #         times = get_times(solution, routing, manager)[0]
+        if final_run:
+            """Prints assignment on console."""
+            print(f"Objective: {solution.ObjectiveValue()}")
+            # Display dropped nodes.
+            dropped_nodes = "Dropped nodes:"
+            for node in range(routing.Size()):
+                if routing.IsStart(node) or routing.IsEnd(node):
+                    continue
+                if solution.Value(routing.NextVar(node)) == node:
+                    dropped_nodes += f" {manager.IndexToNode(node)}"
+            print(dropped_nodes)
 
-    if final_run:
-        """Prints assignment on console."""
-        print(f"Objective: {solution.ObjectiveValue()}")
-        # Display dropped nodes.
-        dropped_nodes = "Dropped nodes:"
-        for node in range(routing.Size()):
-            if routing.IsStart(node) or routing.IsEnd(node):
-                continue
-            if solution.Value(routing.NextVar(node)) == node:
-                dropped_nodes += f" {manager.IndexToNode(node)}"
-        print(dropped_nodes)
-
-    return route
+        return route
 
 parser = argparse.ArgumentParser(description='Solve a problem using OR-Tools')
 
@@ -305,6 +289,7 @@ print(f"solution time limit: {args.solution_time_limit} seconds")
 
 problem_type = args.problem
 NUM_SAMPLES = args.num_samples
+n_samples_plus_extras = int(args.num_samples + np.ceil(args.num_samples * 0.1)) # Add 10% more samples so that if we get a failed run, we can replace it with another instance
 BATCH_SIZE = args.batch_size
 filename = args.filename
 SPEED = args.speed / 60.0
@@ -315,16 +300,16 @@ torch.manual_seed(args.seed)
 
 if problem_type == 'PDTRP':
     problem = PDTRP()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRP':
     problem = PDCVRP()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDTRPTW':
     problem = PDTRPTW()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDCVRPTW':
     problem = PDCVRPTW()
-    dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -529,36 +514,45 @@ for input in tqdm(dataloader, ascii=True):
         else:
             route = resolve_route(input_to_or_tools, partial_route, problem_type, final_run=True, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
 
-        route_wo_final_depot_return = route[:-1]  # remove the last depot return
+        if route is None:
+            continue
+        else:
+            route_wo_final_depot_return = route[:-1]  # remove the last depot return
 
-        visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+            visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
 
-        visit_times = visit_times.squeeze(0)
+            visit_times = visit_times.squeeze(0)
 
-        # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
+            # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
 
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
 
-        # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
-        sorted_route = sorted(route)
-        stripped_sorted_route = [x for x in sorted_route if x != 0]
+            # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
+            sorted_route = sorted(route)
+            stripped_sorted_route = [x for x in sorted_route if x != 0]
 
-        assert stripped_sorted_route == list(range(1, n_original_nodes)), f"Stripped sorted route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
+            assert stripped_sorted_route == list(range(1, n_original_nodes)), f"Stripped sorted route {stripped_sorted_route} does not match expected range from 1 to {n_original_nodes}" 
 
-        batch_routes += [route]
+            batch_routes += [route]
 
-        batch_times += [visit_times.tolist()]
+            batch_times += [visit_times.tolist()]
 
-        finish_time = time.perf_counter()
-        run_times.append(finish_time - start_time)
+            finish_time = time.perf_counter()
+            run_times.append(finish_time - start_time)
 
-    max_len = max(len(route) for route in batch_routes)
-    padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-    padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
+    if route is None:
+        continue
+    else:
+        max_len = max(len(route) for route in batch_routes)
+        padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
+        padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
 
-    tours_list += padded_batch_routes
-    visit_times_list += padded_batch_times
+        tours_list += padded_batch_routes
+        visit_times_list += padded_batch_times
+
+        if len(tours_list) == NUM_SAMPLES:
+            break
 
 # for each run, we need to save the information to file so that it can be used to validate the model
 

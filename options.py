@@ -42,8 +42,6 @@ def get_options(args=None):
     parser.add_argument('--accumulation_steps', type=int, default=1, 
                         help='Gradient accumulation step during training '
                              '(effective batch_size = batch_size * accumulation_steps)')
-    parser.add_argument('--train_dataset', type=str, default=None, 
-                        help='Dataset file to use for training (SL only)')
     parser.add_argument('--val_datasets', type=str, nargs='+', default=None, 
                         help='Dataset files to use for validation')
     parser.add_argument('--val_batch_size', type=int, default=128,
@@ -53,8 +51,8 @@ def get_options(args=None):
     parser.add_argument('--rollout_batch_size', type=int, default=128,)
     parser.add_argument('--rollout_size', type=int, default=10000, 
                         help='Number of instances used for updating rollout baseline')
-    parser.add_argument('--route_name', type=str, default=None,
-                        help='Name of the route from which to get stop and distance info')
+    # parser.add_argument('--route_name', type=str, default=None,
+    #                     help='Name of the route from which to get stop and distance info')
     parser.add_argument('--time_horizon', type=int, default=8,
                         help='Time horizon for dynamic node arrivals in hours, default is 8 hours (480 minutes)')
     parser.add_argument('--stmean', type=float, default=3,
