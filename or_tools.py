@@ -130,7 +130,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
         for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
             node_index = manager.NodeToIndex(node)
             capacity_dimension.SlackVar(node_index).SetValue(0)
-            routing.AddDisjunction([node_index], 10_000_000)
+            routing.AddDisjunction([node_index], 100_000_000)
 
     if problem_type == 'PDCVRPTW' or problem_type == 'PDCVRP':
         # Add Capacity constraints
@@ -525,12 +525,38 @@ for input in tqdm(dataloader, ascii=True):
         # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
         sorted_route = sorted(route)
         stripped_sorted_route = [x for x in sorted_route if x != 0]
+        route_contains_all_nodes = (stripped_sorted_route == list(range(1, n_original_nodes)))
 
-        if stripped_sorted_route == list(range(1, n_original_nodes)):
+        print(stripped_sorted_route)
+
+        # Visiting depot resets capacity so we add demand = -capacity (we make sure it does not become negative)
+        demand_with_depot = torch.cat(
+            (
+                torch.full_like(input['demand'][j][:1], -vehicle_capacity),
+                input['demand'][j][1:]
+            )
+        )
+
+        dem = demand_with_depot[route]
+
+        route_exceeds_capacity = False
+
+        used_cap = torch.zeros_like(input['demand'][j][0])
+        for i in range(len(route)):
+            used_cap += dem[i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
+            # Cannot use less than 0
+            used_cap[used_cap < 0] = 0
+            if not (used_cap <= vehicle_capacity + 1e-5).all():
+                route_exceeds_capacity = True
+                break
+        
+
+        if route_contains_all_nodes and not route_exceeds_capacity:
             pass
         else:
+            print('solver failed on this batch')
             continue 
-        
+
         batch_routes += [route]
 
         batch_times += [visit_times.tolist()]
@@ -545,8 +571,8 @@ for input in tqdm(dataloader, ascii=True):
         tours_list += padded_batch_routes
         visit_times_list += padded_batch_times
 
-        if len(tours_list) == NUM_SAMPLES:
-            break
+    if len(tours_list) == NUM_SAMPLES:
+        break
 
 # for each run, we need to save the information to file so that it can be used to validate the model
 

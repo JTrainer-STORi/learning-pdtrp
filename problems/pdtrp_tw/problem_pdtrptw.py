@@ -15,6 +15,7 @@ class PDTRPTW(object):
 
     NAME = "pdtrptw"
 
+    @staticmethod
     def get_costs(input, pi, visit_times, gamma, theta):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 

@@ -15,7 +15,7 @@ class PDCVRPTW(object):
 
     NAME = "pdcvrptw"
 
-
+    @staticmethod
     def get_costs(input, pi, visit_times, gamma, theta):
         """Returns cost based on the tour and missed customers as described in Larsen, Madsen and Solomon (2004)"""
 
@@ -51,7 +51,7 @@ class PDCVRPTW(object):
             used_cap += dem[:, i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
             # Cannot use less than 0
             used_cap[used_cap < 0] = 0
-            assert (used_cap <= vehicle_capacity[0].item() + 1e-5).all(), "Used more than capacity"
+            assert (used_cap <= vehicle_capacity[0].item() + 1e-5).all(), "Used more than capacity {}".format(used_cap)
 
         # Gather distances along the tour
         idx_from = pi[:, :-1]
