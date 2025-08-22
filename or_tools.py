@@ -342,12 +342,10 @@ for input in tqdm(dataloader, ascii=True):
             window_starts = input['window_starts'][j]
             window_ends = input['window_ends'][j]
             time_windows = torch.stack([window_starts, window_ends], dim=1)
-            window_starts_list += [np.asarray(input['window_starts'][j])]
-            window_ends_list += [np.asarray(input['window_ends'][j])]
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             demands = input['demand'][j]
             vehicle_capacity = 1.0
-            demands_list += [np.asarray(demands)]
+            raw_demands = np.asarray(demands)
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
             #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
             n_extra_depots = args.min_trips_required_ub # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
@@ -370,12 +368,6 @@ for input in tqdm(dataloader, ascii=True):
                 window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
 
                 time_windows = torch.stack([window_starts, window_ends], dim=1)
-
-        all_nodes_list += [np.asarray(input['all_nodes'][j])]
-        arrival_times_list += [np.asarray(input['arrival_times'][j])]
-        service_times_list += [np.asarray(input['service_times'][j])]
-        if args.use_ortec is not None:
-            distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
 
         mask = arrival_times == 0
 
@@ -547,15 +539,25 @@ for input in tqdm(dataloader, ascii=True):
             # Cannot use less than 0
             used_cap[used_cap < 0] = 0
             if not (used_cap <= vehicle_capacity + 1e-5).all():
-                route_exceeds_capacity = True
-                break
-        
+                route_exceeds_capacity = True        
 
         if route_contains_all_nodes and not route_exceeds_capacity:
             pass
         else:
             print('solver failed on this batch')
             continue 
+
+
+        all_nodes_list += [np.asarray(input['all_nodes'][j])]
+        arrival_times_list += [np.asarray(input['arrival_times'][j])]
+        service_times_list += [np.asarray(input['service_times'][j])]
+        if args.use_ortec is not None:
+            distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
+        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+            demands_list += [raw_demands]
+        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+            window_starts_list += [np.asarray(input['window_starts'][j])]
+            window_ends_list += [np.asarray(input['window_ends'][j])]
 
         batch_routes += [route]
 
