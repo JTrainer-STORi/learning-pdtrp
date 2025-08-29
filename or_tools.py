@@ -519,27 +519,26 @@ for input in tqdm(dataloader, ascii=True):
         stripped_sorted_route = [x for x in sorted_route if x != 0]
         route_contains_all_nodes = (stripped_sorted_route == list(range(1, n_original_nodes)))
 
-        print(stripped_sorted_route)
-
-        # Visiting depot resets capacity so we add demand = -capacity (we make sure it does not become negative)
-        demand_with_depot = torch.cat(
-            (
-                torch.full_like(input['demand'][j][:1], -vehicle_capacity),
-                input['demand'][j][1:]
-            )
-        )
-
-        dem = demand_with_depot[route]
 
         route_exceeds_capacity = False
+        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+            # Visiting depot resets capacity so we add demand = -capacity (we make sure it does not become negative)
+            demand_with_depot = torch.cat(
+                (
+                    torch.full_like(input['demand'][j][:1], -vehicle_capacity),
+                    input['demand'][j][1:]
+                )
+            )
 
-        used_cap = torch.zeros_like(input['demand'][j][0])
-        for i in range(len(route)):
-            used_cap += dem[i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
-            # Cannot use less than 0
-            used_cap[used_cap < 0] = 0
-            if not (used_cap <= vehicle_capacity + 1e-5).all():
-                route_exceeds_capacity = True        
+            dem = demand_with_depot[route]
+
+            used_cap = torch.zeros_like(input['demand'][j][0])
+            for i in range(len(route)):
+                used_cap += dem[i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
+                # Cannot use less than 0
+                used_cap[used_cap < 0] = 0
+                if not (used_cap <= vehicle_capacity + 1e-5).all():
+                    route_exceeds_capacity = True        
 
         if route_contains_all_nodes and not route_exceeds_capacity:
             pass
