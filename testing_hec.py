@@ -13,6 +13,7 @@ import argparse
 import numpy as np
 import time
 import os
+import glob
 
 parser = argparse.ArgumentParser(description="Test a model on a dataset")
 
@@ -32,10 +33,8 @@ else:
     device_type = "CPU"
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
-model, model_args = load_model(args.model_path)
-model.to(device)
-set_decode_type(model, "greedy")
-model.eval()
+# when passing the model path, it should contain everything except seed n
+model_paths = glob.glob(args.model_path + "*")
 
 # SET SEEDS FOR REPRODUCIBILITY
 np.random.seed(args.seed)
@@ -50,28 +49,36 @@ elif args.problem == "pdcvrp":
 elif args.problem == "pdcvrptw":
     problem = PDCVRPTW()
 
-ablation_datasets = ['new_data/pdtrp/ablation_testset_20total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.2dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_50total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_100total_0.8dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.5dod.txt', 'new_data/pdtrp/ablation_testset_200total_0.8dod.txt']
+ablation_datasets = glob.glob('new_data/' + args.problem +'/ablation_testset_*')
 
 model_name = args.model_path.split("/")[-1].split("_")[0]  # Extract model name from path
 
 for dataset_path in ablation_datasets:
+
     dataset_name = ''.join('.'.join(dataset_path.split("/")[-1].split(".")[:-1]).split("_")[1:])
     dataset = problem.make_dataset(filename=dataset_path, 
-                                batch_size=args.batch_size)
-
+                                    batch_size=args.batch_size)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+
 
     run_times = []
     costs = []
+    
+    for model_path in model_paths:
 
-    for bat in tqdm(dataloader):
-        input = dataset_to_input(bat, problem.NAME, device)
-        start_time = time.perf_counter()
-        cost, log_likelihood, info = model(input, mode=args.model_mode)
-        cost = cost.cpu().numpy()
-        costs.append(cost[0])
-        end_time = time.perf_counter()
-        run_times.append(end_time - start_time)
+        model, model_args = load_model(model_path)
+        model.to(device)
+        set_decode_type(model, "greedy")
+        model.eval()
+
+        for bat in tqdm(dataloader):
+            input = dataset_to_input(bat, problem.NAME, device)
+            start_time = time.perf_counter()
+            cost, log_likelihood, info = model(input, mode=args.model_mode)
+            cost = cost.cpu().numpy()
+            costs.append(cost[0])
+            end_time = time.perf_counter()
+            run_times.append(end_time - start_time)
 
     os.makedirs("runtime_stats/", exist_ok=True)
 
