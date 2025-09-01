@@ -132,10 +132,13 @@ def load_model(path, epoch=None, extra_logging=False, route_id=None):
         shrink_size=args['shrink_size'],
         edge_features=args['edge_features'],
         use_time_feature=args['use_time_feature'],
-        project_time_feature=args['project_time_feature'],
+        functional_time_encoding=args['functional_time_encoding'],
         knn_strat=args['knn_strat'],
         neighbors=args['neighbors'],
         scale_times=args['scale_times'],
+        use_arrival_lstm=args['use_arrival_lstm'],
+        use_arrival_times=args['use_arrival_times'],
+        recursively_remove_visited_nodes=args['recursively_remove_visited_nodes'],
         extra_logging=extra_logging,
     )    
     
