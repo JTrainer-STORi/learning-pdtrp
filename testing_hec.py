@@ -22,7 +22,7 @@ parser.add_argument("--use_gpu", action="store_true", help="Use GPU for testing"
 parser.add_argument("--model_path", type=str, required=True, help="Path to the model to test")
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 parser.add_argument('--batch_size', type=int, default=1, help="Batch size for testing")
-parser.add_argument('--model_mode', type=str, default='recursive', choices=['recursive', 'masked'], help="Encoding mode for the model")
+parser.add_argument('--model_mode', type=str, default='recursive', choices=['recursive', 'masked', 'recursive_plus_removal'], help="Encoding mode for the model")
 
 args = parser.parse_args()
 

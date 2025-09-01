@@ -208,12 +208,15 @@ class DynamicAttentionModel(nn.Module):
                 nodes: Coordinates of the nodes: static nodes first then dynamic nodes (batch_size, num_nodes, 2) dtype: torch.float32
                 graph: Graph as a Boolean adjacency matrix (batch_size, num_nodes, num_nodes) dtype: torch.bool
                 arrival_times: Arrival times of the nodes (batch_size, n_arrivals) dtype: torch.int64
-                mode: 'masked' for embedding final graph and masking nodes which haven't arrived, 'recursive' for embedding graph as nodes arrive
+                mode: 'masked' for embedding final graph and masking nodes which haven't arrived, 'recursive' for embedding graph as nodes arrive, 'recursive_plus_removal' for embedding graph as nodes arrive and removing visited nodes
         """
 
-        assert mode in ['masked', 'recursive'], "Mode must be either 'masked' or 'recursive'"
+        assert mode in ['masked', 'recursive', 'recursive_plus_removal'], "Mode must be either 'masked' or 'recursive' or 'recursive_plus_removal'"
 
         self.mode = mode
+
+        if self.mode == 'recursive_plus_removal':
+            self.recursively_remove_visited_nodes = True
 
         if self.edge_feature_type == 'adjacency':
             self.edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
@@ -230,8 +233,8 @@ class DynamicAttentionModel(nn.Module):
 
             log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
 
-        elif self.mode == 'recursive':
-            
+        elif self.mode == 'recursive' or self.mode == 'recursive_plus_removal':
+
             pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times)
 
         visit_times = torch.tensor(visit_times, dtype=torch.float32, device=input['loc'].device)
