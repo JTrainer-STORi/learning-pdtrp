@@ -51,7 +51,7 @@ elif args.problem == "pdcvrptw":
 
 ablation_datasets = glob.glob('new_data/' + args.problem +'/ablation_testset_*')
 
-model_name = args.model_path.split("/")[-1].split("_")[0]  # Extract model name from path
+model_name = args.model_path.split("/")[-2] + args.model_path.split("/")[-1].split("_")[0]  # Extract model name from path
 
 for dataset_path in ablation_datasets:
 
