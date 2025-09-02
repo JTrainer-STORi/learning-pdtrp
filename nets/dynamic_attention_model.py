@@ -139,11 +139,15 @@ class DynamicAttentionModel(nn.Module):
             node_dim = 3 # x, y, demand
             step_context_dim += 1 # for the capacity
         if self.is_pdtrptw:
-            node_dim = 4 # x,y, window_start, window_end
+            if self.functional_time_encoding:
+                node_dim = 2 + embedding_dim * 2
+            else:
+                node_dim = 4 # x,y, window_start, window_end
         if self.is_pdcvrptw:
             if self.functional_time_encoding:
-                node_dim = 4 + embedding_dim * 2
-            node_dim = 5 # x,y, window_start, window_end, demand
+                node_dim = 3 + embedding_dim * 2 # x,y, window_start (fte), window_end (fte), demand
+            else:
+                node_dim = 5 # x,y, window_start, window_end, demand
             step_context_dim += 1 # for the capacity
 
         if self.use_time_feature and not self.functional_time_encoding:
