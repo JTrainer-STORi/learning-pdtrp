@@ -49,7 +49,7 @@ elif args.problem == "pdcvrp":
 elif args.problem == "pdcvrptw":
     problem = PDCVRPTW()
 
-ablation_datasets = glob.glob('new_data/' + args.problem +'/ablation_testset_*')
+ablation_datasets = glob.glob('new_data/' + args.problem +'/*_ablation_ortools.txt')
 
 model_name = args.model_path.split("/")[-2] + "".join(args.model_path.split("/")[-1].split("_")[0].split('-')[1:]) + args.model_mode # Extract model name from path
 
