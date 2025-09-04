@@ -82,14 +82,15 @@ for dataset_path in ablation_datasets:
         set_decode_type(model, "greedy")
         model.eval()
 
-        for bat in tqdm(dataloader):
-            input = dataset_to_input(bat, problem.NAME, device)
-            start_time = time.perf_counter()
-            cost, log_likelihood, info = model(input, mode=args.model_mode)
-            cost = cost.cpu().numpy()
-            costs.append(cost[0])
-            end_time = time.perf_counter()
-            run_times.append(end_time - start_time)
+        with torch.no_grad():
+            for bat in tqdm(dataloader):
+                input = dataset_to_input(bat, problem.NAME, device)
+                start_time = time.perf_counter()
+                cost, log_likelihood, info = model(input, mode=args.model_mode)
+                cost = cost.cpu().numpy()
+                costs.append(cost[0])
+                end_time = time.perf_counter()
+                run_times.append(end_time - start_time)
 
     os.makedirs("runtime_stats/" + directory_name, exist_ok=True)
 
