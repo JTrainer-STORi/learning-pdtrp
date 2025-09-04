@@ -26,6 +26,7 @@ parser.add_argument('--batch_size', type=int, default=1, help="Batch size for te
 parser.add_argument('--model_mode', type=str, default='recursive', choices=['recursive', 'masked', 'recursive_plus_removal'], help="Encoding mode for the model")
 parser.add_argument('--speed', type=float, default=4.0, help="speed to run model at")
 parser.add_argument('--time_horizon', type=int, default=8, help="Time horizon for the model")
+parser.add_argument('--specific_file_root', type=str, default=None, help="Path to a specific file to test")
 
 args = parser.parse_args()
 
@@ -52,8 +53,10 @@ elif args.problem == "pdcvrp":
 elif args.problem == "pdcvrptw":
     problem = PDCVRPTW()
 
-ablation_datasets = glob.glob('new_data/' + args.problem +'/*_ablation_ortools.txt')
-
+if args.specific_file_root is not None:
+    ablation_datasets = glob.glob('new_data/' + args.problem + '/' + args.specific_file_root)
+else:
+    ablation_datasets = glob.glob('new_data/' + args.problem +'/*_ablation_ortools.txt')
 
 directory_name = args.problem + '/' + args.model_name + "/" + args.model_mode
 
