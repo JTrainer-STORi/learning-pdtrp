@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser(description="Test a model on a dataset")
 parser.add_argument("--problem", type=str, default="pdtrp", help="Problem to test on")
 parser.add_argument("--use_gpu", action="store_true", help="Use GPU for testing")
 parser.add_argument("--model_path", type=str, required=True, help="Path to the model to test")
+parser.add_argument("--model_name", type=str, default="", help="Name of the model to test")
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 parser.add_argument('--batch_size', type=int, default=1, help="Batch size for testing")
 parser.add_argument('--model_mode', type=str, default='recursive', choices=['recursive', 'masked', 'recursive_plus_removal'], help="Encoding mode for the model")
@@ -53,11 +54,13 @@ elif args.problem == "pdcvrptw":
 
 ablation_datasets = glob.glob('new_data/' + args.problem +'/*_ablation_ortools.txt')
 
-model_name = args.model_path.split("/")[-2] + "".join(args.model_path.split("/")[-1].split("_")[0].split('-')[1:]) + args.model_mode # Extract model name from path
+
+directory_name = args.problem + '/' + args.model_name
 
 for dataset_path in ablation_datasets:
 
     dataset_name = ''.join('.'.join(dataset_path.split("/")[-1].split(".")[:-1]).split("_")[:-2])
+
     dataset = problem.make_dataset(filename=dataset_path, 
                                    batch_size=args.batch_size,
                                    speed=args.speed,
@@ -85,9 +88,9 @@ for dataset_path in ablation_datasets:
             end_time = time.perf_counter()
             run_times.append(end_time - start_time)
 
-    os.makedirs("runtime_stats/", exist_ok=True)
+    os.makedirs("runtime_stats/" + directory_name, exist_ok=True)
 
-    with open("runtime_stats/" + model_name + dataset_name + device_type + "_run_times.txt", "w") as f:
+    with open("runtime_stats/" + directory_name + "/" + dataset_name + "_" + device_type + "_run_times.txt", "w") as f:
         f.write("Run times for each sample:\n")
         f.write(f"Problem: {args.problem}\n")
         f.write(f"Model Path: {args.model_path}\n")
@@ -99,9 +102,9 @@ for dataset_path in ablation_datasets:
         f.write(f"Average run time: {np.mean(run_times):.4f} seconds\n")
         f.write(f"Std dev of run times: {np.std(run_times):.4f} seconds\n")
 
-    os.makedirs("test_results/", exist_ok=True)
+    os.makedirs("test_results/" + directory_name, exist_ok=True)
 
-    with open("test_results/" + model_name + dataset_name + device_type + "_results.txt", "w") as f:
+    with open("test_results/" + directory_name + "/" + dataset_name + "_" + device_type + "_results.txt", "w") as f:
         f.write("Test results:\n")
         f.write(f"Problem: {args.problem}\n")
         f.write(f"Model Path: {args.model_path}\n")
