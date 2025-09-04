@@ -565,12 +565,15 @@ for input in tqdm(dataloader, ascii=True):
         finish_time = time.perf_counter()
         run_times.append(finish_time - start_time)
 
-    max_len = max(len(route) for route in batch_routes)
-    padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-    padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
+    if len(batch_routes) == 0:
+        continue
+    else:
+        max_len = max(len(route) for route in batch_routes)
+        padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
+        padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
 
-    tours_list += padded_batch_routes
-    visit_times_list += padded_batch_times
+        tours_list += padded_batch_routes
+        visit_times_list += padded_batch_times
 
     if len(tours_list) == NUM_SAMPLES:
         break
