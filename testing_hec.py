@@ -55,7 +55,7 @@ elif args.problem == "pdcvrptw":
 ablation_datasets = glob.glob('new_data/' + args.problem +'/*_ablation_ortools.txt')
 
 
-directory_name = args.problem + '/' + args.model_name
+directory_name = args.problem + '/' + args.model_name + "/" + args.model_mode
 
 for dataset_path in ablation_datasets:
 
