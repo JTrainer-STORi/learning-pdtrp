@@ -582,7 +582,7 @@ for input in tqdm(dataloader, ascii=True):
 
 os.makedirs("runtime_stats/", exist_ok=True)
 
-with open("runtime_stats/" + filename + "_run_times.txt", "w") as f:
+with open("runtime_stats/" + "runtimes_" + filename, "w") as f:
     f.write("Run times for each sample:\n")
     for i, run_time in enumerate(run_times):
         f.write(f"Sample {i+1}: {run_time:.4f} seconds\n")

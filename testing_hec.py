@@ -54,7 +54,7 @@ elif args.problem == "pdcvrptw":
     problem = PDCVRPTW()
 
 if args.specific_file_root is not None:
-    ablation_datasets = glob.glob('new_data/' + args.problem + '/' + args.specific_file_root)
+    ablation_datasets = glob.glob('new_data/' + args.problem + '/' + args.specific_file_root + '*')
 else:
     ablation_datasets = glob.glob('new_data/' + args.problem +'/*_ablation_ortools.txt')
 
