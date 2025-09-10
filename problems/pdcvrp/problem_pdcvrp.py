@@ -145,6 +145,9 @@ class PDCVRPDataset(Dataset):
 
             self.tours = []
 
+            if self.use_ortec is not None:
+                self.distance_matrix = []
+
             print("Loading from {}...".format(filename))
 
             for line in tqdm(open(filename, "r").readlines()[offset:offset + num_samples], ascii=True):
