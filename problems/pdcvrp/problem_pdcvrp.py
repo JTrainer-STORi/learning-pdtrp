@@ -157,7 +157,12 @@ class PDCVRPDataset(Dataset):
                 self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('demands')]])
                 self.demands.append([float(x) for x in line[line.index('demands') + 1:line.index('tour')]])
                 self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
-                self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
+                if self.use_ortec is not None:
+                    # If using ORTEC, the distance matrix is already computed
+                    self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:line.index('distance_matrix')]])
+                    self.distance_matrix.append(np.reshape(np.array([float(x) for x in line[line.index('distance_matrix') + 1:]]), (n_nodes, n_nodes)))
+                else: 
+                    self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         elif self.use_ortec is not None:
             print("Generating PDCVRP instances from ORTEC instance: {}".format(self.use_ortec))
