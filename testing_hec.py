@@ -27,6 +27,8 @@ parser.add_argument('--model_mode', type=str, default='recursive', choices=['rec
 parser.add_argument('--speed', type=float, default=4.0, help="speed to run model at")
 parser.add_argument('--time_horizon', type=int, default=8, help="Time horizon for the model")
 parser.add_argument('--specific_file_root', type=str, default=None, help="Path to a specific file to test")
+parser.add_argument('--use_ortec', type=str, default=None,
+                        help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
 
 args = parser.parse_args()
 
@@ -67,7 +69,8 @@ for dataset_path in ablation_datasets:
     dataset = problem.make_dataset(filename=dataset_path, 
                                    batch_size=args.batch_size,
                                    speed=args.speed,
-                                   time_horizon=args.time_horizon
+                                   time_horizon=args.time_horizon,
+                                   use_ortec=args.use_ortec
                                    )
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
