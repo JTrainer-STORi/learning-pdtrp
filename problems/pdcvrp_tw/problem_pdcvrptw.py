@@ -164,7 +164,7 @@ class PDCVRPTWDataset(Dataset):
         self.arrival_skews = arrival_skews
         self.speed = speed / 60.0  # convert to minutes
         self.use_ortec = use_ortec
-        self.latest_end = latest_end # maximum time after the time horizon that a time window can end
+        self.latest_end = latest_end * 60 # maximum time after the time horizon that a time window can end
         self.min_time_window = min_time_window
         self.max_time_window = max_time_window
         self.reaction_time = reaction_time        
@@ -216,7 +216,7 @@ class PDCVRPTWDataset(Dataset):
             self.distance_matrix = []
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
-                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1
+                n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int)
                 # Step 2: Generate the locations and arrival times of the customers by subsampling ortec instances
                 all_nodes = []
                 arrival_times = []
@@ -226,7 +226,9 @@ class PDCVRPTWDataset(Dataset):
                 window_ends = []
                 demands = []
                 for _ in range(batch_size):
-                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, batch_start_times, batch_end_times, batch_demands = subsample_ortec(instance_file=self.use_ortec, problem='pdcvrptw', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, latest_end=self.latest_end,vehicle_capacity=self.vehicle_capacity, min_trips_required_lb=self.min_trips_required_lb, min_trips_required_ub=self.min_trips_required_ub)
+                    # sample the number of immediate customers for this instance
+                    n_imm = np.random.randint(int(self.min_dod * n_total), int(self.max_dod * n_total) + 1, dtype=int)
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, batch_start_times, batch_end_times, batch_demands = subsample_ortec(instance_file=self.use_ortec, problem='pdcvrptw', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, latest_end=self.latest_end,vehicle_capacity=self.vehicle_capacity, min_trips_required_lb=self.min_trips_required_lb, min_trips_required_ub=self.min_trips_required_ub, n_imm=n_imm, reaction_time=self.reaction_time)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                     service_times.append(batch_service_times)

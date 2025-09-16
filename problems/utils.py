@@ -44,7 +44,7 @@ def normalize_coordinates(coords):
     max_y = np.max(coords[:, 1])
     return coords / np.array([max_x, max_y])
 
-def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None):
+def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, n_imm=None, reaction_time=None):
 
     # choose n_locations - 1 random indices (always retain depot)
     indices = np.random.choice(range(1, len(rl_instance['coords'])), n_locations - 1, replace=False)
@@ -54,17 +54,25 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
 
     speed = 4.0 / 60.0
     time_horizon = 8 * 60
+    # scale distance matrix to be in minutes at the given speed, then normalize to [0, 1]
     unscaled_distance_matrix = rl_instance['duration_matrix']* speed / 60.0
     scaled_distance_matrix = unscaled_distance_matrix / np.max(unscaled_distance_matrix)
     distance_matrix = scaled_distance_matrix[np.ix_(indices_plus_depot, indices_plus_depot)] 
-    arrival_times = (rl_instance['time_windows'][indices, 0] - np.min(rl_instance['time_windows'][indices, 0])) # shift to start at 0
-    arrival_times = arrival_times * time_horizon / np.max(arrival_times)  # normalize to [0, time_horizon]
-    arrival_times = np.concatenate(([0], arrival_times))  # depot has arrival time 0
+    # scale locations so that they lie in the unit square
     normalized_locations = normalize_coordinates(rl_instance['coords'][indices_plus_depot])
-    service_times = rl_instance['service_times'][indices_plus_depot] / 60.0  # convert to minutes
+    # convert service times to minutes
+    service_times = rl_instance['service_times'][indices_plus_depot] / 60.0
+    # scale time windows to fit in time_horizon
+    time_windows = rl_instance['time_windows'][indices] * (time_horizon + latest_end) / np.max(rl_instance['time_windows'][1:])  # normalize to [0, time_horizon + latest_end]
+
+    immediate_indices = np.random.choice(range(0,len(indices)), n_imm, replace=False)
+    arrival_times = np.zeros(len(indices))
+    # for advanced request customers, leave arrival time as 0
+    # for immediate request customers, their arrival time is the start of their time window minus the reaction time
+    arrival_times[immediate_indices] = time_windows[immediate_indices, 0] - reaction_time
+    arrival_times = np.concatenate(([0], arrival_times))  # depot has arrival time 0
+
     if problem == 'pdtrptw' or problem == 'pdcvrptw':
-        time_windows = rl_instance['time_windows'][indices] - np.min(rl_instance['time_windows']) / 60.0  # convert to minutes and shift to start at 0
-        time_windows = time_windows * (time_horizon + latest_end) / np.max(time_windows)  # normalize to [0, time_horizon + latest_end]
         time_windows = np.concatenate(([[0, 0]], time_windows), axis=0)  # depot has time window [0, 0]
         window_starts = time_windows[:, 0]
         window_ends = time_windows[:, 1]
@@ -80,8 +88,6 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
         )[0]
         # depot has no demand
         demands = np.concatenate(([0], demands))  # depot has demand 0
-    
-    
 
     return np.round(np.array(normalized_locations), decimals=3), np.round(np.array(service_times), decimals=3), np.round(np.array(arrival_times), decimals=3), np.round(np.array(distance_matrix), decimals=3), np.round(np.array(window_starts), decimals=3) if problem == 'pdtrptw' or problem == 'pdcvrptw' else None, np.round(np.array(window_ends), decimals=3) if problem == 'pdtrptw' or problem == 'pdcvrptw' else None, np.round(np.array(demands), decimals=3) if problem == 'pdcvrp' or problem == 'pdcvrptw' else None
 
@@ -166,9 +172,9 @@ def read_vrplib(filename, rounded=True):
         'duration_matrix': np.array(duration_matrix) if len(duration_matrix) > 0 else None
     }
     
-def subsample_ortec(instance_file, problem, n_total, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None):
+def subsample_ortec(instance_file, problem, n_total, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, n_imm=None, reaction_time=None):
     raw_dict = read_vrplib(instance_file)
-    return transform_and_subsample_rl_instance(raw_dict, problem, n_total, time_horizon, speed, latest_end, vehicle_capacity, min_trips_required_lb, min_trips_required_ub)
+    return transform_and_subsample_rl_instance(raw_dict, problem, n_total, time_horizon, speed, latest_end, vehicle_capacity, min_trips_required_lb, min_trips_required_ub, n_imm, reaction_time)
 
 def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_required_lb, min_trips_required_ub, raw_demands=None):
 
@@ -197,24 +203,24 @@ def generate_scaled_demands(batch_size, n_total, vehicle_capacity, min_trips_req
 
     return scaled_demands
 
-def fix_arrivals(input):
-            # For problems with time windows like this one, we have an extra step in the initialization for rare cases in which the time window starts of the advanced request customers minus the time taken to travel to them is greater than arrival times of some of the immediate request customers.
-        # In this case, we do some preprocessing of the instance to make it more realistic. The vehicle is sat in the depot and if some arrivals came during this time then it would consider them as well when it came time to chose an action
+# def fix_arrivals(input):
+#             # For problems with time windows like this one, we have an extra step in the initialization for rare cases in which the time window starts of the advanced request customers minus the time taken to travel to them is greater than arrival times of some of the immediate request customers.
+#         # In this case, we do some preprocessing of the instance to make it more realistic. The vehicle is sat in the depot and if some arrivals came during this time then it would consider them as well when it came time to chose an action
 
-        # find the advanced request customers, i.e. those with arrival time 0
-        advanced_request_customers = torch.nonzero(arrival_times == 0, as_tuple=False)[1:] # ignore the depot at index 0
+#         # find the advanced request customers, i.e. those with arrival time 0
+#         advanced_request_customers = torch.nonzero(arrival_times == 0, as_tuple=False)[1:] # ignore the depot at index 0
 
-        adv_customers_tw_starts = window_starts[advanced_request_customers]
-        distances_to_depot = distance_matrix[:, 0, advanced_request_customers] # distance from depot to advanced request customers
-        depot_leaving_times = adv_customers_tw_starts - distances_to_depot / speed
-        earliest_depot_leaving_time = torch.min(depot_leaving_times, dim=1).values
+#         adv_customers_tw_starts = window_starts[advanced_request_customers]
+#         distances_to_depot = distance_matrix[:, 0, advanced_request_customers] # distance from depot to advanced request customers
+#         depot_leaving_times = adv_customers_tw_starts - distances_to_depot / speed
+#         earliest_depot_leaving_time = torch.min(depot_leaving_times, dim=1).values
 
-        # if there is an arrival time of an immediate request customer that is less than the earliest depot leaving time, we need to adjust the instance
-        immediate_request_customers = torch.nonzero(arrival_times > 0, as_tuple=False)[1:] # ignore the depot at index 0
+#         # if there is an arrival time of an immediate request customer that is less than the earliest depot leaving time, we need to adjust the instance
+#         immediate_request_customers = torch.nonzero(arrival_times > 0, as_tuple=False)[1:] # ignore the depot at index 0
 
-        imm_customers_arrival_times = arrival_times[ immediate_request_customers]
+#         imm_customers_arrival_times = arrival_times[ immediate_request_customers]
 
-        if (imm_customers_arrival_times < earliest_depot_leaving_time).any():
-            pass
+#         if (imm_customers_arrival_times < earliest_depot_leaving_time).any():
+#             pass
 
-        return None
+#         return None
