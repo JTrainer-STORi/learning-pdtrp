@@ -181,7 +181,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
         time = 'Time'
         routing.AddDimension(
             true_time_callback_index,
-            0,  # allow waiting time
+            sys.maxsize,  # allow waiting time
             sys.maxsize,  # maximum time per vehicle
             True,  # start cumul to zero
             time)
@@ -193,6 +193,8 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
                 continue
             index = manager.NodeToIndex(location_idx)
             time_dimension.CumulVar(index).SetRange(arrival_time, sys.maxsize)
+            slack_var = time_dimension.SlackVar(index)
+            routing.AddVariableMinimizedByFinalizer(slack_var)
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (

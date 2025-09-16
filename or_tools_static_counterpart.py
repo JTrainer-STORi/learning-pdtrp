@@ -127,11 +127,11 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
             node_index = manager.NodeToIndex(node)
             routing.AddDisjunction([node_index], 0)
 
-        # Allow to drop regular node with a cost.
-        for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
-            node_index = manager.NodeToIndex(node)
-            capacity_dimension.SlackVar(node_index).SetValue(0)
-            routing.AddDisjunction([node_index], 10_000_000)
+        # # Allow to drop regular node with a cost.
+        # for node in range(data['n_extra_depots'] + 1, len(data['demands'])):
+        #     node_index = manager.NodeToIndex(node)
+        #     capacity_dimension.SlackVar(node_index).SetValue(0)
+        #     routing.AddDisjunction([node_index], 10_000_000)
 
     if problem_type == 'PDCVRPTW' or problem_type == 'PDCVRP':
         # Add Capacity constraints
@@ -175,7 +175,7 @@ def resolve_route(input_to_or_tools, partial_route = None, problem_type='PDTRP',
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_MOST_CONSTRAINED_ARC)  # pylint: disable=no-member
+        routing_enums_pb2.FirstSolutionStrategy.PATH_MOST_CONSTRAINED_ARC)
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
     search_parameters.time_limit.FromSeconds(solution_time_limit)
@@ -244,8 +244,10 @@ parser.add_argument('--reaction_time', type=int, default=60,
                         help="Reaction time in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
 parser.add_argument('--vehicle_capacity', type=float, default=1.0,
                     help='Vehicle capacity, default is 1.0 (1 unit of demand)')
-parser.add_argument('--min_trips_required', type=int, default=3,
+parser.add_argument('--min_trips_required_lb', type=int, default=3,
                     help='Minimum number of trips required to service all customers, default is 3')
+parser.add_argument('--min_trips_required_ub', type=int, default=5,
+                    help='Maximum number of trips required to service all customers, default is 5')
 parser.add_argument('--min_time_window', type=int, default=60,
                         help='Minimum time window length in minutes')
 parser.add_argument('--max_time_window', type=int, default=100,
@@ -298,9 +300,9 @@ if problem_type == 'PDTRP':
 elif problem_type == 'PDCVRP':
     problem = PDCVRP()
     if args.source_file is not None:
-        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub,  service_times_mean=args.stmean, service_times_var=args.stvar)
     else:
-        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub,  service_times_mean=args.stmean, service_times_var=args.stvar)
 elif problem_type == 'PDTRPTW':
     problem = PDTRPTW()
     if args.source_file is not None:
@@ -310,9 +312,9 @@ elif problem_type == 'PDTRPTW':
 elif problem_type == 'PDCVRPTW':
     problem = PDCVRPTW()
     if args.source_file is not None:
-        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
     else:
-        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required=args.min_trips_required, service_times_mean=args.stmean, service_times_var=args.stvar)
+        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
@@ -351,15 +353,13 @@ for input in tqdm(dataloader, ascii=True):
             window_starts = input['window_starts'][j]
             window_ends = input['window_ends'][j]
             time_windows = torch.stack([window_starts, window_ends], dim=1)
-            window_starts_list += [np.asarray(input['window_starts'][j])]
-            window_ends_list += [np.asarray(input['window_ends'][j])]
         if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
             demands = input['demand'][j]
             vehicle_capacity = 1.0
-            demands_list += [np.asarray(demands)]
+            raw_demands = np.asarray(demands)
             # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
             #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
-            n_extra_depots = args.min_trips_required - 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
+            n_extra_depots = args.min_trips_required_ub + 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
             # add n_extra depots to data
             all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
             demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
@@ -379,12 +379,6 @@ for input in tqdm(dataloader, ascii=True):
                 window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
 
                 time_windows = torch.stack([window_starts, window_ends], dim=1)
-
-        all_nodes_list += [np.asarray(input['all_nodes'][j])]
-        arrival_times_list += [np.asarray(input['arrival_times'][j])]
-        service_times_list += [np.asarray(input['service_times'][j])]
-        if args.use_ortec is not None:
-            distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
 
         start_time = time.perf_counter()
 
@@ -455,6 +449,17 @@ for input in tqdm(dataloader, ascii=True):
             print('solver failed on this batch')
             continue 
 
+        all_nodes_list += [np.asarray(input['all_nodes'][j])]
+        arrival_times_list += [np.asarray(input['arrival_times'][j])]
+        service_times_list += [np.asarray(input['service_times'][j])]
+        if args.use_ortec is not None:
+            distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
+        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+            demands_list += [raw_demands]
+        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+            window_starts_list += [np.asarray(input['window_starts'][j])]
+            window_ends_list += [np.asarray(input['window_ends'][j])]
+
         batch_routes += [route]
 
         batch_times += [visit_times.tolist()]
@@ -462,13 +467,18 @@ for input in tqdm(dataloader, ascii=True):
         finish_time = time.perf_counter()
         run_times.append(finish_time - start_time)
 
-    max_len = max(len(route) for route in batch_routes)
-    padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-    padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
+    if len(batch_routes) == 0:
+        continue
+    else:
+        max_len = max(len(route) for route in batch_routes)
+        padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
+        padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
 
-    tours_list += padded_batch_routes
-    visit_times_list += padded_batch_times
+        tours_list += padded_batch_routes
+        visit_times_list += padded_batch_times
 
+    if len(tours_list) == NUM_SAMPLES:
+        break
 # for each run, we need to save the information to file so that it can be used to validate the model
 
 os.makedirs("runtime_stats/", exist_ok=True)
