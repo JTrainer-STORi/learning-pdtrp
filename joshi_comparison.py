@@ -738,7 +738,7 @@ for filename in filenames:
                     best_sequence = seq
 
 
-            complete_route = torch.cat((torch.tensor(fixed_starting_sequence), best_sequence))
+            complete_route = torch.cat((torch.tensor(fixed_starting_sequence, device=device), best_sequence))
 
             visit_times, _ = problem.get_times(input_to_get_times, torch.tensor(complete_route).unsqueeze(0))
 

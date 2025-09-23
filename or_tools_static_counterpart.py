@@ -15,6 +15,7 @@ from functools import partial
 from tqdm import tqdm
 import os
 import time
+import glob
 
 def get_routes(solution, routing, manager):
     """Get vehicle routes from a solution and store them in an array."""
@@ -273,13 +274,17 @@ print(f"Problem type: {args.problem}")
 print(f"Number of samples: {args.num_samples}")
 print(f"Batch size: {args.batch_size}")
 print(f"Filename: {args.filename}")
-print(f"Min total nodes: {args.min_total}")
-print(f"Max total nodes: {args.max_total}")
-print(f"Min dod: {args.min_dod}")
-print(f"Max dod: {args.max_dod}")
+# print(f"Min total nodes: {args.min_total}")
+# print(f"Max total nodes: {args.max_total}")
+# print(f"Min dod: {args.min_dod}")
+# print(f"Max dod: {args.max_dod}")
 print(f"solution time limit: {args.solution_time_limit} seconds")
 
 # Set the parameters for the problem here
+
+source_datasets = glob.glob(args.source_file)
+
+print(source_datasets)
 
 problem_type = args.problem
 NUM_SAMPLES = args.num_samples
@@ -291,228 +296,234 @@ SPEED = args.speed / 60.0
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-if problem_type == 'PDTRP':
-    problem = PDTRP()
-    if args.source_file is not None:
-        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
-    else:
-        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
-elif problem_type == 'PDCVRP':
-    problem = PDCVRP()
-    if args.source_file is not None:
-        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub,  service_times_mean=args.stmean, service_times_var=args.stvar)
-    else:
-        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub,  service_times_mean=args.stmean, service_times_var=args.stvar)
-elif problem_type == 'PDTRPTW':
-    problem = PDTRPTW()
-    if args.source_file is not None:
-        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
-    else:
-        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
-elif problem_type == 'PDCVRPTW':
-    problem = PDCVRPTW()
-    if args.source_file is not None:
-        dataset = problem.make_dataset(filename=args.source_file,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
-    else:
-        dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
+for dataset_path in source_datasets:
 
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-all_nodes_list = []
-arrival_times_list = []
-service_times_list = []
-tours_list = []
-visit_times_list = []
-if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-    window_starts_list = []
-    window_ends_list = []
-if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-    demands_list = []
-if args.use_ortec is not None:
-    distance_matrix_list = []
-
-run_times = []
-
-for input in tqdm(dataloader, ascii=True):
-
-    # making the static counterpart to a problem is as simple as converting the arrival_times entry to a zero tensor
-    input['arrival_times'] = torch.zeros_like(input['arrival_times'])
-
-    batch_routes = []
-    batch_times = []
-
-    for j in range(BATCH_SIZE):
-
-        all_nodes = input['all_nodes'][j]
-        n_original_nodes = len(all_nodes)
-        arrival_times = input['arrival_times'][j]
-        service_times = input['service_times'][j]
-        distance_matrix = input['distance_matrix'][j]
-        
-        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-            window_starts = input['window_starts'][j]
-            window_ends = input['window_ends'][j]
-            time_windows = torch.stack([window_starts, window_ends], dim=1)
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            demands = input['demand'][j]
-            vehicle_capacity = 1.0
-            raw_demands = np.asarray(demands)
-            # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
-            #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
-            n_extra_depots = args.min_trips_required_ub + 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
-            # add n_extra depots to data
-            all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
-            demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
-
-            arrival_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), arrival_times], dim=0)
-            service_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), service_times], dim=0)
-            # need to modify distance matrix to account for the new depots
-            temp_distance_matrix = np.zeros((len(all_nodes), len(all_nodes)))
-            for i in range(n_extra_depots):
-                temp_distance_matrix[i, n_extra_depots:] = np.asarray(distance_matrix[0, :])
-                temp_distance_matrix[n_extra_depots:, i] = np.asarray(distance_matrix[:, 0])
-            temp_distance_matrix[n_extra_depots:, n_extra_depots:] = np.asarray(distance_matrix)
-            distance_matrix = torch.tensor(temp_distance_matrix)
-
-            if problem_type == 'PDCVRPTW':
-                window_starts = torch.cat([window_starts[0].repeat(n_extra_depots), window_starts], dim=0)
-                window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
-
-                time_windows = torch.stack([window_starts, window_ends], dim=1)
-
-        start_time = time.perf_counter()
-
-        input_to_or_tools = {}
-        input_to_get_times = {}
-
-        input_to_get_times['speed'] = SPEED
-        input_to_get_times['arrival_times'] = arrival_times.unsqueeze(0)
-
-        input_to_or_tools['time_matrix'] = torch.round((distance_matrix/SPEED)*1e4).to(torch.int32).tolist()
-        input_to_or_tools['service_times'] = (service_times*1e4).to(torch.int32).tolist()
-        input_to_or_tools['arrival_times'] = (arrival_times*1e4).to(torch.int32).tolist()
-        input_to_get_times['distance_matrix'] = distance_matrix.unsqueeze(0)
-        input_to_get_times['service_times'] = service_times.unsqueeze(0)
-        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-            input_to_or_tools['time_windows'] = (time_windows*1e4).to(torch.int32).tolist()
-            input_to_get_times['window_starts'] = window_starts.unsqueeze(0)
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            input_to_or_tools['demands'] = (demands*1e3).to(torch.int32).tolist()
-            input_to_or_tools['vehicle_capacity'] = int(vehicle_capacity*1e3)
-            new_time_matrix = np.array(input_to_or_tools['time_matrix'])
-            new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
-            input_to_or_tools['time_matrix'] = new_time_matrix.tolist()
-            input_to_or_tools['n_extra_depots'] = n_extra_depots 
-
-        route = resolve_route(input_to_or_tools, None, problem_type, final_run=True, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
-
-        route_wo_final_depot_return = route[:-1]  # remove the last depot return
-
-        visit_times, info = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
-
-        visit_times = visit_times.squeeze(0)
-
-        # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
-
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
-
-        # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
-        sorted_route = sorted(route)
-        stripped_sorted_route = [x for x in sorted_route if x != 0]
-        route_contains_all_nodes = (stripped_sorted_route == list(range(1, n_original_nodes)))
-
-
-        route_exceeds_capacity = False
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            # Visiting depot resets capacity so we add demand = -capacity (we make sure it does not become negative)
-            demand_with_depot = torch.cat(
-                (
-                    torch.full_like(input['demand'][j][:1], -vehicle_capacity),
-                    input['demand'][j][1:]
-                )
-            )
-
-            dem = demand_with_depot[route]
-
-            used_cap = torch.zeros_like(input['demand'][j][0])
-            for i in range(len(route)):
-                used_cap += dem[i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
-                # Cannot use less than 0
-                used_cap[used_cap < 0] = 0
-                if not (used_cap <= vehicle_capacity + 1e-5).all():
-                    route_exceeds_capacity = True        
-
-        if route_contains_all_nodes and not route_exceeds_capacity:
-            pass
+    if problem_type == 'PDTRP':
+        problem = PDTRP()
+        if args.source_file is not None:
+            dataset = problem.make_dataset(filename=dataset_path,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
         else:
-            print('solver failed on this batch')
-            continue 
+            dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
+    elif problem_type == 'PDCVRP':
+        problem = PDCVRP()
+        if args.source_file is not None:
+            dataset = problem.make_dataset(filename=dataset_path,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub,  service_times_mean=args.stmean, service_times_var=args.stvar)
+        else:
+            dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub,  service_times_mean=args.stmean, service_times_var=args.stvar)
+    elif problem_type == 'PDTRPTW':
+        problem = PDTRPTW()
+        if args.source_file is not None:
+            dataset = problem.make_dataset(filename=dataset_path,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
+        else:
+            dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, service_times_mean=args.stmean, service_times_var=args.stvar)
+    elif problem_type == 'PDCVRPTW':
+        problem = PDCVRPTW()
+        if args.source_file is not None:
+            dataset = problem.make_dataset(filename=dataset_path,num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
+        else:
+            dataset = problem.make_dataset(num_samples=NUM_SAMPLES, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, min_time_window=args.min_time_window, max_time_window=args.max_time_window, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, gamma=args.gamma, theta=args.theta, latest_end=args.latest_end, reaction_time=args.reaction_time, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)
 
-        all_nodes_list += [np.asarray(input['all_nodes'][j])]
-        arrival_times_list += [np.asarray(input['arrival_times'][j])]
-        service_times_list += [np.asarray(input['service_times'][j])]
-        if args.use_ortec is not None:
-            distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            demands_list += [raw_demands]
-        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-            window_starts_list += [np.asarray(input['window_starts'][j])]
-            window_ends_list += [np.asarray(input['window_ends'][j])]
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-        batch_routes += [route]
+    all_nodes_list = []
+    arrival_times_list = []
+    service_times_list = []
+    tours_list = []
+    visit_times_list = []
+    if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+        window_starts_list = []
+        window_ends_list = []
+    if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+        demands_list = []
+    if args.use_ortec is not None:
+        distance_matrix_list = []
 
-        batch_times += [visit_times.tolist()]
+    run_times = []
 
-        finish_time = time.perf_counter()
-        run_times.append(finish_time - start_time)
+    for input in tqdm(dataloader, ascii=True):
 
-    if len(batch_routes) == 0:
-        continue
-    else:
-        max_len = max(len(route) for route in batch_routes)
-        padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
-        padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
+        # making the static counterpart to a problem is as simple as converting the arrival_times entry to a zero tensor
+        input['arrival_times'] = torch.zeros_like(input['arrival_times'])
 
-        tours_list += padded_batch_routes
-        visit_times_list += padded_batch_times
+        batch_routes = []
+        batch_times = []
 
-    if len(tours_list) == NUM_SAMPLES:
-        break
-# for each run, we need to save the information to file so that it can be used to validate the model
+        for j in range(BATCH_SIZE):
 
-os.makedirs("runtime_stats/", exist_ok=True)
+            all_nodes = input['all_nodes'][j]
+            n_original_nodes = len(all_nodes)
+            arrival_times = input['arrival_times'][j]
+            service_times = input['service_times'][j]
+            distance_matrix = input['distance_matrix'][j]
+            
+            if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+                window_starts = input['window_starts'][j]
+                window_ends = input['window_ends'][j]
+                time_windows = torch.stack([window_starts, window_ends], dim=1)
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                demands = input['demand'][j]
+                vehicle_capacity = 1.0
+                raw_demands = np.asarray(demands)
+                # if we are solving a capacitated problem, we need to add dummy depots to allow for restocking the vehicle
+                #n_extra_depots = torch.ceil(torch.sum(demands)/ vehicle_capacity).to(torch.int32).item() - 1
+                n_extra_depots = args.min_trips_required_ub + 1 # we need at least min_trips_required depots to ensure that the vehicle can service all customers (original brings total number of depots to 1 + n_extra_depots)
+                # add n_extra depots to data
+                all_nodes = torch.cat([all_nodes[0].repeat(n_extra_depots, 1), all_nodes], dim=0)
+                demands = torch.cat([torch.zeros(1), -torch.tensor(vehicle_capacity).repeat(n_extra_depots), demands[1:]], dim=0)
 
-with open("runtime_stats/" + filename + "_run_times.txt", "w") as f:
-    f.write("Run times for each sample:\n")
-    for i, run_time in enumerate(run_times):
-        f.write(f"Sample {i+1}: {run_time:.4f} seconds\n")
-    f.write(f"Average run time: {np.mean(run_times):.4f} seconds\n")
-    f.write(f"Std dev of run times: {np.std(run_times):.4f} seconds\n")
+                arrival_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), arrival_times], dim=0)
+                service_times = torch.cat([torch.tensor(0).repeat(n_extra_depots), service_times], dim=0)
+                # need to modify distance matrix to account for the new depots
+                temp_distance_matrix = np.zeros((len(all_nodes), len(all_nodes)))
+                for i in range(n_extra_depots):
+                    temp_distance_matrix[i, n_extra_depots:] = np.asarray(distance_matrix[0, :])
+                    temp_distance_matrix[n_extra_depots:, i] = np.asarray(distance_matrix[:, 0])
+                temp_distance_matrix[n_extra_depots:, n_extra_depots:] = np.asarray(distance_matrix)
+                distance_matrix = torch.tensor(temp_distance_matrix)
 
-os.makedirs("new_data/" + args.problem.lower(), exist_ok=True)
+                if problem_type == 'PDCVRPTW':
+                    window_starts = torch.cat([window_starts[0].repeat(n_extra_depots), window_starts], dim=0)
+                    window_ends = torch.cat([torch.zeros(1), torch.tensor(100).repeat(n_extra_depots), window_ends[1:]], dim=0)
 
-with open("new_data/" + args.problem.lower() + "/" + filename, "w") as f:
-    for i in range(NUM_SAMPLES):
-        f.write( " ".join( str(x)+str(" ")+str(y) for x,y in all_nodes_list[i]))
-        f.write( str(" ") + str("arrival_times" + str(" ")))
-        f.write( str(" ").join(str(x) for x in arrival_times_list[i]))
-        f.write( str(" ") + str("service_times" + str(" ")))
-        f.write( str(" ").join(str(x) for x in service_times_list[i]))
-        if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
-            f.write( str(" ") + str("window_starts" + str(" ")))
-            f.write( str(" ").join(str(x) for x in window_starts_list[i]))
-            f.write( str(" ") + str("window_ends" + str(" ")))
-            f.write( str(" ").join(str(x) for x in window_ends_list[i]))
-        if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
-            f.write( str(" ") + str("demands" + str(" ")))
-            f.write( str(" ").join(str(x) for x in demands_list[i]))
-        f.write( str(" ") + str("tour") + str(" ") )
-        f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
-        f.write( str(" ") + str("visit_times") + str(" ") )
-        f.write( str(" ").join(str(x) for x in visit_times_list[i]))
-        if args.use_ortec is not None:
-            f.write( str(" ") + str("distance_matrix" + str(" ")))
-            f.write( str(" ").join(str(x) for x in distance_matrix_list[i].flatten()))
+                    time_windows = torch.stack([window_starts, window_ends], dim=1)
 
-        f.write( "\n" )
+            start_time = time.perf_counter()
+
+            input_to_or_tools = {}
+            input_to_get_times = {}
+
+            input_to_get_times['speed'] = SPEED
+            input_to_get_times['arrival_times'] = arrival_times.unsqueeze(0)
+
+            input_to_or_tools['time_matrix'] = torch.round((distance_matrix/SPEED)*1e4).to(torch.int32).tolist()
+            input_to_or_tools['service_times'] = (service_times*1e4).to(torch.int32).tolist()
+            input_to_or_tools['arrival_times'] = (arrival_times*1e4).to(torch.int32).tolist()
+            input_to_get_times['distance_matrix'] = distance_matrix.unsqueeze(0)
+            input_to_get_times['service_times'] = service_times.unsqueeze(0)
+            if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+                input_to_or_tools['time_windows'] = (time_windows*1e4).to(torch.int32).tolist()
+                input_to_get_times['window_starts'] = window_starts.unsqueeze(0)
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                input_to_or_tools['demands'] = (demands*1e3).to(torch.int32).tolist()
+                input_to_or_tools['vehicle_capacity'] = int(vehicle_capacity*1e3)
+                new_time_matrix = np.array(input_to_or_tools['time_matrix'])
+                new_time_matrix[0:n_extra_depots+1, 0:n_extra_depots+1] = 1_000_000 
+                input_to_or_tools['time_matrix'] = new_time_matrix.tolist()
+                input_to_or_tools['n_extra_depots'] = n_extra_depots 
+
+            route = resolve_route(input_to_or_tools, None, problem_type, final_run=True, gamma=args.gamma, solution_time_limit=args.solution_time_limit)
+
+            route_wo_final_depot_return = route[:-1]  # remove the last depot return
+
+            visit_times, info = problem.get_times(input_to_get_times, torch.tensor(route_wo_final_depot_return).unsqueeze(0))
+
+            visit_times = visit_times.squeeze(0)
+
+            # for CVRP problems, we need to remove dummy depots from the output and also pad solutions to account for the fact that different solutions may have different lengths
+
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                route = np.maximum(np.zeros_like(route), np.array(route) - n_extra_depots).tolist()
+
+            # new method of assessing the route's validity is to sort the route, strip all zeros from the beginning and check that it is equal to arange from 1 to the number of nodes
+            sorted_route = sorted(route)
+            stripped_sorted_route = [x for x in sorted_route if x != 0]
+            route_contains_all_nodes = (stripped_sorted_route == list(range(1, n_original_nodes)))
+
+
+            route_exceeds_capacity = False
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                # Visiting depot resets capacity so we add demand = -capacity (we make sure it does not become negative)
+                demand_with_depot = torch.cat(
+                    (
+                        torch.full_like(input['demand'][j][:1], -vehicle_capacity),
+                        input['demand'][j][1:]
+                    )
+                )
+
+                dem = demand_with_depot[route]
+
+                used_cap = torch.zeros_like(input['demand'][j][0])
+                for i in range(len(route)):
+                    used_cap += dem[i]  # This will reset/make capacity negative if i == 0, e.g. depot visited
+                    # Cannot use less than 0
+                    used_cap[used_cap < 0] = 0
+                    if not (used_cap <= vehicle_capacity + 1e-5).all():
+                        route_exceeds_capacity = True        
+
+            if route_contains_all_nodes and not route_exceeds_capacity:
+                pass
+            else:
+                print('solver failed on this batch')
+                continue 
+
+            all_nodes_list += [np.asarray(input['all_nodes'][j])]
+            arrival_times_list += [np.asarray(input['arrival_times'][j])]
+            service_times_list += [np.asarray(input['service_times'][j])]
+            if args.use_ortec is not None:
+                distance_matrix_list += [np.asarray(input['distance_matrix'][j])]
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                demands_list += [raw_demands]
+            if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+                window_starts_list += [np.asarray(input['window_starts'][j])]
+                window_ends_list += [np.asarray(input['window_ends'][j])]
+
+            batch_routes += [route]
+
+            batch_times += [visit_times.tolist()]
+
+            finish_time = time.perf_counter()
+            run_times.append(finish_time - start_time)
+
+        if len(batch_routes) == 0:
+            continue
+        else:
+            max_len = max(len(route) for route in batch_routes)
+            padded_batch_routes = [route + [0]*(max_len - len(route)) for route in batch_routes]
+            padded_batch_times = [times + [times[-1]]*(max_len - len(times)) for times in batch_times]
+
+            tours_list += padded_batch_routes
+            visit_times_list += padded_batch_times
+
+        if len(tours_list) == NUM_SAMPLES:
+            break
+    # for each run, we need to save the information to file so that it can be used to validate the model
+
+    filename_from_source = dataset_path.split("/")[-1].split(".txt")[0]
+
+    os.makedirs("runtime_stats/static_solves", exist_ok=True)
+
+    with open("runtime_stats/static_solves/" + filename_from_source + "_run_times.txt", "w") as f:
+        f.write("Run times for each sample:\n")
+        for i, run_time in enumerate(run_times):
+            f.write(f"Sample {i+1}: {run_time:.4f} seconds\n")
+        f.write(f"Average run time: {np.mean(run_times):.4f} seconds\n")
+        f.write(f"Std dev of run times: {np.std(run_times):.4f} seconds\n")
+
+    os.makedirs("static_solves/" + args.problem.lower(), exist_ok=True)
+
+
+
+    with open("static_solves/" + args.problem.lower() + "/" + filename_from_source + "_static.txt", "w") as f:
+        for i in range(NUM_SAMPLES):
+            f.write( " ".join( str(x)+str(" ")+str(y) for x,y in all_nodes_list[i]))
+            f.write( str(" ") + str("arrival_times" + str(" ")))
+            f.write( str(" ").join(str(x) for x in arrival_times_list[i]))
+            f.write( str(" ") + str("service_times" + str(" ")))
+            f.write( str(" ").join(str(x) for x in service_times_list[i]))
+            if problem_type == 'PDTRPTW' or problem_type == 'PDCVRPTW':
+                f.write( str(" ") + str("window_starts" + str(" ")))
+                f.write( str(" ").join(str(x) for x in window_starts_list[i]))
+                f.write( str(" ") + str("window_ends" + str(" ")))
+                f.write( str(" ").join(str(x) for x in window_ends_list[i]))
+            if problem_type == 'PDCVRP' or problem_type == 'PDCVRPTW':
+                f.write( str(" ") + str("demands" + str(" ")))
+                f.write( str(" ").join(str(x) for x in demands_list[i]))
+            f.write( str(" ") + str("tour") + str(" ") )
+            f.write( str(" ").join(str(node_idx+1) for node_idx in tours_list[i]) )
+            f.write( str(" ") + str("visit_times") + str(" ") )
+            f.write( str(" ").join(str(x) for x in visit_times_list[i]))
+            if args.use_ortec is not None:
+                f.write( str(" ") + str("distance_matrix" + str(" ")))
+                f.write( str(" ").join(str(x) for x in distance_matrix_list[i].flatten()))
+
+            f.write( "\n" )
