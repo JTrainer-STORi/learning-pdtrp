@@ -799,5 +799,5 @@ for filename in filenames:
         rewards.append(min_cost)
         times.append(duration)
     print("filename: ", filename)
-    print("Average reward: ", np.mean(rewards.cpu()))
-    print("Average time: ", np.mean(times.cpu()))
+    print("Average reward: ", torch.mean(torch.tensor(rewards)))
+    print("Average time: ", torch.mean(torch.tensor(times)))
