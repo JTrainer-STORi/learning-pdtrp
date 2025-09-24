@@ -799,5 +799,5 @@ for filename in filenames:
         rewards.append(min_cost)
         times.append(duration)
     print("filename: ", filename)
-    print("Average reward: ", np.mean(rewards))
-    print("Average time: ", np.mean(times))
+    print("Average reward: ", np.mean(rewards.cpu()))
+    print("Average time: ", np.mean(times.cpu()))
