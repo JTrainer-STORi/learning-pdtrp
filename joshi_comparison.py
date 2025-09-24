@@ -787,7 +787,7 @@ for filename in filenames:
                 min_cost = cost
                 best_sequence = seq
         
-        complete_route = torch.cat((torch.tensor(fixed_starting_sequence), best_sequence))
+        complete_route = torch.cat((torch.tensor(fixed_starting_sequence), best_sequence.to(device)))
 
         duration = time.time() - start
 
