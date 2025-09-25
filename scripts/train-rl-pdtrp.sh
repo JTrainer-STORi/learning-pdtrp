@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# To get an idea of what each option does, please look at the options.py file
+
 RUN_NAME="rl-ar-var-20pnn-gnn-max-pdtrp"
 
 PROBLEM="pdtrp"
@@ -16,8 +18,9 @@ KNN_STRAT="percentage"
 
 N_SUBREGIONS=1
 
-VAL_DATASET1="new_data/pdtrp/pdtrp50dod0.5_val_ortools.txt"
-VAL_DATASET2="new_data/pdtrp/pdtrp50dod0.8_val_ortools.txt"
+VAL_DATASET1="val_datasets/pdtrp/pdtrp50dod0.2_val_ortools.txt"
+VAL_DATASET2="val_datasets/pdtrp/pdtrp50dod0.5_val_ortools.txt"
+VAL_DATASET3="val_datasets/pdtrp/pdtrp50dod0.8_val_ortools.txt"
 
 N_EPOCHS=100
 EPOCH_SIZE=160

@@ -1,0 +1,7 @@
+This Folder contains the datasets used to produce the experimental results tables in the paper. 
+
+The real world datasets can be indentified by having "ortec" in the name
+
+The Skew Spatio-Temporal "skew-st"
+
+The Uniform-Uniform test sets are the rest.
