@@ -166,7 +166,8 @@ class RolloutBaseline(Baseline):
             vehicle_capacity=self.opts.vehicle_capacity,
             min_trips_required_lb=self.opts.min_trips_required_lb,
             min_trips_required_ub=self.opts.min_trips_required_ub,
-            use_ortec=self.opts.use_ortec
+            use_ortec=self.opts.use_ortec,
+            dimension_scale=self.opts.dimension_scale
         )
         
         print("\nEvaluating Rollout baseline model on evaluation dataset")

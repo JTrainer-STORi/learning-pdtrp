@@ -70,6 +70,7 @@ def time_and_subregion_generation(n_total: int = 40,
                          arrival_weights: list = None,
                          arrival_skews: list = None,
                          time_horizon: float = 480.0,
+                         dimension_scale: float = 1.0
                          ):
     """
     This function is designed to generate customer locations and arrival_times in a manner such that it is possible to have spatially and temportally dependent arrivals. The subregion weight dictates which subregion is more likely to have customers, while the subregion skew dictates how the arrival times are distributed within that subregion.
@@ -121,12 +122,12 @@ def time_and_subregion_generation(n_total: int = 40,
         else:
             x_ix -= 1
 
-        x_limit_1 = x_ix / np.sqrt(n_subregions)
-        x_limit_2 = (x_ix+1) / np.sqrt(n_subregions)
+        x_limit_1 = x_ix / np.sqrt(n_subregions) * dimension_scale
+        x_limit_2 = (x_ix+1) / np.sqrt(n_subregions) * dimension_scale
         x_coords = np.round(np.random.uniform(x_limit_1, x_limit_2, int(n_imm_j)), decimals=3)
-        
-        y_limit_1 = y_ix / np.sqrt(n_subregions)
-        y_limit_2 = (y_ix+1) / np.sqrt(n_subregions)
+
+        y_limit_1 = y_ix / np.sqrt(n_subregions) * dimension_scale
+        y_limit_2 = (y_ix+1) / np.sqrt(n_subregions) * dimension_scale
         y_coords = np.round(np.random.uniform(y_limit_1, y_limit_2, int(n_imm_j)), decimals=3)
 
         # Generate arrival times according to the skew of the subregion

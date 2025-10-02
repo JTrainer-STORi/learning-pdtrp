@@ -263,6 +263,7 @@ parser.add_argument('--use_exp_service_times', action='store_true',
                     help='Use exponentially distributed service times instead of normally distributed ones')
 parser.add_argument('--solution_time_limit', type=int, default=3,
                     help='Time limit for solving each instance in seconds')
+parser.add_argument('--dimension_scale', type=float, default=1.0, help='Scale for the coordinates of the nodes, default is 1.0 (unit square)')
 
 args = parser.parse_args()
 
@@ -297,7 +298,7 @@ torch.manual_seed(args.seed)
 
 if problem_type == 'PDTRP':
     problem = PDTRP()
-    dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar)
+    dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, service_times_mean=args.stmean, service_times_var=args.stvar, dimension_scale=args.dimension_scale)
 elif problem_type == 'PDCVRP':
     problem = PDCVRP()
     dataset = problem.make_dataset(num_samples=n_samples_plus_extras, batch_size=BATCH_SIZE, min_total=args.min_total, max_total=args.max_total, min_dod=args.min_dod, max_dod=args.max_dod, speed=args.speed, time_horizon=args.time_horizon, n_subregions=args.n_subregions, arrival_weights=args.arrival_weights, arrival_skews=args.arrival_skews, use_ortec=args.use_ortec, vehicle_capacity=args.vehicle_capacity, min_trips_required_lb=args.min_trips_required_lb, min_trips_required_ub=args.min_trips_required_ub, service_times_mean=args.stmean, service_times_var=args.stvar)

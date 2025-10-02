@@ -196,7 +196,7 @@ def run_rl(opts) -> None:
             problem.make_dataset(
                 filename=val_filename, batch_size=opts.val_batch_size, num_samples=opts.val_size, 
                 neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed, time_horizon=opts.time_horizon, gamma=opts.gamma, theta=opts.theta, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required_lb=opts.min_trips_required_lb,
-                min_trips_required_ub=opts.min_trips_required_ub,use_ortec=opts.use_ortec,
+                min_trips_required_ub=opts.min_trips_required_ub,use_ortec=opts.use_ortec, dimension_scale=opts.dimension_scale
             ))
 
     if opts.resume:

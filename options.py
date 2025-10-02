@@ -79,7 +79,8 @@ def get_options(args=None):
                         help='upper bound on the minimum number of trips required to service all customers, default is 5')
     parser.add_argument('--use_ortec', type=str, default=None,
                         help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
-    
+    parser.add_argument('--dimension_scale', type=float, default=1.0, help='Scale for the coordinates of the nodes, default is 1.0 (unit square)')
+
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 
                         help="Model: 'attention'/'nar'")
