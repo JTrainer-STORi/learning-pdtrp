@@ -18,9 +18,11 @@ KNN_STRAT="percentage"
 
 N_SUBREGIONS=1
 
-VAL_DATASET1="val_datasets/pdtrp/pdtrp50dod0.2_val_ortools.txt"
-VAL_DATASET2="val_datasets/pdtrp/pdtrp50dod0.5_val_ortools.txt"
-VAL_DATASET3="val_datasets/pdtrp/pdtrp50dod0.8_val_ortools.txt"
+VAL_DATASET1="new_data/pdtrp/pdtrp40dod0.2v4th8_testing_dimscale4_ortools.txt"
+VAL_DATASET2="new_data/pdtrp/pdtrp40dod0.5v4th8_testing_dimscale4_ortools.txt"
+VAL_DATASET3="new_data/pdtrp/pdtrp40dod0.8v4th8_testing_dimscale4_ortools.txt"
+
+DIMENSION_SCALE=4
 
 N_EPOCHS=100
 EPOCH_SIZE=160
@@ -66,4 +68,4 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" \
     --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" \
-    --no_tensorboard --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE" 
+    --no_tensorboard --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE" --dimension_scale "$DIMENSION_SCALE"

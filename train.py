@@ -267,7 +267,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                             model.eval()
                             with torch.no_grad():
                                 _, _, _, pi, visit_times = model(input_instance, return_pi=True, return_times=True, mode='recursive')
-                                anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=pi, visit_times=visit_times), frames=len(visit_times.squeeze()), blit=False)
+                                anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=pi, visit_times=visit_times, dimension_scale=opts.dimension_scale), frames=len(visit_times.squeeze()), blit=False)
                                 with tempfile.TemporaryDirectory() as tmpdir:
                                     video_path = os.path.join(tmpdir, 'validation.mp4')
                                     anim.save(video_path, writer='ffmpeg', fps=2)
@@ -282,7 +282,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                             padding = count_trailing_zeros(dataset_instance['tour_nodes'])
                             tour = dataset_instance['tour_nodes'][:-padding] if padding > 0 else dataset_instance['tour_nodes']
                             visit_times = dataset_instance['visit_times'][:-(padding - 1)] if padding > 1 else dataset_instance['visit_times']
-                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=move_to(tour, opts.device), visit_times=move_to(visit_times, opts.device)), frames=len(visit_times), blit=False)
+                            anim = FuncAnimation(fig, update_anim(opts.problem, input_instance, fig, ax, pi=move_to(tour, opts.device), visit_times=move_to(visit_times, opts.device), dimension_scale=opts.dimension_scale), frames=len(visit_times), blit=False)
 
                             with tempfile.TemporaryDirectory() as tmpdir:
                                 video_path = os.path.join(tmpdir, 'validation.mp4')

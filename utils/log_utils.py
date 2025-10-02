@@ -55,7 +55,7 @@ def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood,
                 'critic/critic_grad_norm_clipped': grad_norms_clipped[1],
             }, step=step)
             
-def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
+def update_anim(problem, data, fig, ax, pi=None, visit_times=None, dimension_scale=1):
     """
     Function for updating the animation in PDTRP.
     This function should be implemented to update the animation based on the current state of the PDTRP problem.
@@ -130,9 +130,9 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                 artists.append(lc)
 
             fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units", fontsize='medium')
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
-            
+            ax.set_xlim(0, 1 * dimension_scale)
+            ax.set_ylim(0, 1 * dimension_scale)
+
             leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
 
             ax.add_artist(leg1)
@@ -238,8 +238,8 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
             accumulated_lateness = lateness_including_depot[current_tour].sum()
 
             fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {length:.2f} Units \n Accumulated Lateness {accumulated_lateness:.2f} Minutes", fontsize='medium')
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
+            ax.set_xlim(0, 1 * dimension_scale)
+            ax.set_ylim(0, 1 * dimension_scale)
             leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
 
             ax.add_artist(leg1)
@@ -356,8 +356,8 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
                     
 
             fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f}", fontsize='medium')
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
+            ax.set_xlim(0, 1 * dimension_scale)
+            ax.set_ylim(0, 1 * dimension_scale)
             # Position the legend to the right
 
             leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
@@ -519,8 +519,8 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None):
             accumulated_lateness = lateness_including_depot[current_tour].sum()
 
             fig.suptitle(f"Step {i} | Time Elapsed {current_time:.1f} Minutes | Distance Traveled {total_length:.2f} Units \n Current Capacity {current_capacity:.2f} | Accumulated Lateness {accumulated_lateness:.2f} Minutes", fontsize='medium')
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
+            ax.set_xlim(0, 1 * dimension_scale)
+            ax.set_ylim(0, 1 * dimension_scale)
             # Position the legend to the right
 
             leg1 = ax.legend(title='Points', loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize='x-small', title_fontsize='small')
