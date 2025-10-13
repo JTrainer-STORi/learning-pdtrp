@@ -131,7 +131,6 @@ class PDTRPTWDataset(Dataset):
         self.min_time_window = min_time_window
         self.max_time_window = max_time_window
         self.reaction_time = reaction_time
-
         self.all_nodes = []
         self.arrival_times = []
         self.service_times = []
@@ -243,7 +242,7 @@ class PDTRPTWDataset(Dataset):
                     earliest_times = np.linalg.norm(all_nodes[i] - depot_location, axis=1) / self.speed
                     start_times = np.round(np.maximum(earliest_times, arrival_times[i] + self.reaction_time), decimals=3)
                     batch_start_times.append(start_times)
-                    batch_end_times.append(np.round(np.array([[np.random.uniform(start_times[j] + self.min_time_window, np.min([start_times[j] + self.max_time_window, self.time_horizon + self.latest_end + self.reaction_time]))] for j in range(n_total)]).squeeze(), decimals=3))
+                    batch_end_times.append(np.round(np.array([np.random.uniform(start_times[j] + self.min_time_window, np.min([start_times[j] + self.max_time_window, self.time_horizon + self.latest_end])) for j in range(n_total)]).squeeze(), decimals=3))
                 # step 7: Sample indices of advanced request customers for each instance in the batch
                 adv_indices = [np.random.choice(n_total, n_adv[i], replace=False) for i in range(batch_size)]
                 # step 8: set the arrival times of the advanced request customers to be 0 and set the time windows of the advance request customers
