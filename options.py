@@ -54,19 +54,19 @@ def get_options(args=None):
     # parser.add_argument('--route_name', type=str, default=None,
     #                     help='Name of the route from which to get stop and distance info')
     parser.add_argument('--time_horizon', type=int, default=8,
-                        help='Time horizon for dynamic node arrivals in hours, default is 8 hours (480 minutes)')
-    parser.add_argument('--stmean', type=float, default=3,
-                        help='mean of service times')
-    parser.add_argument('--stvar', type=float, default=5,
-                        help='variance of service times')
-    parser.add_argument('--gamma', type=float, default=1, 
+                        help='Time horizon for dynamic node arrivals in hours, default is 8 hours')
+    parser.add_argument('--stmean', type=float, default=3.0,
+                        help='mean of service times, in minutes')
+    parser.add_argument('--stvar', type=float, default=5.0,
+                        help='variance of service times, in minutes')
+    parser.add_argument('--gamma', type=float, default=1.0, 
                         help='weighting for missed time windows in costs for problems with time windows')
     parser.add_argument('--theta', type=float, default=1.0, 
                         help='weighting for distance in costs for problems with time windows')
     parser.add_argument('--latest_end', type=int, default=2,
-                        help='number of hours after the time horizon that a customer\'s time window can end, default is 2 hours (120 minutes)')
+                        help='maximum amount of time after the time horizon passes that a customer\'s time window can end, default is 2 hours')
     parser.add_argument('--reaction_time', type=int, default=60,
-                        help="Reaction time in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
+                        help="Reaction time, in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
     parser.add_argument('--min_time_window', type=int, default=60,
                         help='Minimum time window length in minutes')
     parser.add_argument('--max_time_window', type=int, default=100,

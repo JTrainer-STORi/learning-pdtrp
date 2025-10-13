@@ -330,7 +330,7 @@ class DynamicAttentionModel(nn.Module):
                     if state.arrival_occured[i]:
                         arrival_indices = torch.nonzero(torch.logical_and(~state.get_mask()[i, 0], mask[i, 0]), as_tuple=False).squeeze(-1).to(input['loc'].device)
                         if self.scale_times:
-                            arrival_times = scale_time(input['arrival_times'][i, arrival_indices][:, None], input['time_horizon'][0])
+                            arrival_times = scale_time(input['arrival_times'][i, arrival_indices][:, None], (input['time_horizon'][0]+input['latest_end'][0]))
                         else:
                             arrival_times = input['arrival_times'][i, arrival_indices][:, None]
                         if self.functional_time_encoding:
@@ -449,7 +449,7 @@ class DynamicAttentionModel(nn.Module):
                 arrival_indices = torch.tensor(range(mask.size(-1), masked_input['loc'].size(1))).to(input['loc'].device)
                 if arrival_indices.numel() > 0:
                     if self.scale_times:
-                        arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], masked_input['time_horizon'][0])
+                        arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], (masked_input['time_horizon'][0]+masked_input['latest_end'][0]))
                     else:
                         arrival_times = masked_input['arrival_times'][0, arrival_indices][:, None]
                     if self.functional_time_encoding:
@@ -478,6 +478,7 @@ class DynamicAttentionModel(nn.Module):
         masked_input['graph'] = ~torch.BoolTensor(nn_graph).to(masked_input['loc'].device)
         masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix).to(masked_input['loc'].device)
         masked_input['time_horizon'] = input['time_horizon']
+        masked_input['latest_end'] = input['latest_end']
         if 'window_starts' in input:
             masked_input['window_starts'] = input['window_starts'][mask].unsqueeze(0)
         if 'window_ends' in input:
@@ -649,8 +650,8 @@ class DynamicAttentionModel(nn.Module):
             node_feats = torch.cat((node_feats, input['demand'][:, 1:, None]), -1)
         if self.is_pdtrptw or self.is_pdcvrptw:
             if self.scale_times:
-                window_starts = scale_time(input['window_starts'][:, 1:, None], input['time_horizon'][0])
-                window_ends = scale_time(input['window_ends'][:, 1:, None], input['time_horizon'][0])
+                window_starts = scale_time(input['window_starts'][:, 1:, None], (input['time_horizon'][0]+input['latest_end'][0]))
+                window_ends = scale_time(input['window_ends'][:, 1:, None], (input['time_horizon'][0]+input['latest_end'][0]))
             else:
                 window_starts = input['window_starts'][:, 1:, None]
                 window_ends = input['window_ends'][:, 1:, None]
@@ -663,7 +664,7 @@ class DynamicAttentionModel(nn.Module):
             )
         if self.use_arrival_times:        
             if self.scale_times:
-                arrival_times = scale_time(input['arrival_times'][:, 1:, None], input['time_horizon'][0])    
+                arrival_times = scale_time(input['arrival_times'][:, 1:, None], (input['time_horizon'][0]+input['latest_end'][0]))    
             else:
                 arrival_times = input['arrival_times'][:, 1:, None]    
             if self.functional_time_encoding:

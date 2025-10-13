@@ -57,6 +57,7 @@ class StatePDCVRPTW(NamedTuple):
         demands = input['demand']
         speed = input['speed']
         time_horizon = input['time_horizon']
+        latest_end = input['latest_end']
         distance_matrix = input['distance_matrix']
         vehicle_capacity = input['vehicle_capacity']
 
@@ -73,6 +74,7 @@ class StatePDCVRPTW(NamedTuple):
             demands=demands,
             speed=speed,
             time_horizon=time_horizon,
+            latest_end=latest_end,
             vehicle_capacity=vehicle_capacity,
             distance_matrix=distance_matrix,
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
@@ -184,7 +186,7 @@ class StatePDCVRPTW(NamedTuple):
 
     def get_timestep(self, normalize=True):
         if normalize:
-            return scale_time(self.cur_times, self.time_horizon)
+            return scale_time(self.cur_times, self.time_horizon+self.latest_end)
         else:
             return self.cur_times
         

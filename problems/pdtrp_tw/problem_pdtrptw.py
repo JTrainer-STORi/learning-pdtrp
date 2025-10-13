@@ -304,6 +304,7 @@ class PDTRPTWDataset(Dataset):
             'graph': ~torch.BoolTensor(nn_graph),
             'speed': torch.FloatTensor([self.speed]),
             'time_horizon': torch.FloatTensor([self.time_horizon]),
+            'latest_end': torch.FloatTensor([self.latest_end]),
             'distance_matrix': torch.FloatTensor(distance_matrix),
             'gamma': torch.FloatTensor([self.gamma]),
             'theta': torch.FloatTensor([self.theta]),

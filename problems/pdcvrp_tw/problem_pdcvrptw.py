@@ -360,6 +360,7 @@ class PDCVRPTWDataset(Dataset):
             'vehicle_capacity': torch.FloatTensor([self.vehicle_capacity]),
             'distance_matrix': torch.FloatTensor(distance_matrix),
             'time_horizon': torch.FloatTensor([self.time_horizon]),
+            'latest_end': torch.FloatTensor([self.latest_end]),
             'gamma': torch.FloatTensor([self.gamma]),
             'theta': torch.FloatTensor([self.theta]),
 
