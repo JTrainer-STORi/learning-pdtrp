@@ -92,6 +92,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'distance_matrix': move_to(dataset['distance_matrix'], device).unsqueeze(0),
                 'speed': move_to(dataset['speed'], device),
                 'time_horizon': move_to(dataset['time_horizon'], device), 
+                'latest_end': move_to(dataset['latest_end'], device),
                 'gamma': move_to(dataset['gamma'], device),
                 'theta': move_to(dataset['theta'], device),
             }
@@ -107,6 +108,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'distance_matrix': move_to(dataset['distance_matrix'], device).unsqueeze(0),
                 'speed': move_to(dataset['speed'], device),
                 'time_horizon': move_to(dataset['time_horizon'], device),
+                'latest_end': move_to(dataset['latest_end'], device),
                 'vehicle_capacity': move_to(dataset['vehicle_capacity'], device),
                 'gamma': move_to(dataset['gamma'], device),
                 'theta': move_to(dataset['theta'], device),
