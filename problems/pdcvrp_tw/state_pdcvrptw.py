@@ -13,6 +13,7 @@ class StatePDCVRPTW(NamedTuple):
     demands: torch.Tensor
     speed: float
     time_horizon: float
+    latest_end: float
     vehicle_capacity: float
     distance_matrix: torch.Tensor
 

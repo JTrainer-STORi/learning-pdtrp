@@ -9,6 +9,7 @@ class StatePDTRPTW(NamedTuple):
     arrival_times: torch.Tensor
     speed: float
     time_horizon: float
+    latest_end: float
     distance_matrix: torch.Tensor
     window_starts: torch.Tensor
     window_ends: torch.Tensor
