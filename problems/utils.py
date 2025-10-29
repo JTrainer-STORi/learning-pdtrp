@@ -72,11 +72,11 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
     arrival_times[immediate_indices] = time_windows[immediate_indices, 0] - reaction_time
     arrival_times = np.concatenate(([0], arrival_times))  # depot has arrival time 0
 
-    if problem == 'pdtrptw' or problem == 'pdcvrptw':
+    if problem == 'pdtrptw' or problem == 'pdctrptw':
         time_windows = np.concatenate(([[0, 0]], time_windows), axis=0)  # depot has time window [0, 0]
         window_starts = time_windows[:, 0]
         window_ends = time_windows[:, 1]
-    if problem == 'pdcvrp' or problem == 'pdcvrptw':
+    if problem == 'pdctrp' or problem == 'pdctrptw':
         raw_demands = rl_instance['demands'][indices]
         demands = generate_scaled_demands(
             batch_size=1,
@@ -89,7 +89,7 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
         # depot has no demand
         demands = np.concatenate(([0], demands))  # depot has demand 0
 
-    return np.round(np.array(normalized_locations), decimals=3), np.round(np.array(service_times), decimals=3), np.round(np.array(arrival_times), decimals=3), np.round(np.array(distance_matrix), decimals=3), np.round(np.array(window_starts), decimals=3) if problem == 'pdtrptw' or problem == 'pdcvrptw' else None, np.round(np.array(window_ends), decimals=3) if problem == 'pdtrptw' or problem == 'pdcvrptw' else None, np.round(np.array(demands), decimals=3) if problem == 'pdcvrp' or problem == 'pdcvrptw' else None
+    return np.round(np.array(normalized_locations), decimals=3), np.round(np.array(service_times), decimals=3), np.round(np.array(arrival_times), decimals=3), np.round(np.array(distance_matrix), decimals=3), np.round(np.array(window_starts), decimals=3) if problem == 'pdtrptw' or problem == 'pdctrptw' else None, np.round(np.array(window_ends), decimals=3) if problem == 'pdtrptw' or problem == 'pdctrptw' else None, np.round(np.array(demands), decimals=3) if problem == 'pdctrp' or problem == 'pdctrptw' else None
 
 
 def read_vrplib(filename, rounded=True):

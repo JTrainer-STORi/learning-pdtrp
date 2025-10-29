@@ -23,3 +23,4 @@ test_results/
 hec_val_sets/
 images/
 static_solves/
+pretrained_models/

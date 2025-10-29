@@ -99,6 +99,37 @@ class PDTRP(object):
     def make_state(*args, **kwargs):
         return StatePDTRP.initialize(*args, **kwargs)
     
+    @staticmethod
+    def generate_scenarios(masked_input, state, num_scenarios):
+
+        num_dummys = state.not_arrived_.sum().item() # number of customers that have not yet arrived - this gives us the number of customers to generate in each scenario
+        scenarios = []
+        original_customer_locs = masked_input['loc'][0].clone()
+        original_customer_arrival_times = masked_input['arrival_times'][0].clone()
+        original_service_times = masked_input['service_times'][0].clone()
+
+        for i in range(num_scenarios):
+            dummy_customer_locs, dummy_customer_arrival_times = time_and_subregion_generation(n_total = num_dummys)
+            dummy_service_times = list(np.round(sample_lognorm(masked_input['service_times_mean'], masked_input['service_times_std'], size=num_dummys), decimals=3))
+            combined_locs = torch.cat((original_customer_locs, torch.tensor(dummy_customer_locs)), dim=0)
+            combined_arrival_times = torch.cat((original_customer_arrival_times, torch.tensor(dummy_customer_arrival_times)), dim=0)
+            combined_service_times = torch.cat((original_service_times, torch.FloatTensor(dummy_service_times)), dim=0)
+            nn_graph, distance_matrix = nearest_neighbor_graph(combined_locs.cpu().numpy(), 20, 'percentage')
+
+            scenarios.append({
+                'locs': combined_locs,
+                'arrival_times': combined_arrival_times,
+                'service_times': combined_service_times,
+                'graph': ~torch.BoolTensor(nn_graph).to(masked_input['loc'].device),
+                'time_horizon': masked_input['time_horizon'],
+                'distance_matrix': torch.FloatTensor(distance_matrix).to(masked_input['loc'].device),
+
+            })
+
+            return scenarios
+    
+    #def generate_scenarios(existing_input, num_scenarios):
+    
 class PDTRPDataset(Dataset):
     def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, use_ortec=None, dimension_scale=1):
         """
@@ -282,6 +313,9 @@ class PDTRPDataset(Dataset):
             'speed': torch.FloatTensor([self.speed]),
             'time_horizon': torch.FloatTensor([self.time_horizon]),
             'distance_matrix': torch.FloatTensor(distance_matrix),
+            'latest_end': self.latest_end,
+            'service_times_mean': self.service_times_mean,
+            'service_times_std': self.service_times_std
         }
         if self.filename is not None:
             item['tour_nodes'] = torch.LongTensor(self.tours[idx])

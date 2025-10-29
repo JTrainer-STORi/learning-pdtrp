@@ -43,7 +43,7 @@ class StatePDTRPTW(NamedTuple):
     @staticmethod
     def initialize(input):
 
-        loc = input['loc']
+        loc = input['all_nodes']
         service_times = input['service_times']
         arrival_times = input['arrival_times']
         speed = input['speed']

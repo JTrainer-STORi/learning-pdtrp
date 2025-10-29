@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 import wandb
+import debugpy
 
 from options import get_options
 from train import train_epoch, get_inner_model
@@ -27,18 +28,15 @@ def run_rl(opts) -> None:
     Top Level Function for running RL experiments
     """
 
-    # torch.autograd.set_detect_anomaly(True) # un-comment this line for help detecting specific Pytorch autograd errors
-
     # pretty print the run args
     pp.pprint(vars(opts))
 
     # set the random seeds
     torch.manual_seed(opts.seed)
-    torch.cuda.manual_seed(opts.seed)
     torch.cuda.manual_seed_all(opts.seed)
     np.random.seed(opts.seed)
 
-    # Optionally configure tensorboard
+    # Configure logging options
     tb_logger = None
     if not opts.no_tensorboard:
         tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_total, opts.max_total, opts.min_dod, opts.max_dod), opts.run_name))
@@ -103,6 +101,7 @@ def run_rl(opts) -> None:
         use_arrival_lstm=opts.use_arrival_lstm,
         use_arrival_times=opts.use_arrival_times,
         recursively_remove_visited_nodes=opts.recursively_remove_visited_nodes,
+        eval_mode=opts.eval_mode,
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
@@ -126,30 +125,6 @@ def run_rl(opts) -> None:
     # Initialize baseline
     if opts.baseline == 'exponential':
         baseline = ExponentialBaseline(opts.exp_beta)
-    
-    elif opts.baseline == 'critic' or opts.baseline == 'critic_lstm':
-        assert problem.NAME == 'tsp', "Critic only supported for TSP"
-        baseline = CriticBaseline(
-            (
-                CriticNetwork(
-                    embedding_dim=opts.embedding_dim,
-                    encoder_class=GNNEncoder,
-                    n_encode_layers=opts.n_encode_layers,
-                    aggregation=opts.aggregation,
-                    normalization=opts.normalization,
-                    learn_norm=opts.learn_norm,
-                    track_norm=opts.track_norm,
-                    gated=opts.gated,
-                    n_heads=opts.n_heads
-                )
-            ).to(opts.device)
-        )
-        
-        print(baseline.critic)
-        nb_param = 0
-        for param in baseline.get_learnable_parameters():
-            nb_param += np.prod(list(param.data.size()))
-        print('Number of parameters (BL): ', nb_param)
         
     elif opts.baseline == 'rollout':
         baseline = RolloutBaseline(model, problem, opts)
@@ -232,9 +207,12 @@ def run_rl(opts) -> None:
 
 if __name__ == "__main__":
 
-    # import debugpy
-    # debugpy.listen(5678)  # 5678 is port
-    # print("Waiting for debugger attach")
-    # debugpy.wait_for_client()
+    opts = get_options()
 
-    run_rl(get_options())
+    if opts.run_debugger:
+        print("Waiting for debugger to attach...")
+        debugpy.listen(5678)
+        debugpy.wait_for_client()
+        print("Debugger attached.")
+
+    run_rl(opts)

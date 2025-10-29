@@ -61,17 +61,20 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
         # If the dataset is not batched, we add a batch dimension
         if problem == 'pdtrp':
             input = {
-                'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
+                'all_nodes': move_to(dataset['all_nodes'], device).unsqueeze(0),
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
                 'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
                 'graph': move_to(dataset['graph'], device).unsqueeze(0),
                 'distance_matrix': move_to(dataset['distance_matrix'], device).unsqueeze(0),
                 'speed': move_to(dataset['speed'], device),
-                'time_horizon': move_to(dataset['time_horizon'], device)
+                'time_horizon': move_to(dataset['time_horizon'], device),
+                'latest_end': move_to(dataset['latest_end'], device), 
+                'service_times_mean': move_to(dataset['service_times_mean'], device),
+                'service_times_std': move_to(dataset['service_times_std'], device)
             }
         elif problem == 'pdcvrp':
             input = {
-                'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
+                'all_nodes': move_to(dataset['all_nodes'], device).unsqueeze(0),
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
                 'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
                 'demand': move_to(dataset['demand'], device).unsqueeze(0),
@@ -83,7 +86,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
             }
         elif problem == 'pdtrptw':
             input = {
-                'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
+                'all_nodes': move_to(dataset['all_nodes'], device).unsqueeze(0),
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
                 'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
                 'graph': move_to(dataset['graph'], device).unsqueeze(0),
@@ -98,7 +101,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
             }
         elif problem == 'pdcvrptw':
             input = {
-                'loc': move_to(dataset['all_nodes'], device).unsqueeze(0),
+                'all_nodes': move_to(dataset['all_nodes'], device).unsqueeze(0),
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
                 'arrival_times': move_to(dataset['arrival_times'], device).unsqueeze(0),
                 'demand': move_to(dataset['demand'], device).unsqueeze(0),
@@ -116,17 +119,20 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
     else:
         if problem == 'pdtrp':
             input = {
-                'loc': move_to(dataset['all_nodes'], device),
+                'all_nodes': move_to(dataset['all_nodes'], device),
                 'service_times': move_to(dataset['service_times'], device),
                 'arrival_times': move_to(dataset['arrival_times'], device),
                 'graph': move_to(dataset['graph'], device),
                 'speed': move_to(dataset['speed'], device),
                 'distance_matrix': move_to(dataset['distance_matrix'], device),
-                'time_horizon': move_to(dataset['time_horizon'], device)
+                'time_horizon': move_to(dataset['time_horizon'], device),
+                'latest_end': move_to(dataset['latest_end'], device),
+                'service_times_mean': move_to(dataset['service_times_mean'], device),
+                'service_times_std': move_to(dataset['service_times_std'], device)
             }
         elif problem == 'pdcvrp':
             input = {
-                'loc': move_to(dataset['all_nodes'], device),
+                'all_nodes': move_to(dataset['all_nodes'], device),
                 'service_times': move_to(dataset['service_times'], device),
                 'arrival_times': move_to(dataset['arrival_times'], device),
                 'demand': move_to(dataset['demand'], device),
@@ -138,7 +144,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
             }
         elif problem == 'pdtrptw':
             input = {
-                'loc': move_to(dataset['all_nodes'], device),
+                'all_nodes': move_to(dataset['all_nodes'], device),
                 'service_times': move_to(dataset['service_times'], device),
                 'arrival_times': move_to(dataset['arrival_times'], device),
                 'graph': move_to(dataset['graph'], device),
@@ -153,7 +159,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
             }
         elif problem == 'pdcvrptw':
             input = {
-                'loc': move_to(dataset['all_nodes'], device),
+                'all_nodes': move_to(dataset['all_nodes'], device),
                 'service_times': move_to(dataset['service_times'], device),
                 'arrival_times': move_to(dataset['arrival_times'], device),
                 'demand': move_to(dataset['demand'], device),
@@ -168,7 +174,6 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'gamma': move_to(dataset['gamma'], device),
                 'theta': move_to(dataset['theta'], device),
             }
-
             
     if pomo_batch_size > 1:
         # If the dataset is batched, we assume it is already in the correct format

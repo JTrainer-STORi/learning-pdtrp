@@ -2,7 +2,7 @@ from typing import NamedTuple
 import torch
 from utils import scale_time
 
-class StatePDCVRPTW(NamedTuple):
+class StatePDCTRPTW(NamedTuple):
 
     # Fixed input
     coords: torch.Tensor # Depot + static_loc + dynamic_loc
@@ -50,7 +50,7 @@ class StatePDCVRPTW(NamedTuple):
     @staticmethod
     def initialize(input):
 
-        loc = input['loc']
+        loc = input['all_nodes']
         service_times = input['service_times']
         arrival_times = input['arrival_times']
         window_starts = input['window_starts']
@@ -66,7 +66,7 @@ class StatePDCVRPTW(NamedTuple):
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
         visited[:, :, 0] = True  # depot starts visited
         
-        return StatePDCVRPTW(
+        return StatePDCTRPTW(
             coords=loc,
             arrival_times=arrival_times,
             service_times=service_times,

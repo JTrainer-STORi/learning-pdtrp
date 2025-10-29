@@ -8,11 +8,11 @@ import torch
 
 def get_options(args=None):
     parser = argparse.ArgumentParser(
-        description="Arguments and hyperparameters for training learning-driven solvers for TSP")
+        description="Arguments and hyperparameters for training learning-driven solvers for dynamic routing problems",)
 
     # Data
     parser.add_argument('--problem', default='pdtrp', 
-                        help="The problem to solve, 'pdtrp', 'pdtrp-tw', 'pdcvrp' or 'pdcvrp-tw'")
+                        help="The problem to solve, options are: 'pdtrp', 'pdtrptw', 'pdctrp' or 'pdctrptw'")
     parser.add_argument('--min_total', type=int, default=40, 
                         help="The minimum number of total nodes")
     parser.add_argument('--max_total', type=int, default=100, 
@@ -51,8 +51,6 @@ def get_options(args=None):
     parser.add_argument('--rollout_batch_size', type=int, default=128,)
     parser.add_argument('--rollout_size', type=int, default=10000, 
                         help='Number of instances used for updating rollout baseline')
-    # parser.add_argument('--route_name', type=str, default=None,
-    #                     help='Name of the route from which to get stop and distance info')
     parser.add_argument('--time_horizon', type=int, default=8,
                         help='Time horizon for dynamic node arrivals in hours, default is 8 hours')
     parser.add_argument('--stmean', type=float, default=3.0,
@@ -78,7 +76,7 @@ def get_options(args=None):
     parser.add_argument('--min_trips_required_ub', type=int, default=5, 
                         help='upper bound on the minimum number of trips required to service all customers, default is 5')
     parser.add_argument('--use_ortec', type=str, default=None,
-                        help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
+                        help='filename of ortec instance to subsample from when generating customer ugations. If None, no subsampling is done.')
     parser.add_argument('--dimension_scale', type=float, default=1.0, help='Scale for the coordinates of the nodes, default is 1.0 (unit square)')
 
     # Model/GNN Encoder
@@ -122,6 +120,7 @@ def get_options(args=None):
                         help='Use arrival time as an additional node feature in the encoder')
     parser.add_argument('--use_incremental_encoder', action='store_true', help='Use incremental encoder for the model')
     parser.add_argument('--recursively_remove_visited_nodes', action='store_true', help='Recursively remove visited nodes from the graph')
+    parser.add_argument('--eval_mode', type=str, default='recursive', choices=['recursive', 'MSA'])
 
     # Training
     parser.add_argument('--pomo_batch_size', type=int, default=1,
@@ -137,7 +136,7 @@ def get_options(args=None):
     parser.add_argument('--exp_beta', type=float, default=0.8,
                         help='Exponential moving average baseline decay')
     parser.add_argument('--baseline', default='rollout',
-                        help="Baseline to use: 'rollout', 'critic', 'pomo' or 'exponential'.")
+                        help="Baseline to use: 'rollout', 'pomo' or 'exponential'.")
     parser.add_argument('--bl_alpha', type=float, default=0.05,
                         help='Significance in the t-test for updating rollout baseline')
     parser.add_argument('--bl_warmup_epochs', type=int, default=None,
@@ -188,8 +187,8 @@ def get_options(args=None):
                         help='Watch gradients in Weights & Biases')
     parser.add_argument('--print_query_times', action='store_true',
                         help='Print query times for the model to stdout')
-
-
+    parser.add_argument('--run_debugger', action='store_true',
+                        help='Run the debugger')
     opts = parser.parse_args(args)
 
     opts.use_cuda = torch.cuda.is_available() and not opts.no_cuda

@@ -55,7 +55,7 @@ def rollout(model, dataset, opts):
     set_decode_type(model, "greedy")
     model.eval()
     if opts.val_batch_size == 1:
-        mode = 'recursive'
+        mode = opts.eval_mode
     else:
         mode='masked'
     def eval_model_bat(bat):
@@ -101,7 +101,6 @@ def rollout_baseline(model, dataset, opts, mode):
             infos.append(info)
 
     return torch.cat(costs, 0), infos
-
 
 def rollout_groundtruth(problem, dataset, opts):
     if opts.problem == 'pdcvrp':

@@ -68,7 +68,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None, dimension_sca
     pi = pi.squeeze().cpu()
     visit_times = visit_times.squeeze().cpu()
     arrival_times = data['arrival_times'].squeeze().cpu()
-    coords = data['loc'].squeeze().cpu()
+    coords = data['all_nodes'].squeeze().cpu()
     visited_mask = torch.zeros_like(arrival_times, dtype=torch.bool)
 
 
