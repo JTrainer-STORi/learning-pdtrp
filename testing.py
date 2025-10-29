@@ -28,6 +28,7 @@ parser.add_argument('--latest_end', type=int, default=2, help="Latest end time f
 parser.add_argument('--specific_file_root', type=str, default=None, help="Path to a specific file to test")
 parser.add_argument('--use_ortec', type=str, default=None,
                         help='filename of ortec instance to subsample from when generating customer locations. If None, no subsampling is done.')
+parser.add_argument('--num_scenarios', type=int, default=10, help="Number of scenarios to generate for MSA mode")
 
 args = parser.parse_args()
 
@@ -89,7 +90,7 @@ for dataset_path in ablation_datasets:
             for bat in tqdm(dataloader):
                 input = dataset_to_input(bat, problem.NAME, device)
                 start_time = time.perf_counter()
-                cost, log_likelihood, info = model(input, mode=args.model_mode)
+                cost, log_likelihood, info = model(input, mode=args.model_mode, num_scenarios=args.num_scenarios)
                 cost = cost.cpu().numpy()
                 costs.append(cost[0])
                 end_time = time.perf_counter()

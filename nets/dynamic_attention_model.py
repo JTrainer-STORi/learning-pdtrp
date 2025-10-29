@@ -206,7 +206,7 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1, print_query_times=False):
+    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1, print_query_times=False, num_scenarios=10):
         """
             Args:
                 input: Dictionary containing input data
@@ -230,7 +230,7 @@ class DynamicAttentionModel(nn.Module):
 
         elif self.mode == 'MSA':
 
-            pi, visit_times = self._inner_msa(input, print_query_times=print_query_times)
+            pi, visit_times = self._inner_msa(input, print_query_times=print_query_times, num_scenarios=num_scenarios)
 
         elif self.mode == 'masked':
             
@@ -466,7 +466,7 @@ class DynamicAttentionModel(nn.Module):
 
         return all_sequences, state.visit_times
     
-    def _inner_msa(self, input, print_query_times=False):
+    def _inner_msa(self, input, print_query_times=False, num_scenarios=10):
 
         assert input['all_nodes'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
 
@@ -483,7 +483,7 @@ class DynamicAttentionModel(nn.Module):
         while not state.all_finished():
 
             # generate scenarios based on the state and masked input
-            scenarios = self.problem.generate_scenarios(masked_input, state, num_scenarios=10)
+            scenarios = self.problem.generate_scenarios(masked_input, state, num_scenarios=num_scenarios)
 
             scenario_actions = []
             for scenario in scenarios:
