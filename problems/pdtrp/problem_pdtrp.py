@@ -104,29 +104,29 @@ class PDTRP(object):
 
         num_dummys = state.not_arrived_.sum().item() # number of customers that have not yet arrived - this gives us the number of customers to generate in each scenario
         scenarios = []
-        original_customer_locs = masked_input['loc'][0].clone()
+        original_customer_locs = masked_input['all_nodes'][0].clone()
         original_customer_arrival_times = masked_input['arrival_times'][0].clone()
         original_service_times = masked_input['service_times'][0].clone()
 
         for i in range(num_scenarios):
             dummy_customer_locs, dummy_customer_arrival_times = time_and_subregion_generation(n_total = num_dummys)
             dummy_service_times = list(np.round(sample_lognorm(masked_input['service_times_mean'], masked_input['service_times_std'], size=num_dummys), decimals=3))
-            combined_locs = torch.cat((original_customer_locs, torch.tensor(dummy_customer_locs)), dim=0)
-            combined_arrival_times = torch.cat((original_customer_arrival_times, torch.tensor(dummy_customer_arrival_times)), dim=0)
+            combined_locs = torch.cat((original_customer_locs, torch.FloatTensor(dummy_customer_locs)), dim=0)
+            combined_arrival_times = torch.cat((original_customer_arrival_times, torch.FloatTensor(dummy_customer_arrival_times)), dim=0)
             combined_service_times = torch.cat((original_service_times, torch.FloatTensor(dummy_service_times)), dim=0)
             nn_graph, distance_matrix = nearest_neighbor_graph(combined_locs.cpu().numpy(), 20, 'percentage')
 
             scenarios.append({
-                'locs': combined_locs,
+                'all_nodes': combined_locs.unsqueeze(0),
                 'arrival_times': combined_arrival_times,
                 'service_times': combined_service_times,
-                'graph': ~torch.BoolTensor(nn_graph).to(masked_input['loc'].device),
+                'graph': ~torch.BoolTensor(nn_graph).to(masked_input['all_nodes'].device),
                 'time_horizon': masked_input['time_horizon'],
-                'distance_matrix': torch.FloatTensor(distance_matrix).to(masked_input['loc'].device),
+                'distance_matrix': torch.FloatTensor(distance_matrix).to(masked_input['all_nodes'].device),
 
             })
 
-            return scenarios
+        return scenarios
     
     #def generate_scenarios(existing_input, num_scenarios):
     

@@ -466,7 +466,7 @@ class DynamicAttentionModel(nn.Module):
 
         return all_sequences, state.visit_times
     
-    def inner_msa(self, input, print_query_times=False):
+    def _inner_msa(self, input, print_query_times=False):
 
         assert input['all_nodes'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
 
@@ -476,7 +476,7 @@ class DynamicAttentionModel(nn.Module):
 
         state = self.problem.make_state(input)
 
-        arrival_mask = ~state.not_arrived[:,0,:]
+        arrival_mask = ~state.not_arrived_[:,0,:]
 
         masked_input = self._mask_input(input, arrival_mask)
 
@@ -488,14 +488,14 @@ class DynamicAttentionModel(nn.Module):
             scenario_actions = []
             for scenario in scenarios:
                 if self.edge_feature_type == 'adjacency':
-                    edge_features = masked_input['graph'].long()
+                    edge_features = scenario['graph'].long()
                 elif self.edge_feature_type == 'distance':
-                    edge_features = masked_input['distance_matrix'].unsqueeze(-1)
+                    edge_features = scenario['distance_matrix'].unsqueeze(-1)
 
                 embeddings = self.embedder(self._init_embed(scenario), self.edge_embed(edge_features), scenario['graph'])
                 decoder_input = self._precompute(embeddings)
 
-                mask = torch.ones_like(state.get_mask()[~state.not_arrived_][None, None, :])
+                mask = state.get_mask()
 
                 log_p, mask = self._get_log_p(decoder_input, state, mask)
 
@@ -509,6 +509,9 @@ class DynamicAttentionModel(nn.Module):
             selected, _ = torch.mode(scenario_actions, dim=0)
             state = state.update(selected)
             sequences.append(selected)
+
+            arrival_mask = ~state.not_arrived_[:,0,:]
+            masked_input = self._mask_input(input, arrival_mask)
 
         all_sequences = torch.stack(sequences, 1)
 
@@ -528,8 +531,9 @@ class DynamicAttentionModel(nn.Module):
         masked_input['graph'] = ~torch.BoolTensor(nn_graph).to(masked_input['all_nodes'].device)
         masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix).to(masked_input['all_nodes'].device)
         masked_input['time_horizon'] = input['time_horizon']
-        masked_input['service_time_mean'] = input['service_times_mean']
-        masked_input['service_time_std'] = input['service_times_std']
+        masked_input['service_times'] = input['service_times']
+        masked_input['service_times_mean'] = input['service_times_mean']
+        masked_input['service_times_std'] = input['service_times_std']
 
         if 'latest_end' in input:
             masked_input['latest_end'] = input['latest_end']
