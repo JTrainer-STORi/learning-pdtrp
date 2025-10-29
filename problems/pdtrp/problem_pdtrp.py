@@ -111,9 +111,9 @@ class PDTRP(object):
         for i in range(num_scenarios):
             dummy_customer_locs, dummy_customer_arrival_times = time_and_subregion_generation(n_total = num_dummys)
             dummy_service_times = list(np.round(sample_lognorm(masked_input['service_times_mean'].cpu().numpy(), masked_input['service_times_std'].cpu().numpy(), size=num_dummys), decimals=3))
-            combined_locs = torch.cat((original_customer_locs, torch.FloatTensor(dummy_customer_locs)), dim=0)
-            combined_arrival_times = torch.cat((original_customer_arrival_times, torch.FloatTensor(dummy_customer_arrival_times)), dim=0)
-            combined_service_times = torch.cat((original_service_times, torch.FloatTensor(dummy_service_times)), dim=0)
+            combined_locs = torch.cat((original_customer_locs, torch.tensor(dummy_customer_locs, dtype=torch.float32, device=original_customer_locs.device)), dim=0)
+            combined_arrival_times = torch.cat((original_customer_arrival_times, torch.tensor(dummy_customer_arrival_times, dtype=torch.float32, device=original_customer_arrival_times.device)), dim=0)
+            combined_service_times = torch.cat((original_service_times, torch.tensor(dummy_service_times, dtype=torch.float32, device=original_service_times.device)), dim=0)
             nn_graph, distance_matrix = nearest_neighbor_graph(combined_locs.cpu().numpy(), 20, 'percentage')
 
             scenarios.append({
