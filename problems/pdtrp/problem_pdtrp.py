@@ -110,7 +110,7 @@ class PDTRP(object):
 
         for i in range(num_scenarios):
             dummy_customer_locs, dummy_customer_arrival_times = time_and_subregion_generation(n_total = num_dummys)
-            dummy_service_times = list(np.round(sample_lognorm(masked_input['service_times_mean'], masked_input['service_times_std'], size=num_dummys), decimals=3))
+            dummy_service_times = list(np.round(sample_lognorm(masked_input['service_times_mean'].cpu().numpy(), masked_input['service_times_std'].cpu().numpy(), size=num_dummys), decimals=3))
             combined_locs = torch.cat((original_customer_locs, torch.FloatTensor(dummy_customer_locs)), dim=0)
             combined_arrival_times = torch.cat((original_customer_arrival_times, torch.FloatTensor(dummy_customer_arrival_times)), dim=0)
             combined_service_times = torch.cat((original_service_times, torch.FloatTensor(dummy_service_times)), dim=0)
