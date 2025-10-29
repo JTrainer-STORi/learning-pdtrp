@@ -23,7 +23,7 @@ parser.add_argument("--model_path", type=str, required=True, help="Path to the m
 parser.add_argument("--model_name", type=str, default="", help="Name of the model to test")
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 parser.add_argument('--batch_size', type=int, default=1, help="Batch size for testing")
-parser.add_argument('--model_mode', type=str, default='recursive', choices=['recursive', 'masked', 'recursive_plus_removal'], help="Encoding mode for the model")
+parser.add_argument('--model_mode', type=str, default='recursive', choices=['recursive', 'masked', 'recursive_plus_removal', 'MSA'], help="Encoding mode for the model")
 parser.add_argument('--speed', type=float, default=4.0, help="speed to run model at")
 parser.add_argument('--time_horizon', type=int, default=8, help="Time horizon for the model")
 parser.add_argument('--latest_end', type=int, default=2, help="Latest end time for the model")
