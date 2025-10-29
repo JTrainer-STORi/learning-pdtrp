@@ -1,6 +1,4 @@
-from problems import PDTRP, PDCVRP, PDTRPTW, PDCVRPTW
-from problems import PDTRP, PDCVRP, PDTRPTW, PDCVRPTW
-from problems import PDTRP, PDCVRP, PDTRPTW, PDCVRPTW
+from problems import PDTRP, PDCTRP, PDTRPTW, PDCTRPTW
 
 from torch.utils.data import DataLoader
 
@@ -51,10 +49,10 @@ if args.problem == "pdtrp":
     problem = PDTRP()
 elif args.problem == "pdtrptw":
     problem = PDTRPTW()
-elif args.problem == "pdcvrp":
-    problem = PDCVRP()
-elif args.problem == "pdcvrptw":
-    problem = PDCVRPTW()
+elif args.problem == "pdctrp":
+    problem = PDCTRPTW()
+elif args.problem == "pdctrptw":
+    problem = PDCTRPTW()
 
 if args.specific_file_root is not None:
     ablation_datasets = glob.glob(args.specific_file_root + '*')
