@@ -112,7 +112,7 @@ class PDCTRP(object):
         return StatePDCTRP.initialize(*args, **kwargs)
 
 class PDCTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=None, dimension_scale=1.0):
+    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=None):
         super(PDCTRPDataset, self).__init__()
         self.filename = filename
         self.min_total = min_total
@@ -136,7 +136,6 @@ class PDCTRPDataset(Dataset):
         self.use_ortec = use_ortec 
         self.reaction_time = reaction_time
         self.latest_end = latest_end * 60 # maximum time after the time horizon that a time window can end
-        self.dimension_scale = dimension_scale
 
         self.all_nodes = []
         self.arrival_times = []
@@ -227,7 +226,7 @@ class PDCTRPDataset(Dataset):
                 all_nodes = []
                 arrival_times = []
                 for _ in range(batch_size):
-                    batch_nodes, batch_arrival_times = time_and_subregion_generation(n_total=n_total, n_subregions=self.n_subregions, arrival_weights=self.arrival_weights, arrival_skews=self.arrival_skews,time_horizon=self.time_horizon, dimension_scale=self.dimension_scale)
+                    batch_nodes, batch_arrival_times = time_and_subregion_generation(n_total=n_total, n_subregions=self.n_subregions, arrival_weights=self.arrival_weights, arrival_skews=self.arrival_skews,time_horizon=self.time_horizon)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                 # step 4: Generate customer service times
@@ -254,7 +253,7 @@ class PDCTRPDataset(Dataset):
             
                 
                 # step 10: Prepend the depot to the customers
-                all_nodes = [np.concatenate([np.array([[0.5, 0.5]]) * self.dimension_scale, x]) for x in all_nodes]
+                all_nodes = [np.concatenate([np.array([[0.5, 0.5]]), x]) for x in all_nodes]
                 arrival_times = [np.concatenate((np.zeros(1), x)) for x in arrival_times]
                 service_times = [np.concatenate((np.zeros(1), x)) for x in service_times]
                 demands = [np.concatenate((np.zeros(1), x)) for x in demands_without_depot]

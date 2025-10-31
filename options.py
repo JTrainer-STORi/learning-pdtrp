@@ -3,6 +3,7 @@ import time
 import argparse
 import torch
 
+# Note on the store_true and store_false arguments in argparse:
 # The store_true action is used to create a boolean flag that is set to True if the option is provided, and False otherwise.
 # Similarly, the store_false action creates a boolean flag that is set to False if the option is provided, and True otherwise.
 
@@ -16,21 +17,21 @@ def get_options(args=None):
     parser.add_argument('--min_total', type=int, default=40, 
                         help="The minimum number of total nodes")
     parser.add_argument('--max_total', type=int, default=100, 
-                        help="The maximum number of static nodes")
+                        help="The maximum number of total nodes")
     parser.add_argument('--min_dod', type=float, default=0.2,
                         help='The minimum ratio of dynamic nodes')
     parser.add_argument('--max_dod', type=float, default=0.8,
                         help='The maximum ratio of dynamic nodes')
-    parser.add_argument('--n_subregions', type=int, default=9,
+    parser.add_argument('--n_subregions', type=int, default=1,
                         help='Number of subregions to generate the customers in. Passing 1 will generate customers uniformly in the unit square.')
     parser.add_argument('--speed', type=float, default=4.0, 
-                        help='The speed of the vehicle in units/h')
+                        help='The speed of the vehicle in units/h, the dimension of the unit square is 1x1 units^2')
     parser.add_argument('--arrival_weights', nargs='+', type=int, default=None,
                         help='The weights for the subregions, if None, subregion weights are sampled from a dirichlet distribution. Pass as a space-separated list, e.g. "1 2 3"')
     parser.add_argument('--arrival_skews', nargs='+', type=str, default=None,
-                        help='The skews for the arrival times distribution in each subregion, if None, uniform distribution is used. Pass as a space-separated list, e.g. "uniform early late"')
+                        help='The skews for the arrival times distribution in each subregion. An "early" skew means that arrival times for that subregion are generated using a beta(2,5) distribution, a "late" skew means beta(5,2), and a "uniform" skew means uniform distribution. If None, all subregions are sampled uniformly. Pass as a space-separated list, e.g. "early late uniform"')
     parser.add_argument('--neighbors', type=float, default=20, 
-                        help="The k-nearest neighbors for graph sparsification")
+                        help="The k-nearest neighbors for graph sparsification, if the knn_strat is 'percentage', this is the percentage of total nodes to connect to each node otherwise is the fixed number of neighbors to connect to each node")
     parser.add_argument('--knn_strat', type=str, default=None, 
                         help="Strategy for k-nearest neighbors (None/'percentage')")
     parser.add_argument('--n_epochs', type=int, default=100, 
@@ -40,15 +41,15 @@ def get_options(args=None):
     parser.add_argument('--batch_size', type=int, default=128, 
                         help='Number of instances per batch during training')
     parser.add_argument('--accumulation_steps', type=int, default=1, 
-                        help='Gradient accumulation step during training '
-                             '(effective batch_size = batch_size * accumulation_steps)')
+                        help='Gradient accumulation step during training (effective batch_size = batch_size * accumulation_steps)')
     parser.add_argument('--val_datasets', type=str, nargs='+', default=None, 
-                        help='Dataset files to use for validation')
+                        help='Paths to dataset files to use for validation')
     parser.add_argument('--val_batch_size', type=int, default=128,
                         help='Number of instances per batch during validation')
     parser.add_argument('--val_size', type=int, default=1000, 
                         help='Number of instances used for reporting validation performance')
-    parser.add_argument('--rollout_batch_size', type=int, default=128,)
+    parser.add_argument('--rollout_batch_size', type=int, default=128,
+                        help='Number of instances per batch during rollout baseline evaluation')
     parser.add_argument('--rollout_size', type=int, default=10000, 
                         help='Number of instances used for updating rollout baseline')
     parser.add_argument('--time_horizon', type=int, default=8,
@@ -77,7 +78,6 @@ def get_options(args=None):
                         help='upper bound on the minimum number of trips required to service all customers, default is 5')
     parser.add_argument('--use_ortec', type=str, default=None,
                         help='filename of ortec instance to subsample from when generating customer ugations. If None, no subsampling is done.')
-    parser.add_argument('--dimension_scale', type=float, default=1.0, help='Scale for the coordinates of the nodes, default is 1.0 (unit square)')
 
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 
