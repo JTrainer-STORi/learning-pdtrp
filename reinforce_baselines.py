@@ -189,7 +189,12 @@ class RolloutBaseline(Baseline):
         else:
             bl_vals, _ = rollout_baseline(self.model, dataset, self.opts, mode='masked')
 
-        return BaselineDataset(dataset, bl_vals.view(-1, 1))
+        # DataLoader workers must never index CUDA tensors. Cache rollout
+        # values on CPU and move each collated batch back to opts.device in
+        # train_batch.
+        return BaselineDataset(
+            dataset, bl_vals.detach().cpu().view(-1, 1)
+        )
 
     def unwrap_batch(self, batch):
         return batch['data'], batch['baseline'].view(-1)  # Flatten result to undo wrapping as 2D
@@ -260,7 +265,11 @@ class BaselineDataset(Dataset):
         super(BaselineDataset, self).__init__()
 
         self.dataset = dataset
-        self.baseline = baseline
+        self.baseline = (
+            baseline.detach().cpu()
+            if torch.is_tensor(baseline)
+            else baseline
+        )
         assert (len(self.dataset) == len(self.baseline))
 
     def __getitem__(self, item):

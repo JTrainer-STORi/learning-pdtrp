@@ -5,7 +5,7 @@ import torch
 
 from options import get_options
 from problems import PDCTRP, PDCTRPTW
-from reinforce_baselines import RolloutBaseline
+from reinforce_baselines import BaselineDataset, RolloutBaseline
 from train import rollout_groundtruth, should_run_periodic
 
 
@@ -58,6 +58,20 @@ def test_rollout_baseline_skips_challenge_between_intervals(monkeypatch):
     monkeypatch.setattr("reinforce_baselines.rollout_baseline", fail_if_called)
 
     baseline.epoch_callback(model=object(), epoch=2)
+
+
+def test_baseline_dataset_detaches_cached_values_on_cpu():
+    cached_values = torch.tensor(
+        [[1.0], [2.0]], requires_grad=True
+    )
+
+    wrapped = BaselineDataset([{"x": 1}, {"x": 2}], cached_values)
+
+    assert wrapped.baseline.device.type == "cpu"
+    assert not wrapped.baseline.requires_grad
+    torch.testing.assert_close(
+        wrapped[1]["baseline"], torch.tensor([2.0])
+    )
 
 
 @pytest.mark.parametrize(

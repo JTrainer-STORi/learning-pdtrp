@@ -20,6 +20,7 @@ pretrained/
 scripts/*
 !scripts/hec-retrain-main-table.sh
 !scripts/hec-smoke-test.sh
+!scripts/hec-evaluate-model-free.sh
 runtime_stats/
 test_results/
 hec_val_sets/
