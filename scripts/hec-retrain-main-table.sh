@@ -14,7 +14,7 @@
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
 # Slurm opens these before the script can expand $global_scratch. The complete
-# combined job log is additionally streamed to global scratch below.
+# combined job log is written directly to global scratch below.
 #SBATCH --output=retrain-main.%A_%a.out
 #SBATCH --error=retrain-main.%A_%a.err
 
@@ -38,7 +38,7 @@ SLURM_LOG_ROOT="${SCRATCH_ROOT}/slurm"
 
 mkdir -p "$MODEL_ROOT" "$LOG_ROOT" "$SLURM_LOG_ROOT"
 RUN_LOG="${SLURM_LOG_ROOT}/retrain-main.${ARRAY_JOB_ID}_${TASK_ID}.log"
-exec > >(tee -a "$RUN_LOG") 2>&1
+exec >>"$RUN_LOG" 2>&1
 
 PROJECT_DIR="${global_storage}/learning-pdtsp"
 cd "$PROJECT_DIR"

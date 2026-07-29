@@ -38,7 +38,7 @@ SLURM_LOG_ROOT="${SMOKE_ROOT}/slurm"
 
 mkdir -p "$MODEL_ROOT" "$FRAMEWORK_LOG_ROOT" "$SLURM_LOG_ROOT"
 RUN_LOG="${SLURM_LOG_ROOT}/pdtsp-smoke.${ARRAY_JOB_ID}_${TASK_ID}.log"
-exec > >(tee -a "$RUN_LOG") 2>&1
+exec >>"$RUN_LOG" 2>&1
 
 PROJECT_DIR="${global_storage}/learning-pdtsp"
 cd "$PROJECT_DIR"
