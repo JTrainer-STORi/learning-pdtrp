@@ -16,6 +16,7 @@ class StatePDCTRPTW(NamedTuple):
     latest_end: float
     vehicle_capacity: float
     distance_matrix: torch.Tensor
+    graph: torch.Tensor
 
 
     #ids for indexing environments
@@ -61,6 +62,7 @@ class StatePDCTRPTW(NamedTuple):
         latest_end = input['latest_end']
         distance_matrix = input['distance_matrix']
         vehicle_capacity = input['vehicle_capacity']
+        graph = input['graph']
 
         batch_size, n_loc, _ = loc.size()
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
@@ -78,6 +80,7 @@ class StatePDCTRPTW(NamedTuple):
             latest_end=latest_end,
             vehicle_capacity=vehicle_capacity,
             distance_matrix=distance_matrix,
+            graph=graph,
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
@@ -113,7 +116,11 @@ class StatePDCTRPTW(NamedTuple):
         # find out which dynamic nodes have arrived in the meantime
         new_arrival_mask = self.not_arrived_.clone()
         for i in range(batch_size):
-            new_arrivals = torch.nonzero(torch.logical_and(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]), self.arrival_times[i] > 0))
+            new_arrivals = torch.nonzero(
+                self.not_arrived_[i, 0]
+                & (self.arrival_times[i] >= self.cur_times[i])
+                & (self.arrival_times[i] <= cur_times[i])
+            )
             new_arrival_mask[i, 0, new_arrivals] = False
             if new_arrivals.numel() > 0:
                 arrival_occured[i] = True
@@ -128,7 +135,11 @@ class StatePDCTRPTW(NamedTuple):
                     min_arrival_times = torch.min(self.arrival_times[i][new_arrival_mask[i][0]])
                     cur_times[i] = torch.maximum(cur_times[i], min_arrival_times)
                     # ... and update the mask accordingly
-                    new_arrivals = torch.nonzero(torch.logical_and(torch.logical_and(self.arrival_times[i] >= self.cur_times[i], self.arrival_times[i] <= cur_times[i]), self.arrival_times[i] > 0))
+                    new_arrivals = torch.nonzero(
+                        new_arrival_mask[i, 0]
+                        & (self.arrival_times[i] >= self.cur_times[i])
+                        & (self.arrival_times[i] <= cur_times[i])
+                    )
                     new_arrival_mask[i, 0, new_arrivals] = False
                     if new_arrivals.numel() > 0:
                         arrival_occured[i] = True
@@ -141,7 +152,7 @@ class StatePDCTRPTW(NamedTuple):
 
         # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
         if visited_.all():
-            distances_back_to_depot = (self.coords[self.ids, 0] - cur_coords).norm(p=2, dim=-1)
+            distances_back_to_depot = self.distance_matrix[self.ids, prev_a, 0]
             time_back_at_depot = cur_times + torch.round((distances_back_to_depot / self.speed), decimals=4)
             for i in range(batch_size):
                 self.visit_times[i].append(time_back_at_depot[i, 0].item())
@@ -168,7 +179,8 @@ class StatePDCTRPTW(NamedTuple):
         visited_loc = self.visited_[:, :, 1:]
         not_arrived_loc = self.not_arrived_[:, :, 1:]
         loc_mask = torch.logical_or(visited_loc, not_arrived_loc)
-        exceeds_cap = (self.demands[self.ids, 1:] + self.used_cap[self.ids] > self.vehicle_capacity[0])
+        capacities = self.vehicle_capacity[self.ids]
+        exceeds_cap = self.demands[self.ids, 1:] + self.used_cap[self.ids] > capacities
 
         mask_loc = torch.logical_or(loc_mask, exceeds_cap)
 
@@ -178,6 +190,13 @@ class StatePDCTRPTW(NamedTuple):
     
     def get_graph(self):
         return self.graph
+
+    def get_graph_mask(self):
+        batch_size, n_loc, _ = self.coords.size()
+        if self.i.item() == 0:
+            return torch.zeros(batch_size, 1, n_loc, dtype=torch.bool, device=self.coords.device)
+        adjacent = self.graph.gather(1, self.prev_a.unsqueeze(-1).expand(-1, -1, n_loc))
+        return ~adjacent.bool()
     
     def arrival_at_last_timestep(self):
         return self.arrival_occured

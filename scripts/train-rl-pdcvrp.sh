@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+#SBATCH --cpus-per-task=4
 
 RUN_NAME="rl-ar-var-20pnn-gnn-max-pdcvrp"
 
 PROBLEM="pdcvrp"
 
 DEVICES="0"
-NUM_WORKERS=0
+NUM_WORKERS=4
 
 MIN_TOTAL=50
 MAX_TOTAL=50
@@ -27,7 +28,8 @@ ACCUMULATION_STEPS=1
 
 VAL_SIZE=64
 ROLLOUT_SIZE=128
-VAL_BATCH_SIZE=1
+# Batched validation uses the fast masked monitoring path. Use 1 for recursive validation.
+VAL_BATCH_SIZE=16
 ROLLOUT_BATCH_SIZE=16
 
 MODEL="dattention"
@@ -64,5 +66,6 @@ CUDA_VISIBLE_DEVICES="$DEVICES" python run.py --problem "$PROBLEM" \
     --checkpoint_epochs "$CHECKPOINT_EPOCHS" \
     --run_name "$RUN_NAME" \
     --edge_features "$EDGE_FEATURES" --val_batch_size "$VAL_BATCH_SIZE" --use_time_feature --scale_times \
-    --no_tensorboard --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE" \
+    --no_tensorboard --no_videos --val_every 5 --baseline_update_every 5 \
+    --n_subregions "$N_SUBREGIONS" --rollout_batch_size "$ROLLOUT_BATCH_SIZE" \
     --min_trips_required "$MIN_TRIPS_REQUIRED"

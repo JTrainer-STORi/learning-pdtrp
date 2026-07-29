@@ -8,9 +8,19 @@ def nearest_neighbor_graph(nodes, neighbors, knn_strat, distance_matrix = None):
     # If `neighbors` is a percentage, convert to int
     if knn_strat == 'percentage':
         neighbors = int(num_nodes * neighbors)
+    elif knn_strat == 'fixed':
+        if not float(neighbors).is_integer():
+            raise ValueError("Fixed neighbor count must be an integer")
+        neighbors = int(neighbors)
+    else:
+        raise ValueError("knn_strat must be either 'percentage' or 'fixed'")
     
     if neighbors >= num_nodes-1 or neighbors == -1:
-        W_val = squareform(pdist(nodes, metric='euclidean'))
+        W_val = (
+            distance_matrix
+            if distance_matrix is not None
+            else squareform(pdist(nodes, metric='euclidean'))
+        )
         W = np.zeros((num_nodes, num_nodes))
     else:
         # Compute distance matrix

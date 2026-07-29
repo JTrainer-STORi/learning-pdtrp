@@ -51,7 +51,7 @@ if args.problem == "pdtrp":
 elif args.problem == "pdtrptw":
     problem = PDTRPTW()
 elif args.problem == "pdctrp":
-    problem = PDCTRPTW()
+    problem = PDCTRP()
 elif args.problem == "pdctrptw":
     problem = PDCTRPTW()
 
@@ -123,4 +123,3 @@ for dataset_path in ablation_datasets:
             f.write(f"Sample {i+1}: Cost = {cost}\n")
         f.write(f"Average Cost: {np.mean(costs)}\n")
         f.write(f"Std dev of Costs: {np.std(costs)}\n")
-        

@@ -120,10 +120,12 @@ class DynamicAttentionModel(nn.Module):
         self.knn_strat = knn_strat
         self.neighbors = neighbors
         self.scale_times = scale_times
-        self.is_pdcvrp = problem.NAME == 'pdcvrp'
+        # Accept the canonical problem names as well as the legacy PDCVRP names
+        # used by older checkpoints and experiment scripts.
+        self.is_pdcvrp = problem.NAME in ('pdctrp', 'pdcvrp')
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
-        self.is_pdcvrptw = problem.NAME == 'pdcvrptw'
+        self.is_pdcvrptw = problem.NAME in ('pdctrptw', 'pdcvrptw')
         self.use_arrival_lstm = use_arrival_lstm
         self.use_arrival_times = use_arrival_times
         self.recursively_remove_visited_nodes = recursively_remove_visited_nodes
@@ -523,26 +525,37 @@ class DynamicAttentionModel(nn.Module):
 
         masked_input = {}
         # first step is to mask the coordinates, very simple
-        masked_input['all_nodes'] = input['all_nodes'][mask].unsqueeze(0)  # (batch_size, num_nodes, 2)
-        masked_input['arrival_times'] = input['arrival_times'][mask].unsqueeze(0)  # (batch_size, num_nodes)
-        # for now, going to do this the easy way and simply put the masked all_nodesations into the nearest neighbour function and get the new distance matrix and graph from that
+        assert input['all_nodes'].size(0) == 1, "Recursive input masking only supports batch size 1"
+        indices = torch.nonzero(mask[0], as_tuple=False).squeeze(-1)
+        masked_input['all_nodes'] = input['all_nodes'][:, indices]
+        masked_input['arrival_times'] = input['arrival_times'][:, indices]
+        masked_input['service_times'] = input['service_times'][:, indices]
+
+        # Rebuild the graph over the currently known nodes, while preserving the
+        # supplied distance metric (important for road-network/ORTEC instances).
         locs_on_cpu = masked_input['all_nodes'].squeeze(0).cpu().numpy()
-        nn_graph, distance_matrix = nearest_neighbor_graph(locs_on_cpu, self.neighbors, self.knn_strat)
+        source_distances = input['distance_matrix'][0][indices][:, indices].cpu().numpy()
+        nn_graph, distance_matrix = nearest_neighbor_graph(
+            locs_on_cpu, self.neighbors, self.knn_strat, distance_matrix=source_distances
+        )
         masked_input['graph'] = ~torch.BoolTensor(nn_graph).to(masked_input['all_nodes'].device)
         masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix).to(masked_input['all_nodes'].device)
         masked_input['time_horizon'] = input['time_horizon']
-        masked_input['service_times'] = input['service_times']
-        masked_input['service_times_mean'] = input['service_times_mean']
-        masked_input['service_times_std'] = input['service_times_std']
+        masked_input['speed'] = input['speed']
 
-        if 'latest_end' in input:
-            masked_input['latest_end'] = input['latest_end']
-        if 'window_starts' in input:
-            masked_input['window_starts'] = input['window_starts'][mask].unsqueeze(0)
-        if 'window_ends' in input:
-            masked_input['window_ends'] = input['window_ends'][mask].unsqueeze(0)
-        if 'demand' in input:
-            masked_input['demand'] = input['demand'][mask].unsqueeze(0)
+        for key in (
+            'latest_end',
+            'service_times_mean',
+            'service_times_std',
+            'vehicle_capacity',
+            'gamma',
+            'theta',
+        ):
+            if key in input:
+                masked_input[key] = input[key]
+        for key in ('window_starts', 'window_ends', 'demand'):
+            if key in input:
+                masked_input[key] = input[key][:, indices]
         
         return masked_input
 

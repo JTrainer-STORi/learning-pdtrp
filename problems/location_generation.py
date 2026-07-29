@@ -2,6 +2,24 @@
 
 import numpy as np
 
+def _validate_generation_args(n_total, n_subregions, arrival_weights, arrival_skews=None):
+    if n_total < 0:
+        raise ValueError("n_total must be non-negative")
+    if n_subregions < 1 or int(np.sqrt(n_subregions)) ** 2 != n_subregions:
+        raise ValueError("n_subregions must be a positive perfect square")
+    if arrival_weights is not None:
+        if len(arrival_weights) != n_subregions:
+            raise ValueError("arrival_weights must contain one value per subregion")
+        if np.any(np.asarray(arrival_weights) < 0) or np.sum(arrival_weights) <= 0:
+            raise ValueError("arrival_weights must be non-negative with a positive sum")
+    if arrival_skews is not None:
+        if len(arrival_skews) != n_subregions:
+            raise ValueError("arrival_skews must contain one value per subregion")
+        invalid = set(arrival_skews) - {"early", "uniform", "late"}
+        if invalid:
+            raise ValueError(f"Unsupported arrival skew(s): {sorted(invalid)}")
+
+
 def subregion_generation(n_total: int = 40,
                          n_subregions: int = 9,
                          arrival_weights: list = None,
@@ -21,6 +39,7 @@ def subregion_generation(n_total: int = 40,
 
     """
 
+    _validate_generation_args(n_total, n_subregions, arrival_weights)
     n_imm = np.zeros(n_subregions)
     
     if arrival_weights is None:
@@ -86,6 +105,7 @@ def time_and_subregion_generation(n_total: int = 40,
     A numpy array of customer locations and another array of customer arrival times.
     """
 
+    _validate_generation_args(n_total, n_subregions, arrival_weights, arrival_skews)
     if arrival_skews is None:
         # if no skews are provided then sample arrival times uniformly for every subregion
         arrival_skews = ['uniform' for _ in range(n_subregions)]

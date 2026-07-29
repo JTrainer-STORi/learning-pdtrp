@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from scipy.stats import ttest_rel
 import copy
-from train import rollout, rollout_baseline, get_inner_model
+from train import rollout, rollout_baseline, get_inner_model, should_run_periodic
 
 
 class Baseline(object):
@@ -207,6 +207,17 @@ class RolloutBaseline(Baseline):
         :param model: The model to challenge the baseline by
         :param epoch: The current epoch
         """
+        if not should_run_periodic(
+            epoch,
+            self.opts.baseline_update_every,
+            self.opts.epoch_start,
+            self.opts.n_epochs,
+        ):
+            print("Skipping rollout baseline challenge at epoch {} (update interval: {})".format(
+                epoch, self.opts.baseline_update_every
+            ))
+            return
+
         print("\nEvaluating candidate model on evaluation dataset")
         if self.opts.rollout_batch_size == 1:
             candidate_vals, _ = rollout_baseline(model, self.dataset, self.opts, mode='recursive')

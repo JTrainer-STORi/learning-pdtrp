@@ -17,7 +17,9 @@ models_hec/
 *.ipynb
 pretrained/
 *.ipynb
-scripts/
+scripts/*
+!scripts/hec-retrain-main-table.sh
+!scripts/hec-smoke-test.sh
 runtime_stats/
 test_results/
 hec_val_sets/

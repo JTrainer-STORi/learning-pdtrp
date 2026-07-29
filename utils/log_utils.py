@@ -249,7 +249,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None, dimension_sca
 
             return artists  # This is key!
         
-    elif problem=='pdcvrp':
+    elif problem in ('pdctrp', 'pdcvrp'):
 
         vehicle_capacity = data['vehicle_capacity'].squeeze().cpu()
         demands = data['demand'].squeeze().cpu()
@@ -373,7 +373,7 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None, dimension_sca
 
             return artists
         
-    elif problem=='pdcvrptw':
+    elif problem in ('pdctrptw', 'pdcvrptw'):
 
         vehicle_capacity = data['vehicle_capacity'].squeeze().cpu()
         demands = data['demand'].squeeze().cpu()
@@ -537,7 +537,6 @@ def update_anim(problem, data, fig, ax, pi=None, visit_times=None, dimension_sca
             return artists
         
     return update
-
 
 
 

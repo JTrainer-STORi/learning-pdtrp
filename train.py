@@ -30,6 +30,12 @@ def set_decode_type(model, decode_type):
     model.set_decode_type(decode_type)
 
 
+def should_run_periodic(epoch, every, epoch_start, n_epochs):
+    """Return whether periodic work is due, always including the final epoch."""
+    is_final_epoch = epoch == epoch_start + n_epochs - 1
+    return (epoch + 1) % every == 0 or is_final_epoch
+
+
 def validate(model, dataset, problem, opts):
     # Validate
     print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')      
@@ -103,7 +109,7 @@ def rollout_baseline(model, dataset, opts, mode):
     return torch.cat(costs, 0), infos
 
 def rollout_groundtruth(problem, dataset, opts):
-    if opts.problem == 'pdcvrp':
+    if opts.problem in ('pdctrp', 'pdcvrp'):
         costs = []
         infos = []
         for bat in DataLoader(
@@ -136,7 +142,7 @@ def rollout_groundtruth(problem, dataset, opts):
             if info:
                 infos.append(info)
         return torch.cat(costs, 0), infos
-    elif opts.problem == 'pdcvrptw':
+    elif opts.problem in ('pdctrptw', 'pdcvrptw'):
         costs = []
         infos = []
         for bat in DataLoader(
@@ -246,7 +252,13 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             os.path.join(opts.save_dir, 'epoch-{}.pt'.format(epoch))
         )
 
-    for val_idx, val_dataset in enumerate(val_datasets):
+    should_validate = should_run_periodic(
+        epoch, opts.val_every, opts.epoch_start, opts.n_epochs
+    )
+    if not should_validate:
+        print("Skipping validation at epoch {} (validation interval: {})".format(epoch, opts.val_every))
+
+    for val_idx, val_dataset in enumerate(val_datasets if should_validate else []):
         avg_reward, avg_opt_gap, avg_gt_cost, model_worst, model_best = validate(model, val_dataset, problem, opts)
         if not opts.no_tensorboard:
             tb_logger.log_value('val{}/avg_reward'.format(val_idx+1), avg_reward, step)

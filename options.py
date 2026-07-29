@@ -24,6 +24,8 @@ def get_options(args=None):
                         help='The maximum ratio of dynamic nodes')
     parser.add_argument('--n_subregions', type=int, default=1,
                         help='Number of subregions to generate the customers in. Passing 1 will generate customers uniformly in the unit square.')
+    parser.add_argument('--dimension_scale', type=float, default=1.0,
+                        help='Scale of generated coordinates, default is the unit square')
     parser.add_argument('--speed', type=float, default=4.0, 
                         help='The speed of the vehicle in units/h, the dimension of the unit square is 1x1 units^2')
     parser.add_argument('--arrival_weights', nargs='+', type=int, default=None,
@@ -48,10 +50,14 @@ def get_options(args=None):
                         help='Number of instances per batch during validation')
     parser.add_argument('--val_size', type=int, default=1000, 
                         help='Number of instances used for reporting validation performance')
+    parser.add_argument('--val_every', type=int, default=1,
+                        help='Run validation every n epochs (and always on the final epoch)')
     parser.add_argument('--rollout_batch_size', type=int, default=128,
                         help='Number of instances per batch during rollout baseline evaluation')
     parser.add_argument('--rollout_size', type=int, default=10000, 
                         help='Number of instances used for updating rollout baseline')
+    parser.add_argument('--baseline_update_every', type=int, default=1,
+                        help='Challenge and potentially update the rollout baseline every n epochs (and always on the final epoch)')
     parser.add_argument('--time_horizon', type=int, default=8,
                         help='Time horizon for dynamic node arrivals in hours, default is 8 hours')
     parser.add_argument('--stmean', type=float, default=3.0,
@@ -190,6 +196,11 @@ def get_options(args=None):
     parser.add_argument('--run_debugger', action='store_true',
                         help='Run the debugger')
     opts = parser.parse_args(args)
+
+    if opts.val_every < 1:
+        parser.error("--val_every must be at least 1")
+    if opts.baseline_update_every < 1:
+        parser.error("--baseline_update_every must be at least 1")
 
     opts.use_cuda = torch.cuda.is_available() and not opts.no_cuda
     opts.run_name = "{}_{}".format(opts.run_name, time.strftime("%Y%m%dT%H%M%S"))
