@@ -18,6 +18,8 @@
 #SBATCH --output=retrain-main.%A_%a.out
 #SBATCH --error=retrain-main.%A_%a.err
 
+source /etc/profile
+
 set -euo pipefail
 
 SCRATCH_ROOT="${global_scratch:?global_scratch is not set}/learning-pdtsp"
@@ -31,7 +33,6 @@ mkdir -p "$MODEL_ROOT" "$LOG_ROOT" "$SLURM_LOG_ROOT"
 RUN_LOG="${SLURM_LOG_ROOT}/retrain-main.${ARRAY_JOB_ID}_${TASK_ID}.log"
 exec > >(tee -a "$RUN_LOG") 2>&1
 
-source /etc/profile
 module add miniforge
 
 PROJECT_DIR="${global_storage:?global_storage is not set}/learning-pdtsp"

@@ -18,6 +18,8 @@
 #SBATCH --output=pdtsp-smoke.%A_%a.out
 #SBATCH --error=pdtsp-smoke.%A_%a.err
 
+source /etc/profile
+
 set -euo pipefail
 
 TASK_ID="${SLURM_ARRAY_TASK_ID:?This script must be run as a Slurm array job}"
@@ -31,7 +33,6 @@ mkdir -p "$MODEL_ROOT" "$FRAMEWORK_LOG_ROOT" "$SLURM_LOG_ROOT"
 RUN_LOG="${SLURM_LOG_ROOT}/pdtsp-smoke.${ARRAY_JOB_ID}_${TASK_ID}.log"
 exec > >(tee -a "$RUN_LOG") 2>&1
 
-source /etc/profile
 module add miniforge
 
 PROJECT_DIR="${global_storage:?global_storage is not set}/learning-pdtsp"
