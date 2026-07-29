@@ -57,7 +57,7 @@ python -u evaluate_msa_ortools.py \
     --output "$OUTPUT" \
     --dod 0.5 \
     --scenarios 2 \
-    --solver-time-ms 10 \
+    --solver-time-ms 50 \
     --num-samples 1 \
     --seed 0 \
     "${SCENARIO_ARGS[@]}"

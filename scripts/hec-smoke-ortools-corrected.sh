@@ -53,8 +53,8 @@ python -u evaluate_ortools_baselines.py \
     --dataset "$DATASET" \
     --output "$OUTPUT" \
     --num-samples 1 \
-    --online-time-ms 50 \
-    --static-time-ms 100 \
+    --online-time-ms 250 \
+    --static-time-ms 500 \
     --max-trips 9 \
     "${EXTRA_ARGS[@]}"
 

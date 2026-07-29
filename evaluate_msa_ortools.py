@@ -208,6 +208,12 @@ def solve_scenario(data, problem_name, time_limit_ms):
     parameters.time_limit.FromMilliseconds(time_limit_ms)
     solution = routing.SolveWithParameters(parameters)
     if solution is None:
+        # Very short evaluation budgets can expire before OR-Tools constructs
+        # its first feasible route, especially with optional reload nodes.
+        # Retry only for feasibility, with a bounded larger budget.
+        parameters.time_limit.FromMilliseconds(max(250, time_limit_ms * 4))
+        solution = routing.SolveWithParameters(parameters)
+    if solution is None:
         return []
     route = []
     index = routing.Start(0)
@@ -397,9 +403,14 @@ def evaluate_instance(args, problem, item, ortec=None):
                         and scenario["mapping"][node] != 0
                         and feasible[scenario["mapping"][node]].item()
                     ),
-                    0,
+                    None,
                 )
-                votes.append(action)
+                if action is not None:
+                    votes.append(action)
+            if not votes:
+                raise RuntimeError(
+                    "All MSA OR-Tools scenarios failed to return a feasible action"
+                )
             selected = torch.tensor(
                 [Counter(votes).most_common(1)[0][0]], dtype=torch.long
             )
