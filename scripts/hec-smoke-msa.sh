@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-instance, two-scenario MSA smoke test for all three test distributions.
-#SBATCH --partition=astro
+#SBATCH --partition=serial
 #SBATCH --job-name=pdtsp-msa-smoke
 #SBATCH --array=0-11
 #SBATCH --cpus-per-task=1

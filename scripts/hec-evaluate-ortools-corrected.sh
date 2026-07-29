@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Corrected rolling and clairvoyant OR-Tools baselines:
 # 4 problems x 3 distributions x 2 sizes x 3 DoD.
-#SBATCH --partition=astro
+#SBATCH --partition=serial
 #SBATCH --job-name=pdtsp-ortools-fixed
 #SBATCH --array=0-71
 #SBATCH --cpus-per-task=1

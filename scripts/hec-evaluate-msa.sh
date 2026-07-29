@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Uniform, skew spatio-temporal, and ORTEC MSA evaluation:
 # 4 problems x 3 distributions x 2 sizes x 3 DoD x 3 sampling seeds.
-#SBATCH --partition=astro
+#SBATCH --partition=serial
 #SBATCH --job-name=pdtsp-msa
 #SBATCH --array=0-215
 #SBATCH --cpus-per-task=1

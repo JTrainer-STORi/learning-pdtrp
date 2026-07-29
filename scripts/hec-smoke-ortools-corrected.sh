@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One fixed test instance for every problem/distribution combination.
-#SBATCH --partition=astro
+#SBATCH --partition=serial
 #SBATCH --job-name=pdtsp-ortools-smoke
 #SBATCH --array=0-11
 #SBATCH --cpus-per-task=1
