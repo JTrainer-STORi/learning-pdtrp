@@ -20,7 +20,14 @@
 
 source /etc/profile
 
-set -euo pipefail
+set -eo pipefail
+
+module add miniforge
+
+ENVIRONMENT_PATH="${global_storage:?global_storage is not set}/learning-tsp/tsp-new"
+source activate "$ENVIRONMENT_PATH"
+
+set -u
 
 TASK_ID="${SLURM_ARRAY_TASK_ID:?This script must be run as a Slurm array job}"
 ARRAY_JOB_ID="${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:?SLURM_JOB_ID is not set}}"
@@ -33,13 +40,8 @@ mkdir -p "$MODEL_ROOT" "$FRAMEWORK_LOG_ROOT" "$SLURM_LOG_ROOT"
 RUN_LOG="${SLURM_LOG_ROOT}/pdtsp-smoke.${ARRAY_JOB_ID}_${TASK_ID}.log"
 exec > >(tee -a "$RUN_LOG") 2>&1
 
-module add miniforge
-
-PROJECT_DIR="${global_storage:?global_storage is not set}/learning-pdtsp"
-ENVIRONMENT_PATH="${global_storage}/learning-tsp/tsp-new"
-
+PROJECT_DIR="${global_storage}/learning-pdtsp"
 cd "$PROJECT_DIR"
-source activate "$ENVIRONMENT_PATH"
 
 PROBLEMS=(
     pdtrp pdctrp pdtrptw pdctrptw
