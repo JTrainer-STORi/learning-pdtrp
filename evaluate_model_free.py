@@ -49,14 +49,23 @@ def stored_costs(problem, problem_name, dataset):
 
 
 def nearest_neighbour(problem, model_input):
+    """Visit the nearest feasible customer, reloading only when necessary."""
     state = problem.make_state(model_input)
     tour = [0]
     while not state.all_finished():
+        feasible = ~state.get_mask()[0, 0]
+        feasible_customers = feasible.clone()
+        feasible_customers[0] = False
         distances = model_input["distance_matrix"][
             0, state.prev_a.item()
         ].clone()
-        distances[state.get_mask()[0, 0]] = float("inf")
-        selected = torch.argmin(distances).view(1)
+        if feasible_customers.any():
+            distances[~feasible_customers] = float("inf")
+            selected = torch.argmin(distances).view(1)
+        elif feasible[0]:
+            selected = torch.zeros(1, dtype=torch.long)
+        else:
+            raise RuntimeError("Environment has unfinished work but no feasible action")
         state = state.update(selected)
         tour.append(selected.item())
     tour_tensor = torch.tensor(tour, dtype=torch.long).unsqueeze(0)

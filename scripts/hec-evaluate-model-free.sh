@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Evaluate OR-Tools stored tours and the nearest-neighbour heuristic for every
-# uniform and real-world table test set (4 problems x 2 sizes x 3 DoD x 2).
+# Evaluate stored OR-Tools tours and nearest neighbour for all table test sets:
+# 4 problems x 3 distributions x 2 sizes x 3 DoD.
 #SBATCH --partition=astro
 #SBATCH --job-name=pdtsp-model-free
-#SBATCH --array=0-47
+#SBATCH --array=0-71
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
 #SBATCH --time=02:00:00
@@ -13,7 +13,6 @@
 source /etc/profile
 set -eo pipefail
 module add miniforge
-export PYTHONNOUSERSITE=1
 ENVIRONMENT_PATH="${global_storage:?global_storage is not set}/learning-tsp/tsp-new"
 source activate "$ENVIRONMENT_PATH"
 set -u
@@ -32,9 +31,9 @@ DATASET_DIRS=(pdtrp pdcvrp pdtrptw pdcvrptw)
 SIZES=(50 100)
 DODS=(0.2 0.5 0.8)
 
-PROBLEM_ID=$((TASK_ID / 12))
-WITHIN_PROBLEM=$((TASK_ID % 12))
-REAL_WORLD=$((WITHIN_PROBLEM / 6))
+PROBLEM_ID=$((TASK_ID / 18))
+WITHIN_PROBLEM=$((TASK_ID % 18))
+DISTRIBUTION_ID=$((WITHIN_PROBLEM / 6))
 SIZE_ID=$(((WITHIN_PROBLEM % 6) / 3))
 DOD_ID=$((WITHIN_PROBLEM % 3))
 
@@ -43,17 +42,23 @@ DATASET_DIR="${DATASET_DIRS[$PROBLEM_ID]}"
 SIZE="${SIZES[$SIZE_ID]}"
 DOD="${DODS[$DOD_ID]}"
 MARKER=""
+DISTRIBUTION="uniform"
 ORTEC_ARGS=()
-if [[ "$REAL_WORLD" -eq 1 ]]; then
+if [[ "$DISTRIBUTION_ID" -eq 1 ]]; then
+    MARKER="_skew-st"
+    DISTRIBUTION="skew-spatio-temporal"
+elif [[ "$DISTRIBUTION_ID" -eq 2 ]]; then
     MARKER="_ortec"
+    DISTRIBUTION="real-world"
     ORTEC_FILE="new_data/ortec_rl/ORTEC-VRPTW-ASYM-00c5356f-d1-n258-k12.txt"
+    [[ -s "$ORTEC_FILE" ]] || { echo "Missing $ORTEC_FILE" >&2; exit 1; }
     ORTEC_ARGS+=(--use-ortec "$ORTEC_FILE")
 fi
 
 BASE="${DATASET_DIR}${SIZE}dod${DOD}v4th8_testing${MARKER}_ortools"
 DATASET="new_data/${DATASET_DIR}/${BASE}.txt"
 STATIC_DATASET="static_solves/${DATASET_DIR}/${BASE}_static.txt"
-OUTPUT="${RESULT_ROOT}/results/${PROBLEM}/${SIZE}/dod-${DOD}/$([[ "$REAL_WORLD" -eq 1 ]] && echo real-world || echo uniform)"
+OUTPUT="${RESULT_ROOT}/results/${PROBLEM}/${SIZE}/dod-${DOD}/${DISTRIBUTION}"
 
 [[ -s "$DATASET" ]] || { echo "Missing $DATASET" >&2; exit 1; }
 [[ -s "$STATIC_DATASET" ]] || { echo "Missing $STATIC_DATASET" >&2; exit 1; }
