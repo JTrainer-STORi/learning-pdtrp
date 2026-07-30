@@ -4,7 +4,7 @@
 #SBATCH --partition=serial
 #SBATCH --job-name=pdtsp-model-free
 #SBATCH --array=0-71
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --time=02:00:00
 #SBATCH --output=pdtsp-model-free.%A_%a.out
