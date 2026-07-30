@@ -7,7 +7,7 @@
 #
 # A task is evaluated only if its final epoch-99.pt checkpoint is present.
 #
-#SBATCH --partition=astro
+#SBATCH --partition=gpu-short
 #SBATCH --job-name=pdtsp-policy-eval
 #SBATCH --array=0-38
 #SBATCH --gres=gpu:1
