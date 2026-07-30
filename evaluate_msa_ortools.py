@@ -228,7 +228,7 @@ def solve_scenario(data, problem_name, time_limit_ms):
                     node
                     for node in first_nodes
                     if float(data["demand"][0]) + float(data["demand"][node])
-                    <= float(data["capacity"]) + 1e-9
+                    <= float(data["capacity"]) + 1e-5
                 ),
                 None,
             )
@@ -236,7 +236,9 @@ def solve_scenario(data, problem_name, time_limit_ms):
             first = first_nodes[0]
         if first is None:
             raise RuntimeError(
-                "No first-stage customer fits the current vehicle capacity"
+                "No first-stage customer fits the current vehicle capacity: "
+                f"used={float(data['demand'][0]):.6f}, "
+                f"first_demands={[round(float(data['demand'][node]), 6) for node in first_nodes]}"
             )
         customers = [first, *[node for node in customers if node != first]]
     initial_route = []
@@ -256,7 +258,7 @@ def solve_scenario(data, problem_name, time_limit_ms):
         for node in remaining:
             node_demand = float(data["demand"][node])
             for index, load in enumerate(bin_loads):
-                if load + node_demand <= data["capacity"] + 1e-9:
+                if load + node_demand <= data["capacity"] + 1e-5:
                     bins[index].append(node)
                     bin_loads[index] += node_demand
                     break
@@ -340,6 +342,7 @@ def make_scenario(
     current_time = float(state.cur_times.item())
     visited = state.visited_[0, 0]
     arrived = ~state.not_arrived_[0, 0]
+    actual_feasible = ~state.get_mask()[0, 0]
     known_ids = torch.nonzero((~visited) & arrived).flatten().tolist()
     known_ids = [node for node in known_ids if node != 0]
     future_ids = torch.nonzero(
@@ -386,7 +389,8 @@ def make_scenario(
             windows.append((0.0, 10**6))
 
     for node in known_ids:
-        first_nodes.append(len(coords))
+        if actual_feasible[node].item():
+            first_nodes.append(len(coords))
         coords.append(actual["all_nodes"][0, node])
         service.append(actual["service_times"][0, node])
         mapping.append(node)
