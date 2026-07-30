@@ -96,19 +96,23 @@ echo "Checkpoint: ${CHECKPOINT}"
 
 DATASET_ROOT="${PROJECT_DIR}/new_data/${DATASET_DIR}"
 DODS=(0.2 0.5 0.8)
+TEST_SIZES=(50 100)
 DATASETS=()
 
 add_distribution() {
     local suffix="$1"
+    local size
     local dod
     local dataset
-    for dod in "${DODS[@]}"; do
-        dataset="${DATASET_ROOT}/${DATASET_DIR}${MAX_TOTAL}dod${dod}v4th8_testing${suffix}_ortools.txt"
-        if [[ ! -f "$dataset" ]]; then
-            echo "Missing fixed test dataset: ${dataset}" >&2
-            exit 1
-        fi
-        DATASETS+=("$dataset")
+    for size in "${TEST_SIZES[@]}"; do
+        for dod in "${DODS[@]}"; do
+            dataset="${DATASET_ROOT}/${DATASET_DIR}${size}dod${dod}v4th8_testing${suffix}_ortools.txt"
+            if [[ ! -f "$dataset" ]]; then
+                echo "Missing fixed test dataset: ${dataset}" >&2
+                exit 1
+            fi
+            DATASETS+=("$dataset")
+        done
     done
 }
 

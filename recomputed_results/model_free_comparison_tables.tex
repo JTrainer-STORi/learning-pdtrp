@@ -1,0 +1,133 @@
+\begin{table}[hpbt]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Partial reproduction on uniform--uniform test sets. Learned-policy results are pending. Gaps are relative to clairvoyant OR-Tools; times are per instance.}
+\label{tab:recomputed-uniform-partial}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cl|rrl|rrl|rrl}
+\hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Uniform--Uniform $N=50$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 9.53 & 66.4 & 0.01s & 14.30 & 149.0 & 0.01s & 18.65 & 224.7 & 0.01s \\
+ & Online OR-Tools & 13.11 & 128.9 & 11.18s & 16.39 & 185.2 & 9.83s & 20.16 & 250.9 & 9.43s \\
+ & MSA OR-Tools & 10.44 & 82.3 & 24.38s & 14.60 & 154.1 & 24.30s & 19.32 & 236.3 & 24.53s \\
+ & Clairvoyant OR-Tools & 5.73 & 0.0 & 3.00s & 5.74 & 0.0 & 3.00s & 5.74 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 13.10 & 46.6 & 0.01s & 16.59 & 86.2 & 0.02s & 20.10 & 126.1 & 0.01s \\
+ & Online OR-Tools & 18.48 & 106.8 & 11.72s & 20.86 & 134.0 & 11.19s & 23.31 & 162.3 & 11.15s \\
+ & MSA OR-Tools & 15.49 & 73.3 & 25.36s & 18.03 & 102.3 & 25.34s & 21.23 & 138.9 & 25.35s \\
+ & Clairvoyant OR-Tools & 8.94 & 0.0 & 3.00s & 8.91 & 0.0 & 3.00s & 8.89 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 11610 & 84821.9 & 0.01s & 10353 & 72053.8 & 0.01s & 9315 & 66312.5 & 0.02s \\
+ & Online OR-Tools & 52.39 & 283.3 & 12.12s & 18.03 & 25.6 & 12.07s & 39.78 & 183.6 & 12.09s \\
+ & MSA OR-Tools & 7841 & 57252.5 & 25.38s & 7736 & 53813.7 & 25.35s & 7107 & 50572.2 & 25.08s \\
+ & Clairvoyant OR-Tools & 13.67 & 0.0 & 3.00s & 14.35 & 0.0 & 3.00s & 14.03 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 12418 & 1924.9 & 0.01s & 11912 & 1882.9 & 0.01s & 9982 & 1689.9 & 0.01s \\
+ & Online OR-Tools & 1797 & 193.1 & 12.11s & 1732 & 188.3 & 12.11s & 804.6 & 44.3 & 12.10s \\
+ & MSA OR-Tools & 8217 & 1239.8 & 25.63s & 8207 & 1266.1 & 25.62s & 10734 & 1824.8 & 25.72s \\
+ & Clairvoyant OR-Tools & 613.3 & 0.0 & 3.00s & 600.8 & 0.0 & 3.00s & 557.7 & 0.0 & 3.00s \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Uniform--Uniform $N=100$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 12.33 & 54.4 & 0.02s & 15.17 & 90.2 & 0.02s & 17.81 & 122.7 & 0.03s \\
+ & Online OR-Tools & 19.39 & 142.8 & 24.62s & 21.16 & 165.2 & 24.62s & 23.81 & 197.8 & 24.61s \\
+ & MSA OR-Tools & 24.46 & 206.3 & 52.42s & 26.84 & 236.5 & 52.41s & 27.73 & 246.7 & 52.70s \\
+ & Clairvoyant OR-Tools & 7.99 & 0.0 & 3.00s & 7.98 & 0.0 & 3.00s & 8.00 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 15.64 & 43.3 & 0.02s & 17.94 & 63.4 & 0.02s & 20.34 & 81.8 & 0.03s \\
+ & Online OR-Tools & 27.07 & 148.0 & 24.67s & 29.40 & 167.7 & 24.64s & 31.88 & 184.9 & 24.71s \\
+ & MSA OR-Tools & 28.17 & 158.1 & 51.62s & 29.95 & 172.8 & 51.61s & 31.63 & 182.7 & 51.60s \\
+ & Clairvoyant OR-Tools & 10.92 & 0.0 & 3.00s & 10.98 & 0.0 & 3.00s & 11.19 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 32819 & 105.4 & 0.01s & 31213 & 113.5 & 0.01s & 29251 & 195.1 & 0.02s \\
+ & Online OR-Tools & 28393 & 77.7 & 25.14s & 14018 & -4.1 & 24.92s & 3002 & -69.7 & 24.76s \\
+ & MSA OR-Tools & 40508 & 153.5 & 52.42s & 39487 & 170.1 & 52.42s & 38776 & 291.2 & 52.42s \\
+ & Clairvoyant OR-Tools & 15980 & 0.0 & 3.01s & 14618 & 0.0 & 3.01s & 9912 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 34640 & 203.7 & 0.02s & 33159 & 188.6 & 0.02s & 30376 & 156.9 & 0.02s \\
+ & Online OR-Tools & 29579 & 159.3 & 24.85s & 18503 & 61.1 & 24.80s & 8389 & -29.0 & 24.78s \\
+ & MSA OR-Tools & 55033 & 382.5 & 53.65s & 54390 & 373.4 & 53.87s & 52805 & 346.6 & 53.82s \\
+ & Clairvoyant OR-Tools & 11405 & 0.0 & 3.01s & 11488 & 0.0 & 3.01s & 11823 & 0.0 & 3.01s \\ \hline
+\end{tabular}%
+}
+\end{table}
+
+\begin{table}[hpbt]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Partial reproduction on real-world test sets. Learned-policy results are pending. Gaps are relative to clairvoyant OR-Tools; times are per instance.}
+\label{tab:recomputed-real-world-partial}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cl|rrl|rrl|rrl}
+\hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Real-world $N=50$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 7.07 & 26.7 & 0.01s & 7.96 & 42.6 & 0.01s & 9.26 & 65.9 & 0.01s \\
+ & Online OR-Tools & 9.17 & 64.4 & 12.06s & 10.16 & 82.2 & 12.06s & 11.62 & 108.1 & 12.06s \\
+ & MSA OR-Tools & 9.08 & 62.9 & 24.57s & 9.69 & 73.6 & 24.55s & 11.01 & 97.2 & 24.55s \\
+ & Clairvoyant OR-Tools & 5.58 & 0.0 & 3.00s & 5.58 & 0.0 & 3.00s & 5.58 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 10.97 & 24.4 & 0.01s & 11.55 & 32.3 & 0.01s & 12.47 & 41.6 & 0.04s \\
+ & Online OR-Tools & 14.82 & 68.1 & 12.13s & 15.14 & 73.4 & 12.13s & 16.47 & 87.0 & 12.09s \\
+ & MSA OR-Tools & 13.63 & 54.6 & 25.36s & 14.16 & 62.2 & 25.34s & 15.38 & 74.6 & 25.32s \\
+ & Clairvoyant OR-Tools & 8.82 & 0.0 & 3.00s & 8.73 & 0.0 & 3.00s & 8.81 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 8883 & 953.3 & 0.01s & 8093 & 860.1 & 0.01s & 7867 & 852.0 & 0.01s \\
+ & Online OR-Tools & 1714 & 103.2 & 12.11s & 1269 & 50.5 & 12.12s & 1906 & 130.7 & 12.12s \\
+ & MSA OR-Tools & 4904 & 481.5 & 25.22s & 4464 & 429.6 & 25.18s & 4764 & 476.5 & 25.37s \\
+ & Clairvoyant OR-Tools & 843.3 & 0.0 & 3.00s & 843.0 & 0.0 & 3.00s & 826.3 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 9864 & 425.7 & 0.01s & 9386 & 393.4 & 0.01s & 8701 & 368.7 & 0.01s \\
+ & Online OR-Tools & 2939 & 56.6 & 12.12s & 2483 & 30.5 & 12.16s & 3321 & 78.9 & 12.16s \\
+ & MSA OR-Tools & 8221 & 338.1 & 26.09s & 7800 & 310.1 & 26.10s & 7690 & 314.2 & 26.08s \\
+ & Clairvoyant OR-Tools & 1876 & 0.0 & 3.00s & 1902 & 0.0 & 3.00s & 1857 & 0.0 & 3.00s \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Real-world $N=100$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 9.68 & 19.9 & 0.01s & 10.27 & 28.0 & 0.01s & 11.11 & 37.9 & 0.02s \\
+ & Online OR-Tools & 15.28 & 89.3 & 24.69s & 14.88 & 85.5 & 24.62s & 15.90 & 97.4 & 24.69s \\
+ & MSA OR-Tools & 15.20 & 88.4 & 50.02s & 15.28 & 90.4 & 49.98s & 16.04 & 99.1 & 49.99s \\
+ & Clairvoyant OR-Tools & 8.07 & 0.0 & 3.00s & 8.03 & 0.0 & 3.00s & 8.05 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 13.20 & 21.4 & 0.07s & 13.71 & 27.1 & 0.02s & 14.59 & 31.9 & 0.02s \\
+ & Online OR-Tools & 21.81 & 100.7 & 24.70s & 22.48 & 108.4 & 24.65s & 23.85 & 115.6 & 24.72s \\
+ & MSA OR-Tools & 24.29 & 123.5 & 51.50s & 23.72 & 119.9 & 51.39s & 24.57 & 122.1 & 51.38s \\
+ & Clairvoyant OR-Tools & 10.87 & 0.0 & 3.00s & 10.79 & 0.0 & 3.00s & 11.06 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 40175 & 67.3 & 0.02s & 39352 & 62.6 & 0.03s & 36704 & 58.1 & 0.05s \\
+ & Online OR-Tools & 31601 & 31.6 & 24.95s & 30916 & 27.7 & 25.05s & 26495 & 14.1 & 24.90s \\
+ & MSA OR-Tools & 40849 & 70.1 & 51.77s & 43443 & 79.5 & 52.52s & 44282 & 90.7 & 52.95s \\
+ & Clairvoyant OR-Tools & 24016 & 0.0 & 3.01s & 24200 & 0.0 & 3.01s & 23222 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & RL 20--100 (pending) & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+ & Nearest neighbour & 42613 & 78.7 & 0.05s & 41491 & 74.0 & 0.02s & 39196 & 65.2 & 0.02s \\
+ & Online OR-Tools & 37453 & 57.0 & 24.80s & 34106 & 43.0 & 24.79s & 32630 & 37.6 & 24.78s \\
+ & MSA OR-Tools & 59592 & 149.9 & 53.81s & 58325 & 144.6 & 53.17s & 59048 & 148.9 & 53.26s \\
+ & Clairvoyant OR-Tools & 23850 & 0.0 & 3.00s & 23844 & 0.0 & 3.00s & 23721 & 0.0 & 3.00s \\ \hline
+\end{tabular}%
+}
+\end{table}
