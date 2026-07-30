@@ -25,6 +25,7 @@ scripts/*
 !scripts/hec-smoke-msa.sh
 !scripts/hec-evaluate-ortools-corrected.sh
 !scripts/hec-smoke-ortools-corrected.sh
+!scripts/hec-evaluate-trained-policies.sh
 runtime_stats/
 test_results/
 hec_val_sets/
