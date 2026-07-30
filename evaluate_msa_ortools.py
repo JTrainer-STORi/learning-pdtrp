@@ -206,13 +206,50 @@ def solve_scenario(data, problem_name, time_limit_ms):
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
     parameters.time_limit.FromMilliseconds(time_limit_ms)
-    solution = routing.SolveWithParameters(parameters)
+
+    # Give OR-Tools an explicit feasible incumbent. First-solution heuristics
+    # are unreliable with optional negative-demand reload nodes, even when the
+    # capacity model is feasible.
+    customers = [
+        node
+        for node in range(1, size)
+        if node not in data["reload_nodes"]
+    ]
+    initial_route = []
+    if problem_name in CAPACITY_PROBLEMS:
+        reloads = iter(sorted(data["reload_nodes"]))
+        load = float(data["demand"][0])
+        for node in customers:
+            node_demand = float(data["demand"][node])
+            if load + node_demand > data["capacity"] + 1e-9:
+                try:
+                    initial_route.append(next(reloads))
+                except StopIteration as error:
+                    raise RuntimeError(
+                        "Not enough reload nodes to construct a feasible route"
+                    ) from error
+                load = 0.0
+            initial_route.append(node)
+            load += node_demand
+    else:
+        initial_route = customers
+
+    initial_assignment = routing.ReadAssignmentFromRoutes(
+        [initial_route], True
+    )
+    if initial_assignment is None:
+        return []
+    solution = routing.SolveFromAssignmentWithParameters(
+        initial_assignment, parameters
+    )
     if solution is None:
         # Very short evaluation budgets can expire before OR-Tools constructs
         # its first feasible route, especially with optional reload nodes.
         # Retry only for feasibility, with a bounded larger budget.
         parameters.time_limit.FromMilliseconds(max(250, time_limit_ms * 4))
-        solution = routing.SolveWithParameters(parameters)
+        solution = routing.SolveFromAssignmentWithParameters(
+            initial_assignment, parameters
+        )
     if solution is None:
         return []
     route = []
@@ -292,7 +329,10 @@ def make_scenario(
     windows = [(0.0, 10**6)]
 
     if problem_name in CAPACITY_PROBLEMS:
-        for _ in range(max_trips):
+        # A scenario combines observed demand from the actual instance with
+        # sampled future demand from another draw, so its total can exceed one
+        # generated instance's nominal trip upper bound.
+        for _ in range(max_trips * 2):
             reload_nodes.append(len(coords))
             coords.append(actual["all_nodes"][0, 0])
             service.append(torch.tensor(0.0))
