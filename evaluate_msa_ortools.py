@@ -198,6 +198,12 @@ def solve_scenario(data, problem_name, time_limit_ms):
             if node not in data["reload_nodes"]:
                 dimension.SlackVar(manager.NodeToIndex(node)).SetValue(0)
 
+    first_nodes = data.get("first_nodes", [])
+    if first_nodes:
+        routing.NextVar(routing.Start(0)).SetValues(
+            [manager.NodeToIndex(node) for node in first_nodes]
+        )
+
     parameters = pywrapcp.DefaultRoutingSearchParameters()
     parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
@@ -215,22 +221,58 @@ def solve_scenario(data, problem_name, time_limit_ms):
         for node in range(1, size)
         if node not in data["reload_nodes"]
     ]
+    if first_nodes:
+        if problem_name in CAPACITY_PROBLEMS:
+            first = next(
+                (
+                    node
+                    for node in first_nodes
+                    if float(data["demand"][0]) + float(data["demand"][node])
+                    <= float(data["capacity"]) + 1e-9
+                ),
+                None,
+            )
+        else:
+            first = first_nodes[0]
+        if first is None:
+            raise RuntimeError(
+                "No first-stage customer fits the current vehicle capacity"
+            )
+        customers = [first, *[node for node in customers if node != first]]
     initial_route = []
     if problem_name in CAPACITY_PROBLEMS:
-        reloads = iter(sorted(data["reload_nodes"]))
-        load = float(data["demand"][0])
-        for node in customers:
+        bins = [[]]
+        bin_loads = [float(data["demand"][0])]
+        remaining = customers
+        if first_nodes:
+            bins[0].append(customers[0])
+            bin_loads[0] += float(data["demand"][customers[0]])
+            remaining = customers[1:]
+        remaining = sorted(
+            remaining,
+            key=lambda node: float(data["demand"][node]),
+            reverse=True,
+        )
+        for node in remaining:
             node_demand = float(data["demand"][node])
-            if load + node_demand > data["capacity"] + 1e-9:
+            for index, load in enumerate(bin_loads):
+                if load + node_demand <= data["capacity"] + 1e-9:
+                    bins[index].append(node)
+                    bin_loads[index] += node_demand
+                    break
+            else:
+                bins.append([node])
+                bin_loads.append(node_demand)
+        reloads = iter(sorted(data["reload_nodes"]))
+        for index, group in enumerate(bins):
+            if index:
                 try:
                     initial_route.append(next(reloads))
                 except StopIteration as error:
                     raise RuntimeError(
                         "Not enough reload nodes to construct a feasible route"
                     ) from error
-                load = 0.0
-            initial_route.append(node)
-            load += node_demand
+            initial_route.extend(group)
     else:
         initial_route = customers
 
@@ -325,6 +367,7 @@ def make_scenario(
         [actual_source_ids[state.prev_a.item()]] if ortec is not None else None
     )
     reload_nodes = []
+    first_nodes = []
     demand = [float(state.used_cap.item())] if problem_name in CAPACITY_PROBLEMS else []
     windows = [(0.0, 10**6)]
 
@@ -343,6 +386,7 @@ def make_scenario(
             windows.append((0.0, 10**6))
 
     for node in known_ids:
+        first_nodes.append(len(coords))
         coords.append(actual["all_nodes"][0, node])
         service.append(actual["service_times"][0, node])
         mapping.append(node)
@@ -396,6 +440,7 @@ def make_scenario(
         "demand": np.asarray(demand),
         "capacity": 1.0,
         "reload_nodes": set(reload_nodes),
+        "first_nodes": first_nodes,
         "gamma": float(actual["gamma"].item()) if problem_name in TW_PROBLEMS else 0.0,
         "theta": float(actual["theta"].item()) if problem_name in TW_PROBLEMS else 1.0,
     }
@@ -435,18 +480,18 @@ def evaluate_instance(args, problem, item, ortec=None):
                     scenario, args.problem, args.solver_time_ms
                 )
                 solve_time += time.perf_counter() - started
-                action = next(
-                    (
-                        scenario["mapping"][node]
-                        for node in route
-                        if scenario["mapping"][node] is not None
-                        and scenario["mapping"][node] != 0
-                        and feasible[scenario["mapping"][node]].item()
-                    ),
-                    None,
-                )
-                if action is not None:
-                    votes.append(action)
+                if not route:
+                    continue
+                action = scenario["mapping"][route[0]]
+                if (
+                    action is None
+                    or action == 0
+                    or not feasible[action].item()
+                ):
+                    raise RuntimeError(
+                        "MSA violated its executable first-stage constraint"
+                    )
+                votes.append(action)
             if not votes:
                 raise RuntimeError(
                     "All MSA OR-Tools scenarios failed to return a feasible action"

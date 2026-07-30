@@ -23,6 +23,30 @@ def scenario_from_nodes(
     problem_name, actual, current_node, node_ids, used_capacity, max_trips
 ):
     """Build an OR-Tools problem using only the supplied actual customer IDs."""
+    reload_count = 0
+    if problem_name in CAPACITY_PROBLEMS:
+        # First-fit decreasing supplies a feasible incumbent even when
+        # indivisible demands require more trips than ceil(total demand).
+        bins = [[]]
+        bin_loads = [used_capacity]
+        ordered = sorted(
+            node_ids,
+            key=lambda node: float(actual["demand"][0, node]),
+            reverse=True,
+        )
+        for node in ordered:
+            node_demand = float(actual["demand"][0, node])
+            for index, load in enumerate(bin_loads):
+                if load + node_demand <= 1.0 + 1e-9:
+                    bins[index].append(node)
+                    bin_loads[index] += node_demand
+                    break
+            else:
+                bins.append([node])
+                bin_loads.append(node_demand)
+        node_ids = [node for group in bins for node in group]
+        reload_count = len(bins) - 1
+
     source_ids = [current_node]
     mapping = [None]
     service = [0.0]
@@ -31,7 +55,7 @@ def scenario_from_nodes(
     reload_nodes = []
 
     if problem_name in CAPACITY_PROBLEMS:
-        for _ in range(max_trips):
+        for _ in range(reload_count):
             reload_nodes.append(len(source_ids))
             source_ids.append(0)
             mapping.append(0)

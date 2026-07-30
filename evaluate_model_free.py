@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Evaluate stored OR-Tools tours and a nearest-neighbour heuristic."""
+"""Evaluate the online nearest-neighbour heuristic."""
 
 import argparse
 import csv
@@ -18,7 +18,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--problem", required=True)
     parser.add_argument("--dataset", required=True)
-    parser.add_argument("--static-dataset", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--use-ortec")
     parser.add_argument("--num-samples", type=int, default=100)
@@ -35,17 +34,6 @@ def cost(problem, problem_name, model_input, tour, visit_times):
             model_input["theta"],
         )[0]
     return problem.get_costs(model_input, tour)[0]
-
-
-def stored_costs(problem, problem_name, dataset):
-    values = []
-    for index in range(len(dataset)):
-        item = dataset[index]
-        model_input = dataset_to_input(item, problem_name, torch.device("cpu"))
-        tour = item["tour_nodes"].unsqueeze(0)
-        visit_times, _ = problem.get_times(model_input, tour)
-        values.append(cost(problem, problem_name, model_input, tour, visit_times).item())
-    return values
 
 
 def nearest_neighbour(problem, model_input):
@@ -82,12 +70,6 @@ def main():
         "use_ortec": args.use_ortec,
     }
     dataset = problem.make_dataset(filename=args.dataset, **dataset_kwargs)
-    static_dataset = problem.make_dataset(
-        filename=args.static_dataset, **dataset_kwargs
-    )
-
-    ortools_costs = stored_costs(problem, args.problem, dataset)
-    static_costs = stored_costs(problem, args.problem, static_dataset)
     heuristic_costs = []
     heuristic_times = []
     for index in range(len(dataset)):
@@ -104,52 +86,26 @@ def main():
             ).item()
         )
 
-    static_mean = float(np.mean(static_costs))
     rows = []
     for index in range(len(dataset)):
-        rows.extend(
-            (
-                {
-                    "sample": index,
-                    "method": "ortools",
-                    "objective": ortools_costs[index],
-                    "static_objective": static_costs[index],
-                    "runtime_seconds": "",
-                },
-                {
-                    "sample": index,
-                    "method": "heuristic",
-                    "objective": heuristic_costs[index],
-                    "static_objective": static_costs[index],
-                    "runtime_seconds": heuristic_times[index],
-                },
-            )
-        )
-
-    summaries = []
-    for method, objectives, runtimes in (
-        ("ortools", ortools_costs, None),
-        ("heuristic", heuristic_costs, heuristic_times),
-    ):
-        objective_mean = float(np.mean(objectives))
-        summaries.append(
+        rows.append(
             {
-                "problem": args.problem,
-                "dataset": args.dataset,
-                "method": method,
-                "samples": len(objectives),
-                "objective_mean": objective_mean,
-                "objective_std": float(np.std(objectives)),
-                "static_objective_mean": static_mean,
-                "gap_percent": (objective_mean / static_mean - 1) * 100,
-                "runtime_mean_seconds": (
-                    float(np.mean(runtimes)) if runtimes is not None else None
-                ),
-                "runtime_std_seconds": (
-                    float(np.std(runtimes)) if runtimes is not None else None
-                ),
+                "sample": index,
+                "objective": heuristic_costs[index],
+                "runtime_seconds": heuristic_times[index],
             }
         )
+
+    summary = {
+        "problem": args.problem,
+        "dataset": args.dataset,
+        "method": "nearest_neighbour",
+        "samples": len(heuristic_costs),
+        "objective_mean": float(np.mean(heuristic_costs)),
+        "objective_std": float(np.std(heuristic_costs)),
+        "runtime_mean_seconds": float(np.mean(heuristic_times)),
+        "runtime_std_seconds": float(np.std(heuristic_times)),
+    }
 
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
@@ -158,8 +114,8 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
     with (output / "summary.json").open("w") as file:
-        json.dump(summaries, file, indent=2)
-    print(json.dumps(summaries, indent=2))
+        json.dump(summary, file, indent=2)
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

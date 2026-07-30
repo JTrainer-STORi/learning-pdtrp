@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Evaluate stored OR-Tools tours and nearest neighbour for all table test sets:
+# Evaluate nearest neighbour for all table test sets:
 # 4 problems x 3 distributions x 2 sizes x 3 DoD.
 #SBATCH --partition=serial
 #SBATCH --job-name=pdtsp-model-free
@@ -57,15 +57,12 @@ fi
 
 BASE="${DATASET_DIR}${SIZE}dod${DOD}v4th8_testing${MARKER}_ortools"
 DATASET="new_data/${DATASET_DIR}/${BASE}.txt"
-STATIC_DATASET="static_solves/${DATASET_DIR}/${BASE}_static.txt"
 OUTPUT="${RESULT_ROOT}/results/${PROBLEM}/${SIZE}/dod-${DOD}/${DISTRIBUTION}"
 
 [[ -s "$DATASET" ]] || { echo "Missing $DATASET" >&2; exit 1; }
-[[ -s "$STATIC_DATASET" ]] || { echo "Missing $STATIC_DATASET" >&2; exit 1; }
 
 python -u evaluate_model_free.py \
     --problem "$PROBLEM" \
     --dataset "$DATASET" \
-    --static-dataset "$STATIC_DATASET" \
     --output "$OUTPUT" \
     "${ORTEC_ARGS[@]}"
