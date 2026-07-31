@@ -4,6 +4,7 @@
 import argparse
 import csv
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -28,6 +29,7 @@ def arguments():
     parser.add_argument("--nearest-job", default="23268938")
     parser.add_argument("--ortools-job", default="23268937")
     parser.add_argument("--msa-jobs", nargs="+", default=("23268787", "23270643"))
+    parser.add_argument("--policy-job", default="23272046")
     parser.add_argument("--output-csv", type=Path, required=True)
     parser.add_argument("--output-tex", type=Path, required=True)
     return parser.parse_args()
@@ -105,6 +107,53 @@ def load_results(args):
             len(objectives),
         )
 
+    policy_by_key = defaultdict(list)
+    policy_root = args.results_root / "policy-evaluation" / args.policy_job
+    for manifest_path in policy_root.glob("task-*/manifest.json"):
+        manifest = json.loads(manifest_path.read_text())
+        checkpoint_name = Path(manifest["checkpoint"]).parent.name
+        match = re.search(
+            r"corrected-(uniform|real-world|joshi)-"
+            r"(pdtrp|pdctrp|pdtrptw|pdctrptw)-20-(50|100)-seed-(\d+)_",
+            checkpoint_name,
+        )
+        if not match:
+            raise RuntimeError(f"Cannot identify policy checkpoint: {checkpoint_name}")
+        training_distribution, problem, training_max, training_seed = match.groups()
+        for result in manifest["datasets"]:
+            dataset_name = Path(result["dataset"]).name
+            dataset_match = re.match(
+                r".*?(50|100)dod(0\.2|0\.5|0\.8)v4th8_testing"
+                r"(?:(?:_skew-st)|(?:_ortec))?_ortools\.txt",
+                dataset_name,
+            )
+            if not dataset_match:
+                raise RuntimeError(f"Cannot identify policy dataset: {dataset_name}")
+            size, dod = dataset_match.groups()
+            distribution = (
+                "real-world"
+                if "_testing_ortec_" in dataset_name
+                else "skew-spatio-temporal"
+                if "_testing_skew-st_" in dataset_name
+                else "uniform"
+            )
+            policy_by_key[
+                (
+                    problem,
+                    int(size),
+                    dod,
+                    distribution,
+                    training_distribution,
+                    int(training_max),
+                )
+            ].append(
+                (
+                    int(training_seed),
+                    result["mean_objective"],
+                    result["mean_runtime_seconds"],
+                )
+            )
+
     expected = {
         (problem, size, dod, distribution)
         for problem in PROBLEMS
@@ -143,8 +192,31 @@ def load_results(args):
                     "gap_percent": 100.0 * (objective / baseline - 1.0),
                     "runtime_seconds": runtime,
                     "observations": observations,
+                    "training_seeds": "",
                 }
             )
+    for key, seed_results in sorted(policy_by_key.items()):
+        problem, size, dod, distribution, training_distribution, training_max = key
+        unique_seeds = {item[0] for item in seed_results}
+        if len(unique_seeds) != len(seed_results):
+            raise RuntimeError(f"Duplicate policy seed results for {key}")
+        objective = float(np.mean([item[1] for item in seed_results]))
+        runtime_seconds = float(np.mean([item[2] for item in seed_results]))
+        baseline = static_means[problem, size, dod, distribution]
+        rows.append(
+            {
+                "problem": problem,
+                "size": size,
+                "dod": dod,
+                "distribution": distribution,
+                "method": f"RL {training_distribution} 20--{training_max}",
+                "objective": objective,
+                "gap_percent": 100.0 * (objective / baseline - 1.0),
+                "runtime_seconds": runtime_seconds,
+                "observations": 100 * len(unique_seeds),
+                "training_seeds": len(unique_seeds),
+            }
+        )
     return rows
 
 
@@ -170,9 +242,16 @@ def latex_table(rows, distribution, caption, label):
         for row in rows
         if row["distribution"] == distribution
     }
-    methods = (
-        "RL 20--50 (pending)",
-        "RL 20--100 (pending)",
+    policy_methods = (
+        ("RL 20--50", "RL uniform 20--50"),
+        ("RL 20--100", "RL uniform 20--100"),
+    )
+    if distribution == "real-world":
+        policy_methods = (
+            ("RL U.U.", "RL uniform 20--50"),
+            ("RL R.W.", "RL real-world 20--50"),
+        )
+    methods = policy_methods + (
         "Nearest neighbour",
         "Online OR-Tools",
         "MSA OR-Tools",
@@ -207,23 +286,32 @@ def latex_table(rows, distribution, caption, label):
             ]
         )
         for problem in PROBLEMS:
-            for method_index, method in enumerate(methods):
+            for method_index, method_spec in enumerate(methods):
+                if isinstance(method_spec, tuple):
+                    method, lookup_method = method_spec
+                else:
+                    method = lookup_method = method_spec
                 prefix = (
                     rf"\multirow{{{len(methods)}}}{{*}}{{\rotatebox{{90}}{{{PROBLEM_LABELS[problem]}}}}}"
                     if method_index == 0
                     else ""
                 )
                 cells = []
-                if method.startswith("RL "):
-                    cells = [r"--", r"--", r"--"] * len(DODS)
-                else:
-                    for dod in DODS:
-                        row = lookup[problem, size, dod, method]
+                for dod in DODS:
+                    row = lookup.get((problem, size, dod, lookup_method))
+                    if row is None:
+                        cells.extend((r"--", r"--", r"--"))
+                    else:
+                        dagger = (
+                            r"$^\dagger$"
+                            if int(row.get("training_seeds") or 3) < 3
+                            else ""
+                        )
                         cells.extend(
                             (
-                                objective(row["objective"]),
-                                gap(row["gap_percent"]),
-                                runtime(row["runtime_seconds"]),
+                                objective(row["objective"]) + dagger,
+                                gap(row["gap_percent"]) + dagger,
+                                runtime(row["runtime_seconds"]) + dagger,
                             )
                         )
                 end = r" \\ \hline" if method_index == len(methods) - 1 else r" \\"
@@ -239,7 +327,9 @@ def main():
     rows = load_results(args)
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
     with args.output_csv.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
+        writer = csv.DictWriter(
+            handle, fieldnames=rows[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -247,15 +337,18 @@ def main():
         latex_table(
             rows,
             "uniform",
-            "Partial reproduction on uniform--uniform test sets. Learned-policy results are pending. "
-            r"Gaps are relative to clairvoyant OR-Tools; times are per instance.",
+            "Partial reproduction on uniform--uniform test sets. Some learned-policy results remain pending. "
+            r"Available learned-policy results are averaged over three training seeds, except "
+            r"$^\dagger$, which currently denotes one seed. Gaps are relative to clairvoyant "
+            r"OR-Tools; times are per instance.",
             "tab:recomputed-uniform-partial",
         ),
         latex_table(
             rows,
             "real-world",
-            "Partial reproduction on real-world test sets. Learned-policy results are pending. "
-            r"Gaps are relative to clairvoyant OR-Tools; times are per instance.",
+            "Partial reproduction on real-world test sets. Some learned-policy results remain pending. "
+            r"Available learned-policy results are averaged over three training seeds. Gaps are "
+            r"relative to clairvoyant OR-Tools; times are per instance.",
             "tab:recomputed-real-world-partial",
         ),
     ]
