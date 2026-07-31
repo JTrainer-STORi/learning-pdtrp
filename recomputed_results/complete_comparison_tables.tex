@@ -1,0 +1,202 @@
+\begin{table}[hpbt]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Recomputed results on uniform--uniform test sets. Learned-policy results are reported as mean objective $\pm$ standard deviation over three training seeds. Bold denotes the best non-clairvoyant mean objective. Gaps are relative to clairvoyant OR-Tools; times are per instance.}
+\label{tab:recomputed-uniform}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cl|rrl|rrl|rrl}
+\hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Uniform--Uniform $N=50$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{7}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 & \textbf{9.30\,{\scriptsize$\pm$0.02}} & 62.4 & 0.07s & \textbf{14.06\,{\scriptsize$\pm$0.03}} & 144.8 & 0.09s & \textbf{18.51\,{\scriptsize$\pm$0.02}} & 222.2 & 0.10s \\
+ & RL 20--100 & 9.34\,{\scriptsize$\pm$0.03} & 63.1 & 0.07s & 14.08\,{\scriptsize$\pm$0.05} & 145.2 & 0.09s & 18.62\,{\scriptsize$\pm$0.04} & 224.1 & 0.10s \\
+ & Joshi & 9.64\,{\scriptsize$\pm$0.06} & 68.3 & 0.07s & 14.96\,{\scriptsize$\pm$0.13} & 160.4 & 0.09s & 19.73\,{\scriptsize$\pm$0.30} & 243.4 & 0.10s \\
+ & Nearest neighbour & 9.53 & 66.4 & 0.01s & 14.30 & 149.0 & 0.01s & 18.65 & 224.7 & 0.01s \\
+ & Online OR-Tools & 13.11 & 128.9 & 11.18s & 16.39 & 185.2 & 9.83s & 20.16 & 250.9 & 9.43s \\
+ & MSA OR-Tools & 10.44 & 82.3 & 24.38s & 14.60 & 154.1 & 24.30s & 19.32 & 236.3 & 24.53s \\
+ & Clairvoyant OR-Tools & 5.73 & 0.0 & 3.00s & 5.74 & 0.0 & 3.00s & 5.74 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 & 12.24\,{\scriptsize$\pm$0.05} & 37.0 & 0.09s & 15.86\,{\scriptsize$\pm$0.03} & 78.0 & 0.11s & \textbf{19.40\,{\scriptsize$\pm$0.11}} & 118.3 & 0.13s \\
+ & RL 20--100 & \textbf{12.20\,{\scriptsize$\pm$0.04}} & 36.6 & 0.09s & \textbf{15.76\,{\scriptsize$\pm$0.01}} & 76.9 & 0.11s & 19.42\,{\scriptsize$\pm$0.07} & 118.5 & 0.13s \\
+ & Nearest neighbour & 13.10 & 46.6 & 0.01s & 16.59 & 86.2 & 0.02s & 20.10 & 126.1 & 0.01s \\
+ & Online OR-Tools & 18.48 & 106.8 & 11.72s & 20.86 & 134.0 & 11.19s & 23.31 & 162.3 & 11.15s \\
+ & MSA OR-Tools & 15.49 & 73.3 & 25.36s & 18.03 & 102.3 & 25.34s & 21.23 & 138.9 & 25.35s \\
+ & Clairvoyant OR-Tools & 8.94 & 0.0 & 3.00s & 8.91 & 0.0 & 3.00s & 8.89 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 & 34.84\,{\scriptsize$\pm$5.40} & 154.9 & 0.08s & 39.04\,{\scriptsize$\pm$6.39} & 172.1 & 0.10s & 87.82\,{\scriptsize$\pm$7.50} & 526.1 & 0.11s \\
+ & RL 20--100 & \textbf{34.48\,{\scriptsize$\pm$3.78}} & 152.2 & 0.08s & 37.22\,{\scriptsize$\pm$3.40} & 159.4 & 0.10s & 71.53\,{\scriptsize$\pm$6.00} & 410.0 & 0.11s \\
+ & Nearest neighbour & 11610 & 84821.9 & 0.01s & 10353 & 72053.8 & 0.01s & 9315 & 66312.5 & 0.02s \\
+ & Online OR-Tools & 52.39 & 283.3 & 12.12s & \textbf{18.03} & 25.6 & 12.07s & \textbf{39.78} & 183.6 & 12.09s \\
+ & MSA OR-Tools & 7841 & 57252.5 & 25.38s & 7736 & 53813.7 & 25.35s & 7107 & 50572.2 & 25.08s \\
+ & Clairvoyant OR-Tools & 13.67 & 0.0 & 3.00s & 14.35 & 0.0 & 3.00s & 14.03 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 & \textbf{84.13\,{\scriptsize$\pm$26.27}} & -86.3 & 0.10s & 116.5\,{\scriptsize$\pm$34.88} & -80.6 & 0.12s & 168.9\,{\scriptsize$\pm$46.48} & -69.7 & 0.13s \\
+ & RL 20--100 & 94.47\,{\scriptsize$\pm$37.13} & -84.6 & 0.11s & \textbf{105.8\,{\scriptsize$\pm$44.40}} & -82.4 & 0.13s & \textbf{127.1\,{\scriptsize$\pm$3.66}} & -77.2 & 0.14s \\
+ & Nearest neighbour & 12418 & 1924.9 & 0.01s & 11912 & 1882.9 & 0.01s & 9982 & 1689.9 & 0.01s \\
+ & Online OR-Tools & 1797 & 193.1 & 12.11s & 1732 & 188.3 & 12.11s & 804.6 & 44.3 & 12.10s \\
+ & MSA OR-Tools & 8217 & 1239.8 & 25.63s & 8207 & 1266.1 & 25.62s & 10734 & 1824.8 & 25.72s \\
+ & Clairvoyant OR-Tools & 613.3 & 0.0 & 3.00s & 600.8 & 0.0 & 3.00s & 557.7 & 0.0 & 3.00s \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Uniform--Uniform $N=100$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{7}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 & 12.56\,{\scriptsize$\pm$0.08} & 57.2 & 0.13s & 15.21\,{\scriptsize$\pm$0.03} & 90.7 & 0.16s & 17.72\,{\scriptsize$\pm$0.11} & 121.6 & 0.19s \\
+ & RL 20--100 & 12.43\,{\scriptsize$\pm$0.06} & 55.6 & 0.13s & \textbf{15.11\,{\scriptsize$\pm$0.06}} & 89.4 & 0.16s & \textbf{17.58\,{\scriptsize$\pm$0.03}} & 119.9 & 0.18s \\
+ & Joshi & 14.29\,{\scriptsize$\pm$0.34} & 78.9 & 0.13s & 19.02\,{\scriptsize$\pm$0.89} & 138.4 & 0.17s & 22.12\,{\scriptsize$\pm$0.97} & 176.6 & 0.18s \\
+ & Nearest neighbour & \textbf{12.33} & 54.4 & 0.02s & 15.17 & 90.2 & 0.02s & 17.81 & 122.7 & 0.03s \\
+ & Online OR-Tools & 19.39 & 142.8 & 24.62s & 21.16 & 165.2 & 24.62s & 23.81 & 197.8 & 24.61s \\
+ & MSA OR-Tools & 24.46 & 206.3 & 52.42s & 26.84 & 236.5 & 52.41s & 27.73 & 246.7 & 52.70s \\
+ & Clairvoyant OR-Tools & 7.99 & 0.0 & 3.00s & 7.98 & 0.0 & 3.00s & 8.00 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 & 15.79\,{\scriptsize$\pm$0.04} & 44.6 & 0.16s & 18.21\,{\scriptsize$\pm$0.17} & 65.8 & 0.20s & 20.43\,{\scriptsize$\pm$0.10} & 82.6 & 0.22s \\
+ & RL 20--100 & \textbf{15.36\,{\scriptsize$\pm$0.16}} & 40.8 & 0.17s & \textbf{17.60\,{\scriptsize$\pm$0.05}} & 60.2 & 0.20s & \textbf{19.88\,{\scriptsize$\pm$0.06}} & 77.7 & 0.22s \\
+ & Nearest neighbour & 15.64 & 43.3 & 0.02s & 17.94 & 63.4 & 0.02s & 20.34 & 81.8 & 0.03s \\
+ & Online OR-Tools & 27.07 & 148.0 & 24.67s & 29.40 & 167.7 & 24.64s & 31.88 & 184.9 & 24.71s \\
+ & MSA OR-Tools & 28.17 & 158.1 & 51.62s & 29.95 & 172.8 & 51.61s & 31.63 & 182.7 & 51.60s \\
+ & Clairvoyant OR-Tools & 10.92 & 0.0 & 3.00s & 10.98 & 0.0 & 3.00s & 11.19 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 & 7493\,{\scriptsize$\pm$247.4} & -53.1 & 0.16s & 8212\,{\scriptsize$\pm$337.1} & -43.8 & 0.20s & 9421\,{\scriptsize$\pm$459.9} & -5.0 & 0.21s \\
+ & RL 20--100 & \textbf{3733\,{\scriptsize$\pm$216.7}} & -76.6 & 0.16s & \textbf{4131\,{\scriptsize$\pm$116.9}} & -71.7 & 0.20s & 5138\,{\scriptsize$\pm$54.88} & -48.2 & 0.22s \\
+ & Nearest neighbour & 32819 & 105.4 & 0.01s & 31213 & 113.5 & 0.01s & 29251 & 195.1 & 0.02s \\
+ & Online OR-Tools & 28393 & 77.7 & 25.14s & 14018 & -4.1 & 24.92s & \textbf{3002} & -69.7 & 24.76s \\
+ & MSA OR-Tools & 40508 & 153.5 & 52.42s & 39487 & 170.1 & 52.42s & 38776 & 291.2 & 52.42s \\
+ & Clairvoyant OR-Tools & 15980 & 0.0 & 3.01s & 14618 & 0.0 & 3.01s & 9912 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 & 9412\,{\scriptsize$\pm$1093} & -17.5 & 0.19s & 9696\,{\scriptsize$\pm$1003} & -15.6 & 0.23s & 10578\,{\scriptsize$\pm$1106} & -10.5 & 0.24s \\
+ & RL 20--100 & \textbf{5170\,{\scriptsize$\pm$46.78}} & -54.7 & 0.20s & \textbf{5725\,{\scriptsize$\pm$203.7}} & -50.2 & 0.25s & \textbf{6630\,{\scriptsize$\pm$319.0}} & -43.9 & 0.27s \\
+ & Nearest neighbour & 34640 & 203.7 & 0.02s & 33159 & 188.6 & 0.02s & 30376 & 156.9 & 0.02s \\
+ & Online OR-Tools & 29579 & 159.3 & 24.85s & 18503 & 61.1 & 24.80s & 8389 & -29.0 & 24.78s \\
+ & MSA OR-Tools & 55033 & 382.5 & 53.65s & 54390 & 373.4 & 53.87s & 52805 & 346.6 & 53.82s \\
+ & Clairvoyant OR-Tools & 11405 & 0.0 & 3.01s & 11488 & 0.0 & 3.01s & 11823 & 0.0 & 3.01s \\ \hline
+\end{tabular}%
+}
+\end{table}
+
+\begin{table}[hpbt]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Recomputed results on real-world test sets. Learned-policy results are averaged and reported as mean objective $\pm$ standard deviation over three training seeds. Bold denotes the best non-clairvoyant mean objective. Gaps are relative to clairvoyant OR-Tools; times are per instance.}
+\label{tab:recomputed-real-world}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cl|rrl|rrl|rrl}
+\hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Real-world $N=50$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL U.U. & 7.89\,{\scriptsize$\pm$0.04} & 41.5 & 0.06s & 8.76\,{\scriptsize$\pm$0.09} & 57.0 & 0.06s & 10.01\,{\scriptsize$\pm$0.15} & 79.3 & 0.06s \\
+ & RL R.W. & 7.24\,{\scriptsize$\pm$0.07} & 29.7 & 0.07s & 8.09\,{\scriptsize$\pm$0.12} & 45.1 & 0.06s & 9.55\,{\scriptsize$\pm$0.06} & 71.1 & 0.07s \\
+ & Nearest neighbour & \textbf{7.07} & 26.7 & 0.01s & \textbf{7.96} & 42.6 & 0.01s & \textbf{9.26} & 65.9 & 0.01s \\
+ & Online OR-Tools & 9.17 & 64.4 & 12.06s & 10.16 & 82.2 & 12.06s & 11.62 & 108.1 & 12.06s \\
+ & MSA OR-Tools & 9.08 & 62.9 & 24.57s & 9.69 & 73.6 & 24.55s & 11.01 & 97.2 & 24.55s \\
+ & Clairvoyant OR-Tools & 5.58 & 0.0 & 3.00s & 5.58 & 0.0 & 3.00s & 5.58 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL U.U. & 11.52\,{\scriptsize$\pm$0.18} & 30.6 & 0.08s & 12.17\,{\scriptsize$\pm$0.14} & 39.4 & 0.08s & 12.90\,{\scriptsize$\pm$0.11} & 46.4 & 0.08s \\
+ & RL R.W. & \textbf{10.43\,{\scriptsize$\pm$0.11}} & 18.3 & 0.08s & \textbf{10.87\,{\scriptsize$\pm$0.08}} & 24.5 & 0.08s & \textbf{11.69\,{\scriptsize$\pm$0.01}} & 32.7 & 0.08s \\
+ & Nearest neighbour & 10.97 & 24.4 & 0.01s & 11.55 & 32.3 & 0.01s & 12.47 & 41.6 & 0.04s \\
+ & Online OR-Tools & 14.82 & 68.1 & 12.13s & 15.14 & 73.4 & 12.13s & 16.47 & 87.0 & 12.09s \\
+ & MSA OR-Tools & 13.63 & 54.6 & 25.36s & 14.16 & 62.2 & 25.34s & 15.38 & 74.6 & 25.32s \\
+ & Clairvoyant OR-Tools & 8.82 & 0.0 & 3.00s & 8.73 & 0.0 & 3.00s & 8.81 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL U.U. & 2579\,{\scriptsize$\pm$45.23} & 205.8 & 0.07s & 2581\,{\scriptsize$\pm$25.28} & 206.2 & 0.07s & 3093\,{\scriptsize$\pm$62.04} & 274.3 & 0.07s \\
+ & RL R.W. & \textbf{1312\,{\scriptsize$\pm$9.75}} & 55.6 & 0.07s & 1345\,{\scriptsize$\pm$9.96} & 59.6 & 0.07s & 1962\,{\scriptsize$\pm$21.19} & 137.4 & 0.07s \\
+ & Nearest neighbour & 8883 & 953.3 & 0.01s & 8093 & 860.1 & 0.01s & 7867 & 852.0 & 0.01s \\
+ & Online OR-Tools & 1714 & 103.2 & 12.11s & \textbf{1269} & 50.5 & 12.12s & \textbf{1906} & 130.7 & 12.12s \\
+ & MSA OR-Tools & 4904 & 481.5 & 25.22s & 4464 & 429.6 & 25.18s & 4764 & 476.5 & 25.37s \\
+ & Clairvoyant OR-Tools & 843.3 & 0.0 & 3.00s & 843.0 & 0.0 & 3.00s & 826.3 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL U.U. & 3400\,{\scriptsize$\pm$109.3} & 81.2 & 0.09s & 3403\,{\scriptsize$\pm$133.1} & 78.9 & 0.09s & 3782\,{\scriptsize$\pm$156.4} & 103.7 & 0.09s \\
+ & RL R.W. & \textbf{1858\,{\scriptsize$\pm$21.28}} & -1.0 & 0.09s & \textbf{1947\,{\scriptsize$\pm$37.61}} & 2.3 & 0.09s & \textbf{2384\,{\scriptsize$\pm$66.73}} & 28.4 & 0.09s \\
+ & Nearest neighbour & 9864 & 425.7 & 0.01s & 9386 & 393.4 & 0.01s & 8701 & 368.7 & 0.01s \\
+ & Online OR-Tools & 2939 & 56.6 & 12.12s & 2483 & 30.5 & 12.16s & 3321 & 78.9 & 12.16s \\
+ & MSA OR-Tools & 8221 & 338.1 & 26.09s & 7800 & 310.1 & 26.10s & 7690 & 314.2 & 26.08s \\
+ & Clairvoyant OR-Tools & 1876 & 0.0 & 3.00s & 1902 & 0.0 & 3.00s & 1857 & 0.0 & 3.00s \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Real-world $N=100$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL U.U. & 12.24\,{\scriptsize$\pm$0.21} & 51.7 & 0.11s & 12.86\,{\scriptsize$\pm$0.17} & 60.2 & 0.11s & 13.52\,{\scriptsize$\pm$0.18} & 67.9 & 0.11s \\
+ & RL R.W. & 10.80\,{\scriptsize$\pm$0.17} & 33.8 & 0.11s & 11.23\,{\scriptsize$\pm$0.17} & 40.0 & 0.12s & 12.08\,{\scriptsize$\pm$0.13} & 50.0 & 0.12s \\
+ & Nearest neighbour & \textbf{9.68} & 19.9 & 0.01s & \textbf{10.27} & 28.0 & 0.01s & \textbf{11.11} & 37.9 & 0.02s \\
+ & Online OR-Tools & 15.28 & 89.3 & 24.69s & 14.88 & 85.5 & 24.62s & 15.90 & 97.4 & 24.69s \\
+ & MSA OR-Tools & 15.20 & 88.4 & 50.02s & 15.28 & 90.4 & 49.98s & 16.04 & 99.1 & 49.99s \\
+ & Clairvoyant OR-Tools & 8.07 & 0.0 & 3.00s & 8.03 & 0.0 & 3.00s & 8.05 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL U.U. & 16.05\,{\scriptsize$\pm$0.50} & 47.7 & 0.14s & 16.69\,{\scriptsize$\pm$0.54} & 54.7 & 0.15s & 17.30\,{\scriptsize$\pm$0.32} & 56.4 & 0.15s \\
+ & RL R.W. & 14.06\,{\scriptsize$\pm$0.20} & 29.4 & 0.14s & 14.30\,{\scriptsize$\pm$0.18} & 32.6 & 0.14s & 15.07\,{\scriptsize$\pm$0.19} & 36.2 & 0.14s \\
+ & Nearest neighbour & \textbf{13.20} & 21.4 & 0.07s & \textbf{13.71} & 27.1 & 0.02s & \textbf{14.59} & 31.9 & 0.02s \\
+ & Online OR-Tools & 21.81 & 100.7 & 24.70s & 22.48 & 108.4 & 24.65s & 23.85 & 115.6 & 24.72s \\
+ & MSA OR-Tools & 24.29 & 123.5 & 51.50s & 23.72 & 119.9 & 51.39s & 24.57 & 122.1 & 51.38s \\
+ & Clairvoyant OR-Tools & 10.87 & 0.0 & 3.00s & 10.79 & 0.0 & 3.00s & 11.06 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL U.U. & 30442\,{\scriptsize$\pm$617.3} & 26.8 & 0.12s & 30556\,{\scriptsize$\pm$211.2} & 26.3 & 0.13s & 30699\,{\scriptsize$\pm$210.2} & 32.2 & 0.13s \\
+ & RL R.W. & \textbf{26324\,{\scriptsize$\pm$81.40}} & 9.6 & 0.11s & \textbf{26357\,{\scriptsize$\pm$40.49}} & 8.9 & 0.12s & 26564\,{\scriptsize$\pm$68.01} & 14.4 & 0.12s \\
+ & Nearest neighbour & 40175 & 67.3 & 0.02s & 39352 & 62.6 & 0.03s & 36704 & 58.1 & 0.05s \\
+ & Online OR-Tools & 31601 & 31.6 & 24.95s & 30916 & 27.7 & 25.05s & \textbf{26495} & 14.1 & 24.90s \\
+ & MSA OR-Tools & 40849 & 70.1 & 51.77s & 43443 & 79.5 & 52.52s & 44282 & 90.7 & 52.95s \\
+ & Clairvoyant OR-Tools & 24016 & 0.0 & 3.01s & 24200 & 0.0 & 3.01s & 23222 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL U.U. & 34558\,{\scriptsize$\pm$724.0} & 44.9 & 0.17s & 34575\,{\scriptsize$\pm$927.2} & 45.0 & 0.17s & 34668\,{\scriptsize$\pm$976.3} & 46.2 & 0.17s \\
+ & RL R.W. & \textbf{28305\,{\scriptsize$\pm$393.2}} & 18.7 & 0.15s & \textbf{28426\,{\scriptsize$\pm$413.1}} & 19.2 & 0.16s & \textbf{28551\,{\scriptsize$\pm$433.5}} & 20.4 & 0.16s \\
+ & Nearest neighbour & 42613 & 78.7 & 0.05s & 41491 & 74.0 & 0.02s & 39196 & 65.2 & 0.02s \\
+ & Online OR-Tools & 37453 & 57.0 & 24.80s & 34106 & 43.0 & 24.79s & 32630 & 37.6 & 24.78s \\
+ & MSA OR-Tools & 59592 & 149.9 & 53.81s & 58325 & 144.6 & 53.17s & 59048 & 148.9 & 53.26s \\
+ & Clairvoyant OR-Tools & 23850 & 0.0 & 3.00s & 23844 & 0.0 & 3.00s & 23721 & 0.0 & 3.00s \\ \hline
+\end{tabular}%
+}
+\end{table}
+
+\begin{table}[hpbt]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Recomputed results on skew spatio-temporal test sets. Learned-policy results are reported as mean objective $\pm$ standard deviation over three training seeds. Bold denotes the best non-clairvoyant mean objective. Gaps are relative to clairvoyant OR-Tools; times are per instance.}
+\label{tab:recomputed-skew-spatio-temporal}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cl|rrl|rrl|rrl}
+\hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Skew spatio-temporal $N=50$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 & \textbf{8.69\,{\scriptsize$\pm$0.14}} & 61.9 & 0.07s & \textbf{12.26\,{\scriptsize$\pm$0.14}} & 127.8 & 0.09s & \textbf{15.87\,{\scriptsize$\pm$0.06}} & 194.7 & 0.10s \\
+ & RL 20--100 & 8.72\,{\scriptsize$\pm$0.09} & 62.5 & 0.06s & 12.30\,{\scriptsize$\pm$0.09} & 128.7 & 0.09s & 15.97\,{\scriptsize$\pm$0.09} & 196.4 & 0.10s \\
+ & Nearest neighbour & 8.71 & 62.4 & 0.01s & 12.30 & 128.7 & 0.01s & 15.91 & 195.3 & 0.01s \\
+ & Online OR-Tools & 11.98 & 123.4 & 11.10s & 14.69 & 173.0 & 9.67s & 17.22 & 219.6 & 8.45s \\
+ & MSA OR-Tools & 9.48 & 76.8 & 24.35s & 12.70 & 136.1 & 24.01s & 16.06 & 198.2 & 24.10s \\
+ & Clairvoyant OR-Tools & 5.36 & 0.0 & 3.00s & 5.38 & 0.0 & 3.00s & 5.39 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 & 11.69\,{\scriptsize$\pm$0.10} & 36.1 & 0.09s & \textbf{14.51\,{\scriptsize$\pm$0.09}} & 71.2 & 0.11s & \textbf{17.89\,{\scriptsize$\pm$0.31}} & 109.3 & 0.13s \\
+ & RL 20--100 & \textbf{11.69\,{\scriptsize$\pm$0.06}} & 36.1 & 0.09s & 14.52\,{\scriptsize$\pm$0.06} & 71.3 & 0.11s & 17.92\,{\scriptsize$\pm$0.12} & 109.7 & 0.13s \\
+ & Nearest neighbour & 12.52 & 45.7 & 0.04s & 15.11 & 78.3 & 0.04s & 18.21 & 113.1 & 0.01s \\
+ & Online OR-Tools & 17.60 & 104.9 & 11.51s & 19.60 & 131.2 & 10.96s & 20.73 & 142.6 & 9.98s \\
+ & MSA OR-Tools & 14.29 & 66.3 & 25.33s & 16.52 & 94.9 & 25.34s & 19.01 & 122.4 & 25.33s \\
+ & Clairvoyant OR-Tools & 8.59 & 0.0 & 3.00s & 8.48 & 0.0 & 3.00s & 8.55 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 & \textbf{29.26\,{\scriptsize$\pm$1.16}} & 129.9 & 0.08s & 31.03\,{\scriptsize$\pm$7.80} & 146.1 & 0.10s & 119.4\,{\scriptsize$\pm$5.53} & 947.3 & 0.11s \\
+ & RL 20--100 & 35.89\,{\scriptsize$\pm$7.40} & 182.0 & 0.08s & 39.79\,{\scriptsize$\pm$11.26} & 215.5 & 0.10s & 115.8\,{\scriptsize$\pm$15.44} & 916.1 & 0.11s \\
+ & Nearest neighbour & 11070 & 86866.0 & 0.01s & 10194 & 80734.8 & 0.02s & 8716 & 76362.2 & 0.01s \\
+ & Online OR-Tools & 50.52 & 296.9 & 12.15s & \textbf{13.99} & 10.9 & 12.14s & \textbf{67.86} & 495.3 & 12.07s \\
+ & MSA OR-Tools & 7105 & 55716.2 & 25.42s & 6607 & 52291.5 & 25.44s & 6525 & 57134.8 & 25.44s \\
+ & Clairvoyant OR-Tools & 12.73 & 0.0 & 3.00s & 12.61 & 0.0 & 3.00s & 11.40 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 & \textbf{74.58\,{\scriptsize$\pm$18.14}} & -86.2 & 0.10s & \textbf{84.84\,{\scriptsize$\pm$12.41}} & -79.1 & 0.12s & \textbf{136.3\,{\scriptsize$\pm$51.18}} & -69.2 & 0.13s \\
+ & RL 20--100 & 97.32\,{\scriptsize$\pm$43.69} & -82.0 & 0.11s & 91.41\,{\scriptsize$\pm$27.02} & -77.5 & 0.13s & 157.1\,{\scriptsize$\pm$39.67} & -64.5 & 0.14s \\
+ & Nearest neighbour & 12261 & 2174.0 & 0.02s & 11154 & 2649.9 & 0.01s & 9824 & 2117.0 & 0.02s \\
+ & Online OR-Tools & 1761 & 226.6 & 12.12s & 1367 & 237.1 & 12.11s & 851.1 & 92.1 & 12.12s \\
+ & MSA OR-Tools & 11246 & 1985.7 & 26.08s & 10721 & 2543.2 & 26.06s & 10307 & 2225.7 & 25.64s \\
+ & Clairvoyant OR-Tools & 539.2 & 0.0 & 3.00s & 405.6 & 0.0 & 3.00s & 443.1 & 0.0 & 3.00s \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{9}{c}{Skew spatio-temporal $N=100$} \\ \hline
+\multicolumn{2}{c|}{} & \multicolumn{3}{c|}{$\mathrm{dod}=0.2$} & \multicolumn{3}{c|}{$\mathrm{dod}=0.5$} & \multicolumn{3}{c}{$\mathrm{dod}=0.8$} \\
+ & Method & Obj. & \%Gap & Time & Obj. & \%Gap & Time & Obj. & \%Gap & Time \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP}} & RL 20--50 & 11.70\,{\scriptsize$\pm$0.26} & 55.8 & 0.13s & 14.09\,{\scriptsize$\pm$0.13} & 87.4 & 0.16s & 16.48\,{\scriptsize$\pm$0.02} & 119.7 & 0.19s \\
+ & RL 20--100 & 11.48\,{\scriptsize$\pm$0.11} & 52.9 & 0.13s & 13.91\,{\scriptsize$\pm$0.02} & 85.0 & 0.16s & 16.40\,{\scriptsize$\pm$0.08} & 118.6 & 0.18s \\
+ & Nearest neighbour & \textbf{11.18} & 48.9 & 0.01s & \textbf{13.78} & 83.3 & 0.02s & \textbf{16.07} & 114.3 & 0.01s \\
+ & Online OR-Tools & 18.09 & 140.9 & 24.63s & 19.39 & 157.9 & 24.64s & 21.00 & 180.0 & 24.61s \\
+ & MSA OR-Tools & 17.72 & 136.0 & 51.94s & 18.94 & 151.9 & 52.09s & 20.49 & 173.2 & 52.14s \\
+ & Clairvoyant OR-Tools & 7.51 & 0.0 & 3.00s & 7.52 & 0.0 & 3.00s & 7.50 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP}} & RL 20--50 & 14.84\,{\scriptsize$\pm$0.30} & 41.3 & 0.16s & 16.73\,{\scriptsize$\pm$0.46} & 58.6 & 0.20s & 19.04\,{\scriptsize$\pm$0.34} & 81.3 & 0.22s \\
+ & RL 20--100 & \textbf{14.50\,{\scriptsize$\pm$0.03}} & 38.1 & 0.16s & 16.29\,{\scriptsize$\pm$0.08} & 54.4 & 0.20s & 18.61\,{\scriptsize$\pm$0.22} & 77.1 & 0.22s \\
+ & Nearest neighbour & 14.71 & 40.1 & 0.02s & \textbf{16.28} & 54.3 & 0.05s & \textbf{18.13} & 72.6 & 0.03s \\
+ & Online OR-Tools & 26.40 & 151.3 & 24.66s & 28.03 & 165.7 & 24.70s & 30.19 & 187.4 & 24.62s \\
+ & MSA OR-Tools & 24.93 & 137.4 & 51.57s & 26.91 & 155.1 & 51.75s & 27.28 & 159.7 & 51.71s \\
+ & Clairvoyant OR-Tools & 10.50 & 0.0 & 3.00s & 10.55 & 0.0 & 3.00s & 10.51 & 0.0 & 3.00s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDTRP-TW}} & RL 20--50 & 6516\,{\scriptsize$\pm$343.1} & -57.4 & 0.15s & 7181\,{\scriptsize$\pm$318.1} & -9.7 & 0.19s & 7598\,{\scriptsize$\pm$394.6} & -7.2 & 0.21s \\
+ & RL 20--100 & \textbf{3328\,{\scriptsize$\pm$235.1}} & -78.2 & 0.15s & \textbf{3950\,{\scriptsize$\pm$310.8}} & -50.3 & 0.20s & 4691\,{\scriptsize$\pm$345.3} & -42.7 & 0.22s \\
+ & Nearest neighbour & 32239 & 111.0 & 0.01s & 30492 & 283.5 & 0.01s & 27248 & 232.8 & 0.01s \\
+ & Online OR-Tools & 22833 & 49.4 & 25.08s & 5834 & -26.6 & 24.68s & \textbf{3128} & -61.8 & 24.76s \\
+ & MSA OR-Tools & 34249 & 124.2 & 52.66s & 33952 & 327.0 & 52.58s & 32029 & 291.2 & 52.66s \\
+ & Clairvoyant OR-Tools & 15279 & 0.0 & 3.01s & 7952 & 0.0 & 3.00s & 8188 & 0.0 & 3.01s \\ \hline
+\multirow{6}{*}{\rotatebox{90}{PDCTRP-TW}} & RL 20--50 & 8258\,{\scriptsize$\pm$724.5} & -10.5 & 0.19s & 8587\,{\scriptsize$\pm$775.6} & 2.3 & 0.23s & 9223\,{\scriptsize$\pm$754.4} & 16.8 & 0.24s \\
+ & RL 20--100 & \textbf{4983\,{\scriptsize$\pm$463.0}} & -46.0 & 0.20s & \textbf{5618\,{\scriptsize$\pm$520.1}} & -33.0 & 0.24s & 6315\,{\scriptsize$\pm$315.6} & -20.0 & 0.26s \\
+ & Nearest neighbour & 33846 & 267.0 & 0.02s & 32575 & 288.2 & 0.02s & 28985 & 267.1 & 0.02s \\
+ & Online OR-Tools & 25811 & 179.9 & 24.87s & 13480 & 60.7 & 24.85s & \textbf{5915} & -25.1 & 24.81s \\
+ & MSA OR-Tools & 48827 & 429.5 & 53.94s & 50040 & 496.4 & 54.06s & 50902 & 544.8 & 54.11s \\
+ & Clairvoyant OR-Tools & 9222 & 0.0 & 3.01s & 8391 & 0.0 & 3.01s & 7895 & 0.0 & 3.01s \\ \hline
+\end{tabular}%
+}
+\end{table}

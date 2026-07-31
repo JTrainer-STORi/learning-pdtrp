@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Evaluate the online nearest-neighbour heuristic."""
+"""Evaluate simple online routing heuristics."""
 
 import argparse
 import csv
@@ -21,6 +21,11 @@ def parse_args():
     parser.add_argument("--output", required=True)
     parser.add_argument("--use-ortec")
     parser.add_argument("--num-samples", type=int, default=100)
+    parser.add_argument(
+        "--method",
+        choices=("nearest_neighbour", "first_come_first_served"),
+        default="nearest_neighbour",
+    )
     return parser.parse_args()
 
 
@@ -61,8 +66,61 @@ def nearest_neighbour(problem, model_input):
     return tour_tensor, visit_times
 
 
+def first_come_first_served(problem, model_input):
+    """Serve revealed customers in arrival order, reloading when necessary.
+
+    Customers with equal arrival times are ordered by their node index. In a
+    capacitated environment, the vehicle returns to the depot if the customer
+    at the head of the FCFS queue does not fit in its remaining capacity.
+    """
+    state = problem.make_state(model_input)
+    tour = [0]
+    arrival_times = model_input["arrival_times"][0]
+
+    while not state.all_finished():
+        feasible = ~state.get_mask()[0, 0]
+        known_unvisited = ~(
+            state.visited_[0, 0] | state.not_arrived_[0, 0]
+        )
+        known_unvisited[0] = False
+
+        if not known_unvisited.any():
+            raise RuntimeError(
+                "Environment has unfinished work but no revealed customer"
+            )
+
+        priorities = arrival_times.clone()
+        priorities[~known_unvisited] = float("inf")
+        queue_head = torch.argmin(priorities)
+
+        if feasible[queue_head]:
+            selected = queue_head.view(1)
+        elif feasible[0]:
+            # The queue head is known but does not fit in the remaining
+            # capacity. Reload rather than serving a later arrival first.
+            selected = torch.zeros(1, dtype=torch.long)
+        else:
+            raise RuntimeError(
+                "FCFS queue head is infeasible and the depot is unavailable"
+            )
+
+        state = state.update(selected)
+        tour.append(selected.item())
+
+    tour_tensor = torch.tensor(tour, dtype=torch.long).unsqueeze(0)
+    visit_times, _ = problem.get_times(model_input, tour_tensor)
+    return tour_tensor, visit_times
+
+
 def main():
     args = parse_args()
+    if (
+        args.method == "first_come_first_served"
+        and args.problem not in ("pdtrptw", "pdctrptw")
+    ):
+        raise ValueError(
+            "FCFS evaluation is intended for pdtrptw and pdctrptw"
+        )
     problem = load_problem(args.problem)
     dataset_kwargs = {
         "batch_size": 1,
@@ -72,13 +130,17 @@ def main():
     dataset = problem.make_dataset(filename=args.dataset, **dataset_kwargs)
     heuristic_costs = []
     heuristic_times = []
+    heuristic = {
+        "nearest_neighbour": nearest_neighbour,
+        "first_come_first_served": first_come_first_served,
+    }[args.method]
     for index in range(len(dataset)):
         item = dataset[index]
         model_input = dataset_to_input(
             item, args.problem, torch.device("cpu")
         )
         started = time.perf_counter()
-        tour, visit_times = nearest_neighbour(problem, model_input)
+        tour, visit_times = heuristic(problem, model_input)
         heuristic_times.append(time.perf_counter() - started)
         heuristic_costs.append(
             cost(
@@ -99,7 +161,7 @@ def main():
     summary = {
         "problem": args.problem,
         "dataset": args.dataset,
-        "method": "nearest_neighbour",
+        "method": args.method,
         "samples": len(heuristic_costs),
         "objective_mean": float(np.mean(heuristic_costs)),
         "objective_std": float(np.std(heuristic_costs)),
