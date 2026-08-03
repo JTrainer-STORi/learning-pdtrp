@@ -10,8 +10,6 @@ import wandb
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from sklearn.utils.class_weight import compute_class_weight
-
 from torch.utils.data import DataLoader, RandomSampler
 from torch.nn import DataParallel
 
@@ -40,6 +38,16 @@ def validate(model, dataset, problem, opts):
     # Validate
     print(f'\nValidating on {dataset.size} samples from {dataset.filename}...')      
     cost, info = rollout(model, dataset, opts)
+
+    # Generated validation sets intentionally have no reference solution. They
+    # still provide a stable held-out policy-cost signal without requiring
+    # research datasets to be bundled with the package.
+    if 'tour_nodes' not in dataset[0]:
+        print('Validation average cost: {:.3f} +- {:.3f}'.format(
+            cost.mean(), torch.std(cost)))
+        unavailable = torch.tensor(float('nan'))
+        return cost.mean(), unavailable, unavailable, cost.argmin(), cost.argmax()
+
     gt_cost, info = rollout_groundtruth(problem, dataset, opts)
     opt_gap = (((cost/gt_cost) - 1) * 100)
     
@@ -266,7 +274,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             tb_logger.log_value('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
         if not opts.no_wandb:
             # do a single rollout with the model to get a tour
-            if not opts.no_videos:
+            if not opts.no_videos and 'tour_nodes' in val_dataset[0]:
                 for i in [model_best, model_worst]:
                     print(f"Logging videos for validation dataset {val_idx + 1}, sample {i} (model {'best' if i == model_best else 'worst'})")
                     for j in range(2):

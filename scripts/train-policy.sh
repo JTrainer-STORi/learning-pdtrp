@@ -33,10 +33,7 @@ shift $(( $# >= 3 ? 3 : $# ))
 [[ ${1:-} == "--" ]] && shift
 
 case "$PROBLEM" in
-    pdtrp) DATASET_DIR=pdtrp ;;
-    pdctrp) DATASET_DIR=pdcvrp ;;
-    pdtrptw) DATASET_DIR=pdtrptw ;;
-    pdctrptw) DATASET_DIR=pdcvrptw ;;
+    pdtrp|pdctrp|pdtrptw|pdctrptw) ;;
     *) echo "Unsupported problem: $PROBLEM" >&2; usage >&2; exit 2 ;;
 esac
 
@@ -59,13 +56,6 @@ OUTPUT_DIR=${OUTPUT_DIR:-artifacts/models}
 LOG_DIR=${LOG_DIR:-artifacts/logs}
 DEVICE=${DEVICE:-auto}
 ENABLE_WANDB=${ENABLE_WANDB:-0}
-
-VAL_DATASETS=()
-for dod in 0.2 0.5 0.8; do
-    path="val_datasets/${DATASET_DIR}/${DATASET_DIR}50dod${dod}_val_ortools.txt"
-    [[ -f "$path" ]] || { echo "Missing validation dataset: $path" >&2; exit 1; }
-    VAL_DATASETS+=("$path")
-done
 
 DEVICE_ARGS=()
 if [[ "$DEVICE" == "cpu" ]]; then
@@ -97,7 +87,6 @@ python -u run.py \
     --neighbors 0.2 \
     --knn_strat percentage \
     --n_subregions 1 \
-    --val_datasets "${VAL_DATASETS[@]}" \
     --n_epochs "$N_EPOCHS" \
     --epoch_size "$EPOCH_SIZE" \
     --batch_size "$BATCH_SIZE" \

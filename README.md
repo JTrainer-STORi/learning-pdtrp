@@ -15,10 +15,6 @@ arrival-history LSTM. The implementation builds on ideas and code structure
 from *Learning TSP Requires Rethinking Generalization* and *Attention, Learn to
 Solve Routing Problems!*.
 
-> **Naming note:** historical dataset directories use `pdcvrp` and
-> `pdcvrptw` for PDCTRP and PDCTRP-TW. Public APIs use the canonical names
-> `pdctrp` and `pdctrptw`.
-
 ## Installation
 
 Python 3.11 is the supported version. Create the portable Conda environment:
@@ -107,33 +103,22 @@ scripts/train-policy.sh pdtrp 50 0
 
 # Evaluate nearest neighbour on a fixed dataset.
 scripts/evaluate-baseline.sh nearest pdtrp \
-  experimental_study_datasets/pdtrp/pdtrp50dod0.5v4th8_testing_ortools.txt \
+  /path/to/pdtrp50dod0.5v4th8_testing_ortools.txt \
   results/nearest-pdtrp50
 
 # Evaluate a checkpoint greedily.
 scripts/evaluate-policy.sh pdtrp /path/to/epoch-99.pt \
-  experimental_study_datasets/pdtrp/pdtrp50dod0.5v4th8_testing_ortools.txt \
+  /path/to/pdtrp50dod0.5v4th8_testing_ortools.txt \
   results/policy-pdtrp50
 ```
 
 Configuration is controlled through documented environment variables in each
 script. For example, use `DEVICE=cpu`, `DEVICE=0`, or `NUM_SAMPLES=10`.
 
-The corrected aggregate outputs are in
-[`recomputed_results/`](recomputed_results/). Regenerate their CSV and LaTeX
-representations with:
-
-```bash
-python reproduce_comparison_tables.py --help
-```
-
-Fixed datasets used by the latest scripts live locally under `new_data/` and
-are intentionally excluded from Git to avoid silently publishing large or
-third-party-derived artifacts. Before making a release, archive those datasets
-and the corrected checkpoints in a versioned external deposit, then document
-its DOI or download URL here. Older checkpoints under
-`experimental_study_models/` and `ablation_models/` predate the corrected
-retraining and should not be presented as the source of the recomputed tables.
+Research datasets, checkpoints, and result tables are intentionally excluded
+from the source repository. Training generates instances and validation sets
+in memory. Evaluation commands accept explicit dataset and checkpoint paths,
+allowing experimental artifacts to be distributed independently.
 
 ## Repository layout
 
@@ -142,10 +127,6 @@ nets/                         neural policy and encoder implementations
 problems/                     problem generators and dynamic environments
 tests/                        unit and integration tests
 scripts/                      portable training and evaluation entry points
-experimental_study_models/    legacy experimental checkpoints
-ablation_models/              legacy ablation checkpoints
-experimental_study_datasets/  legacy fixed datasets
-recomputed_results/           corrected aggregate results and LaTeX tables
 ```
 
 ## Testing
@@ -163,7 +144,5 @@ command on Python 3.11.
 
 Citation metadata will be added when the associated thesis/paper record is
 public. A source-code licence must also be selected before the repository is
-made public, including confirmation that inherited third-party code and the
-ORTEC-derived data may be redistributed under that licence.
-
-Contributions are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+made public, including confirmation that inherited third-party code may be
+redistributed under that licence. No ORTEC-derived datasets are included.

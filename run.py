@@ -8,7 +8,6 @@ import numpy as np
 import torch
 import torch.optim as optim
 import wandb
-import debugpy
 
 from options import get_options
 from train import train_epoch, get_inner_model
@@ -164,15 +163,44 @@ def run_rl(opts) -> None:
     # Initialize learning rate scheduler, decay by lr_decay once per epoch!
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: opts.lr_decay ** epoch)
 
-    # Load/generate datasets
+    # Load fixed validation datasets when supplied. Otherwise generate three
+    # deterministic-size validation sets in memory so a fresh checkout can be
+    # trained without bundled research data.
     val_datasets = []
-    for val_filename in opts.val_datasets:
+    validation_sources = opts.val_datasets or (0.2, 0.5, 0.8)
+    for source in validation_sources:
+        generated = not isinstance(source, str)
         val_datasets.append(
             problem.make_dataset(
-                filename=val_filename, batch_size=opts.val_batch_size, num_samples=opts.val_size, 
-                neighbors=opts.neighbors, knn_strat=opts.knn_strat, speed=opts.speed, time_horizon=opts.time_horizon, gamma=opts.gamma, theta=opts.theta, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required_lb=opts.min_trips_required_lb,
-                min_trips_required_ub=opts.min_trips_required_ub,use_ortec=opts.use_ortec, dimension_scale=opts.dimension_scale
-            ))
+                filename=None if generated else source,
+                min_total=opts.max_total,
+                max_total=opts.max_total,
+                min_dod=source if generated else opts.min_dod,
+                max_dod=source if generated else opts.max_dod,
+                batch_size=opts.val_batch_size,
+                num_samples=opts.val_size,
+                n_subregions=opts.n_subregions,
+                arrival_weights=opts.arrival_weights,
+                arrival_skews=opts.arrival_skews,
+                neighbors=opts.neighbors,
+                knn_strat=opts.knn_strat,
+                speed=opts.speed,
+                time_horizon=opts.time_horizon,
+                service_times_mean=opts.stmean,
+                service_times_var=opts.stvar,
+                min_time_window=opts.min_time_window,
+                max_time_window=opts.max_time_window,
+                gamma=opts.gamma,
+                theta=opts.theta,
+                latest_end=opts.latest_end,
+                reaction_time=opts.reaction_time,
+                vehicle_capacity=opts.vehicle_capacity,
+                min_trips_required_lb=opts.min_trips_required_lb,
+                min_trips_required_ub=opts.min_trips_required_ub,
+                use_ortec=opts.use_ortec,
+                dimension_scale=opts.dimension_scale,
+            )
+        )
 
     if opts.resume:
         epoch_resume = int(os.path.splitext(os.path.split(opts.resume)[-1])[0].split("-")[1])
@@ -206,13 +234,4 @@ def run_rl(opts) -> None:
         wandb.finish()
 
 if __name__ == "__main__":
-
-    opts = get_options()
-
-    if opts.run_debugger:
-        print("Waiting for debugger to attach...")
-        debugpy.listen(5678)
-        debugpy.wait_for_client()
-        print("Debugger attached.")
-
-    run_rl(opts)
+    run_rl(get_options())

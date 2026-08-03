@@ -1,5 +1,4 @@
 import math
-import warnings
 
 import torch
 import numpy as np
@@ -65,24 +64,12 @@ def load_args(filename):
     with open(filename, 'r') as f:
         args = json.load(f)
 
-    # Backwards compatibility
-    if 'data_distribution' not in args:
-        args['data_distribution'] = None
-        probl, *dist = args['problem'].split("_")
-        if probl == "op":
-            args['problem'] = probl
-            args['data_distribution'] = dist[0]
-    
     if 'knn_strat' not in args:
         args['knn_strat'] = None
         
     if 'aggregation_graph' not in args:
         args['aggregation_graph'] = "mean"
 
-    if args['problem'] == 'tsp':
-        warnings.warn("TSP problem is deprecated, please use PDTRP instead.")
-        args['problem'] = 'pdtrp'
-    
     return args
 
 
@@ -140,68 +127,6 @@ def load_model(path, epoch=None, extra_logging=False, route_id=None):
         use_arrival_times=args['use_arrival_times'],
         recursively_remove_visited_nodes=args['recursively_remove_visited_nodes'],
         extra_logging=extra_logging,
-    )    
-    
-    # Overwrite model parameters by parameters to load
-    load_data = torch_load_cpu(model_filename)
-    model.load_state_dict({**model.state_dict(), **load_data.get('model', {})})
-
-    model, *_ = _load_model_file(model_filename, model)
-
-    model.eval()  # Put in eval mode
-
-    return model, args
-
-def load_model_static(path, epoch=None, extra_logging=False):
-    from nets.attention_model import AttentionModel
-    from nets.encoders.gnn_encoder import GNNEncoder
-    
-    if os.path.isfile(path):
-        model_filename = path
-        path = os.path.dirname(model_filename)
-    elif os.path.isdir(path):
-        if epoch is None:
-            epoch = max(
-                int(os.path.splitext(filename)[0].split("-")[1])
-                for filename in os.listdir(path)
-                if os.path.splitext(filename)[1] == '.pt'
-            )
-        model_filename = os.path.join(path, 'epoch-{}.pt'.format(epoch))
-    else:
-        assert False, "{} is not a valid directory or file".format(path)
-
-    args = load_args(os.path.join(path, 'args.json'))
-
-    problem = load_problem(args['problem'])
-    
-    model_class = {
-        'attention': AttentionModel,
-        # 'pointer': PointerNetwork
-    }.get(args.get('model', 'attention'), None)
-    assert model_class is not None, "Unknown model: {}".format(model_class)
-    encoder_class = {
-        'gnn': GNNEncoder,
-    }.get(args.get('encoder', 'gnn'), None)
-    assert encoder_class is not None, "Unknown encoder: {}".format(encoder_class)
-    model = model_class(
-        problem=problem,
-        embedding_dim=args['embedding_dim'],
-        encoder_class=encoder_class,
-        n_encode_layers=args['n_encode_layers'],
-        aggregation=args['aggregation'],
-        aggregation_graph=args['aggregation_graph'],
-        normalization=args['normalization'],
-        learn_norm=args['learn_norm'],
-        track_norm=args['track_norm'],
-        gated=args['gated'],
-        n_heads=args['n_heads'],
-        tanh_clipping=args['tanh_clipping'],
-        mask_inner=True,
-        mask_logits=True,
-        mask_graph=False,
-        checkpoint_encoder=args['checkpoint_encoder'],
-        shrink_size=args['shrink_size'],
-        extra_logging=extra_logging
     )    
     
     # Overwrite model parameters by parameters to load

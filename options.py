@@ -193,8 +193,6 @@ def get_options(args=None):
                         help='Watch gradients in Weights & Biases')
     parser.add_argument('--print_query_times', action='store_true',
                         help='Print query times for the model to stdout')
-    parser.add_argument('--run_debugger', action='store_true',
-                        help='Run the debugger')
     opts = parser.parse_args(args)
 
     if opts.val_every < 1:

@@ -8,9 +8,7 @@ dependencies:
   - numpy=1.26
   - scipy=1.15
   - matplotlib=3.8
-  - scikit-learn=1.5
   - tqdm=4.66
-  - plotly=5.24
   - tensorboard=2.17
   - pytest=8.4
   - pip

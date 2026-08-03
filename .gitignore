@@ -21,6 +21,7 @@ env/
 .idea/
 .DS_Store
 *.ipynb
+example_scripts/
 
 # Training and evaluation outputs
 outputs/
@@ -40,6 +41,13 @@ computationalGraphs/
 # retained by Git; these rules prevent accidental addition of new large files.
 data/
 new_data/
+val_datasets/
+ablation_datasets/
+ablation_models/
+experimental_study_datasets/
+experimental_study_models/
+recomputed_results/
+thesis_figures/
 models_hec/
 pretrained/
 pretrained_models/
@@ -47,11 +55,24 @@ runtime_stats/
 hec_val_sets/
 solomon_datasets/
 recomputed_results/skew_policy_evaluation/
+recomputed_table.tex
+ablation_study_plot.py
+generate_data.py
+generate_data_all_random.py
+joshi_comparison.py
+reproduce_comparison_tables.py
+testing.py
+nets/attention_model.py
+problems/tsp/
+utils/beam_search.py
+/CONTRIBUTING.md
+/RELEASE_CHECKLIST.md
+/__init__.py
+/tests/__init__.py
 
 # Keep ad-hoc historical cluster scripts local. Curated public scripts that
 # are already tracked remain tracked; explicitly allow new release utilities.
 scripts/*
-!scripts/plot_ortec_instance.py
 !scripts/train-policy.sh
 !scripts/evaluate-baseline.sh
 !scripts/evaluate-policy.sh

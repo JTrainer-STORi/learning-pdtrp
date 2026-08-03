@@ -7,9 +7,29 @@ cd "$PROJECT_DIR"
 
 python -m pytest -q
 
-SMOKE_OUTPUT=${SMOKE_OUTPUT:-artifacts/smoke-test}
-NUM_SAMPLES=2 "$SCRIPT_DIR/evaluate-baseline.sh" nearest pdtrp \
-    experimental_study_datasets/pdtrp/pdtrp50dod0.2v4th8_testing_ortools.txt \
-    "$SMOKE_OUTPUT/nearest"
+python - <<'PY'
+import torch
+
+from evaluate_model_free import nearest_neighbour
+from problems import PDTRP
+from utils.data_utils import dataset_to_input
+
+problem = PDTRP()
+dataset = problem.make_dataset(
+    min_total=8,
+    max_total=8,
+    min_dod=0.5,
+    max_dod=0.5,
+    num_samples=1,
+    batch_size=1,
+    n_subregions=1,
+    neighbors=0.25,
+    knn_strat="percentage",
+)
+model_input = dataset_to_input(dataset[0], problem.NAME, torch.device("cpu"))
+tour, visit_times = nearest_neighbour(problem, model_input)
+assert tour.shape[1] == 8
+assert visit_times.shape == (tour.shape[0], tour.shape[1] + 1)
+PY
 
 echo "SMOKE TEST PASSED"
