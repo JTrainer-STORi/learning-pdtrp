@@ -1,35 +1,70 @@
-.vscode/
-data/
-new_data/
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments and credentials
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+*.ipynb
+
+# Training and evaluation outputs
 outputs/
 logs/
-nn
-computationalGraphs/
-new_instances.ipynb
-visualize_tests.ipynb
-pdtrp.ipynb
-solomon_datasets/
-or_tools_new.ipynb
-or_tools_tidy.ipynb
-or_tools.ipynb
-models_hec/
-*.ipynb
-pretrained/
-*.ipynb
-scripts/*
-!scripts/hec-retrain-main-table.sh
-!scripts/hec-smoke-test.sh
-!scripts/hec-evaluate-model-free.sh
-!scripts/hec-evaluate-msa.sh
-!scripts/hec-smoke-msa.sh
-!scripts/hec-evaluate-ortools-corrected.sh
-!scripts/hec-smoke-ortools-corrected.sh
-!scripts/hec-evaluate-trained-policies.sh
-!scripts/hec-evaluate-fcfs.sh
-runtime_stats/
+wandb/
+runs/
+artifacts/
+results/
 test_results/
-hec_val_sets/
-images/
 static_solves/
+computationalGraphs/
+*.log
+*.out
+*.err
+
+# Local data/model workspaces. Curated, already tracked research artifacts are
+# retained by Git; these rules prevent accidental addition of new large files.
+data/
+new_data/
+models_hec/
+pretrained/
 pretrained_models/
+runtime_stats/
+hec_val_sets/
+solomon_datasets/
+recomputed_results/skew_policy_evaluation/
+
+# Keep ad-hoc historical cluster scripts local. Curated public scripts that
+# are already tracked remain tracked; explicitly allow new release utilities.
+scripts/*
+!scripts/plot_ortec_instance.py
+!scripts/train-policy.sh
+!scripts/evaluate-baseline.sh
+!scripts/evaluate-policy.sh
+!scripts/smoke-test.sh
+
+# Institution-specific HEC/Slurm orchestration is retained locally only.
+scripts/hec-*.sh
+
+# Legacy PDCVRP/PDCVRPTW compatibility code is retained locally only.
+problems/pdcvrp/
+problems/pdcvrp_tw/
+or_tools.py
+or_tools_oracle.py
+or_tools_static_counterpart.py
+scripts/train-rl-pdcvrp.sh
+scripts/train-rl-pdcvrptw.sh

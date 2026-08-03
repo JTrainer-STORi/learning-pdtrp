@@ -72,7 +72,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'service_times_mean': move_to(dataset['service_times_mean'], device),
                 'service_times_std': move_to(dataset['service_times_std'], device)
             }
-        elif problem in ('pdctrp', 'pdcvrp'):
+        elif problem == 'pdctrp':
             input = {
                 'all_nodes': move_to(dataset['all_nodes'], device).unsqueeze(0),
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
@@ -99,7 +99,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'gamma': move_to(dataset['gamma'], device),
                 'theta': move_to(dataset['theta'], device),
             }
-        elif problem in ('pdctrptw', 'pdcvrptw'):
+        elif problem == 'pdctrptw':
             input = {
                 'all_nodes': move_to(dataset['all_nodes'], device).unsqueeze(0),
                 'service_times': move_to(dataset['service_times'], device).unsqueeze(0),
@@ -130,7 +130,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'service_times_mean': move_to(dataset['service_times_mean'], device),
                 'service_times_std': move_to(dataset['service_times_std'], device)
             }
-        elif problem in ('pdctrp', 'pdcvrp'):
+        elif problem == 'pdctrp':
             input = {
                 'all_nodes': move_to(dataset['all_nodes'], device),
                 'service_times': move_to(dataset['service_times'], device),
@@ -157,7 +157,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'gamma': move_to(dataset['gamma'], device),
                 'theta': move_to(dataset['theta'], device),
             }
-        elif problem in ('pdctrptw', 'pdcvrptw'):
+        elif problem == 'pdctrptw':
             input = {
                 'all_nodes': move_to(dataset['all_nodes'], device),
                 'service_times': move_to(dataset['service_times'], device),

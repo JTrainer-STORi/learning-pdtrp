@@ -22,21 +22,6 @@ def test_problem_loader_rejects_unknown_name():
         load_problem("not-a-problem")
 
 
-def test_problem_loader_supports_legacy_checkpoint_names():
-    assert load_problem("pdcvrp") is PDCTRP
-    assert load_problem("pdcvrptw") is PDCTRPTW
-
-    from problems.pdcvrp.problem_pdcvrp import PDCVRP, PDCVRPDataset
-    from problems.pdcvrp_tw.problem_pdcvrptw import PDCVRPTW, PDCVRPTWDataset
-    from problems.pdctrp.problem_pdctrp import PDCTRPDataset
-    from problems.pdctrp_tw.problem_pdctrptw import PDCTRPTWDataset
-
-    assert PDCVRP is PDCTRP
-    assert PDCVRPDataset is PDCTRPDataset
-    assert PDCVRPTW is PDCTRPTW
-    assert PDCVRPTWDataset is PDCTRPTWDataset
-
-
 @pytest.mark.parametrize("problem", PROBLEMS)
 def test_generated_dataset_has_consistent_shapes_and_model_input(problem):
     kwargs = {

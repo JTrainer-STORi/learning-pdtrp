@@ -109,7 +109,7 @@ def rollout_baseline(model, dataset, opts, mode):
     return torch.cat(costs, 0), infos
 
 def rollout_groundtruth(problem, dataset, opts):
-    if opts.problem in ('pdctrp', 'pdcvrp'):
+    if opts.problem == 'pdctrp':
         costs = []
         infos = []
         for bat in DataLoader(
@@ -142,7 +142,7 @@ def rollout_groundtruth(problem, dataset, opts):
             if info:
                 infos.append(info)
         return torch.cat(costs, 0), infos
-    elif opts.problem in ('pdctrptw', 'pdcvrptw'):
+    elif opts.problem == 'pdctrptw':
         costs = []
         infos = []
         for bat in DataLoader(

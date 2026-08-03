@@ -1,5 +1,0 @@
-The models in this folder were used in the ablation study.
-Each model has three versions, each trained with a different random seed setting. 
-The model "pdcvrptw-dynamic-tf-normalized-..." was labeled as the base model in the PDCTRPTW plots in the ablation study.
-The model "pdtrp-joshi-..." is the base model for the PDTRP training method plot. 
-The "pdtrp-dynamic-..." uses adjacency based edge features and the "pdtp-distances..." uses distance based edge features.

@@ -120,12 +120,10 @@ class DynamicAttentionModel(nn.Module):
         self.knn_strat = knn_strat
         self.neighbors = neighbors
         self.scale_times = scale_times
-        # Accept the canonical problem names as well as the legacy PDCVRP names
-        # used by older checkpoints and experiment scripts.
-        self.is_pdcvrp = problem.NAME in ('pdctrp', 'pdcvrp')
+        self.is_pdctrp = problem.NAME == 'pdctrp'
         self.is_pdtrp = problem.NAME == 'pdtrp'
         self.is_pdtrptw = problem.NAME == 'pdtrptw'
-        self.is_pdcvrptw = problem.NAME in ('pdctrptw', 'pdcvrptw')
+        self.is_pdctrptw = problem.NAME == 'pdctrptw'
         self.use_arrival_lstm = use_arrival_lstm
         self.use_arrival_times = use_arrival_times
         self.recursively_remove_visited_nodes = recursively_remove_visited_nodes
@@ -137,7 +135,7 @@ class DynamicAttentionModel(nn.Module):
         node_dim = 2
         edge_dim = 1
 
-        if self.is_pdcvrp:
+        if self.is_pdctrp:
             node_dim = 3 # x, y, demand
             step_context_dim += 1 # for the capacity
         if self.is_pdtrptw:
@@ -145,7 +143,7 @@ class DynamicAttentionModel(nn.Module):
                 node_dim = 2 + embedding_dim * 2
             else:
                 node_dim = 4 # x,y, window_start, window_end
-        if self.is_pdcvrptw:
+        if self.is_pdctrptw:
             if self.functional_time_encoding:
                 node_dim = 3 + embedding_dim * 2 # x,y, window_start (fte), window_end (fte), demand
             else:
@@ -248,7 +246,7 @@ class DynamicAttentionModel(nn.Module):
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
-        if self.is_pdtrptw or self.is_pdcvrptw:
+        if self.is_pdtrptw or self.is_pdctrptw:
             cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['all_nodes'].device), move_to(visit_times, device=input['all_nodes'].device), gamma=move_to(input['gamma'], device=input['all_nodes'].device), theta=move_to(input['theta'], device=input['all_nodes'].device))
         else:
             cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['all_nodes'].device))
@@ -650,7 +648,7 @@ class DynamicAttentionModel(nn.Module):
             else:
                 context = torch.cat((context, state.get_timestep(normalize=self.scale_times)[:,:, None]), -1)
         
-        if self.is_pdcvrp or self.is_pdcvrptw:
+        if self.is_pdctrp or self.is_pdctrptw:
             context = torch.cat(
                 (
                     context,
@@ -717,9 +715,9 @@ class DynamicAttentionModel(nn.Module):
     
     def _init_embed(self, input):
         node_feats  = input['all_nodes'][:, 1:, :]
-        if self.is_pdcvrp or self.is_pdcvrptw:
+        if self.is_pdctrp or self.is_pdctrptw:
             node_feats = torch.cat((node_feats, input['demand'][:, 1:, None]), -1)
-        if self.is_pdtrptw or self.is_pdcvrptw:
+        if self.is_pdtrptw or self.is_pdctrptw:
             if self.scale_times:
                 window_starts = scale_time(input['window_starts'][:, 1:, None], (input['time_horizon'][0]+input['latest_end'][0]))
                 window_ends = scale_time(input['window_ends'][:, 1:, None], (input['time_horizon'][0]+input['latest_end'][0]))

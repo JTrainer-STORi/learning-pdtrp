@@ -16,10 +16,8 @@ def load_problem(name):
     problem = {
         'pdtrp': PDTRP,
         'pdctrp': PDCTRP,
-        'pdcvrp': PDCTRP,
         'pdtrptw': PDTRPTW,
         'pdctrptw': PDCTRPTW,
-        'pdcvrptw': PDCTRPTW,
     }.get(name, None)
     assert problem is not None, "Currently unsupported problem: {}!".format(name)
     return problem

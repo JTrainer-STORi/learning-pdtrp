@@ -46,9 +46,9 @@ def test_model_classifies_canonical_problem_names(problem):
         n_heads=4,
     )
 
-    assert model.is_pdcvrp is (problem is PDCTRP)
+    assert model.is_pdctrp is (problem is PDCTRP)
     assert model.is_pdtrptw is (problem is PDTRPTW)
-    assert model.is_pdcvrptw is (problem is PDCTRPTW)
+    assert model.is_pdctrptw is (problem is PDCTRPTW)
 
 
 @pytest.mark.parametrize("problem", PROBLEMS)

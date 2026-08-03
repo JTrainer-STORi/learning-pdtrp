@@ -78,12 +78,10 @@ def test_baseline_dataset_detaches_cached_values_on_cpu():
     ("problem_name", "problem", "uses_time_windows"),
     (
         ("pdctrp", PDCTRP, False),
-        ("pdcvrp", PDCTRP, False),
         ("pdctrptw", PDCTRPTW, True),
-        ("pdcvrptw", PDCTRPTW, True),
     ),
 )
-def test_capacity_groundtruth_supports_canonical_and_legacy_names(
+def test_capacity_groundtruth_supports_canonical_names(
     problem_name, problem, uses_time_windows, monkeypatch
 ):
     sample = {
