@@ -82,20 +82,16 @@ The public evaluation entry points are:
 | Script | Method |
 | --- | --- |
 | `evaluate_model_free.py` | Nearest neighbour and first-come-first-served |
-| `evaluate_ortools_baselines.py` | Online reoptimization and full-information OR-Tools |
+| `evaluate_ortools_baselines.py` | Online reoptimization and oracle OR-Tools |
 | `evaluate_msa_ortools.py` | Multiple-scenario/sample-average approximation |
 | `evaluate_trained_policy.py` | Greedy inference with a trained policy |
 
-The full-information OR-Tools result is a time-limited heuristic reference,
-not a proven optimum. Negative differences relative to it are therefore
-possible and must not be described as negative optimality gaps.
+The oracle OR-Tools result is a time-limited heuristic reference.
 
 ## Reproducing the experiments
 
 Portable scripts under [`scripts/`](scripts/) cover training, smoke testing,
-baseline evaluation, and trained-policy evaluation on an ordinary workstation.
-They resolve the repository directory automatically and require neither Slurm
-nor site-specific environment variables.
+baseline evaluation, and trained-policy evaluation.
 
 ```bash
 # Train a uniform PDTRP policy on instances containing 20--50 customers.
@@ -140,9 +136,6 @@ window behaviour, comparison heuristics, OR-Tools scenario construction, model
 integration, and evaluation utilities. Continuous integration runs the same
 command on Python 3.11.
 
-## Citation and licence
+## License and disclaimer
 
-Citation metadata will be added when the associated thesis/paper record is
-public. A source-code licence must also be selected before the repository is
-made public, including confirmation that inherited third-party code may be
-redistributed under that licence. No ORTEC-derived datasets are included.
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
