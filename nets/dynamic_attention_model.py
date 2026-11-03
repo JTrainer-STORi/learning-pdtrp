@@ -210,9 +210,19 @@ class DynamicAttentionModel(nn.Module):
         """
             Args:
                 input: Dictionary containing input data
+                mode: Recursive modes evaluate exactly one instance and one
+                    rollout per call. Evaluate datasets sequentially in these modes.
         """
 
         assert mode in ['masked', 'recursive', 'recursive_plus_removal', 'MSA'], "Mode must be either 'masked' or 'recursive' or 'recursive_plus_removal' or 'MSA'"
+
+        if mode in ('recursive', 'recursive_plus_removal'):
+            if input['all_nodes'].size(0) != 1 or pomo_batch_size != 1:
+                raise ValueError(
+                    "Recursive evaluation requires exactly one instance and one rollout "
+                    "per call (batch_size=1, pomo_batch_size=1). "
+                    "Evaluate multiple instances sequentially."
+                )
 
         self.mode = mode
 
@@ -290,14 +300,24 @@ class DynamicAttentionModel(nn.Module):
         batch_size = int(input['all_nodes'].size(0) / pomo_batch_size)
 
         if self.use_arrival_lstm:
-            self.lstm_hidden = (torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['all_nodes'].device),torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size), device=input['all_nodes'].device))
+            rollout_batch_size = input['all_nodes'].size(0)
+            self.lstm_hidden = (torch.zeros((self.lstm.num_layers, rollout_batch_size, self.lstm.hidden_size), device=input['all_nodes'].device),torch.zeros((self.lstm.num_layers, rollout_batch_size, self.lstm.hidden_size), device=input['all_nodes'].device))
 
         while not state.all_finished():
 
             # If we are in a POMO setting, we select the start nodes for each instance in the batch
 
             if pomo_batch_size > 1 and state.i == 0:
-                selected = torch.arange(1, pomo_batch_size + 1, device=input['all_nodes'].device).repeat(batch_size)
+                mask = state.get_mask()
+                available_counts = (~mask[:, 0]).sum(dim=-1)
+                if (available_counts == 0).any():
+                    raise RuntimeError("A POMO rollout has no available starting customer")
+                # A fully dynamic instance may reveal only one customer at its
+                # first decision. Cycle through legal starts instead of forcing
+                # some rollouts to visit customers that have not called yet.
+                starts = torch.argsort(mask[:, 0].int(), dim=-1, stable=True)
+                rollout = torch.arange(pomo_batch_size, device=input['all_nodes'].device).repeat(batch_size)
+                selected = starts.gather(1, (rollout % available_counts)[:, None]).squeeze(1)
                 log_p = torch.zeros((batch_size * pomo_batch_size, 1, input['all_nodes'].size(1)), device=input['all_nodes'].device)
             else:
                 mask = state.get_mask()
@@ -349,7 +369,11 @@ class DynamicAttentionModel(nn.Module):
         all_sequences = torch.stack(sequences, 1)
         all_outputs = torch.stack(outputs, 1).gather(2, all_sequences.unsqueeze(2)).squeeze(-1)
 
-        return all_outputs, all_sequences, state.visit_times
+        # Waiting choices contribute to policy gradients, but only executed
+        # visits belong in the scored tour and its service-start timestamps.
+        all_sequences = state.construct_solutions(all_sequences)
+        visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
+        return all_outputs, all_sequences, visit_times
     
     def _inner_recursive(self, input, print_query_times=False):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
@@ -395,6 +419,9 @@ class DynamicAttentionModel(nn.Module):
                 self.current_indices = torch.arange(0, input['all_nodes'].size(1), device=input['all_nodes'].device)[arrival_mask[0]]
             else:
                 mask = state.get_mask()[~state.not_arrived_][None, None, :]
+                known_indices = torch.nonzero(arrival_mask[0], as_tuple=False).flatten()
+                current_index = torch.nonzero(known_indices == state.prev_a.item()).item()
+                prev_selected = embeddings[:, current_index:current_index + 1]
 
             if print_query_times:
                 start_time = time.perf_counter()
@@ -410,18 +437,13 @@ class DynamicAttentionModel(nn.Module):
             selected = self._select_node(
                 log_p.exp()[:, 0, :], mask[:, 0, :])
             
-            if self.recursively_remove_visited_nodes:
-                #we need to correct selected to account for the visited nodes we've removed
-                true_selected = self.current_indices[selected]
-                state = state.update(true_selected)
-                # Collect output of step
-                outputs.append(log_p[:, 0, :])
-                sequences.append(true_selected)
-            else:
-                state = state.update(selected)
-                # Collect output of step
-                outputs.append(log_p[:, 0, :])
-                sequences.append(selected)
+            # Map compact encoder indices back to actual nodes in either mode.
+            known_indices = torch.nonzero(arrival_mask[0], as_tuple=False).flatten()
+            true_selected = known_indices[selected]
+            previously_known = ~state.not_arrived_[:, 0, :]
+            state = state.update(true_selected)
+            outputs.append(log_p[:, 0, :])
+            sequences.append(true_selected)
 
             # if an arrival has occurred, we need to update the embeddings and decoder input
             if self.recursively_remove_visited_nodes and not state.all_finished():
@@ -433,10 +455,12 @@ class DynamicAttentionModel(nn.Module):
                     edge_features = masked_input['graph'].long()
                 elif self.edge_feature_type == 'distance':
                     edge_features = masked_input['distance_matrix'].unsqueeze(-1)
-                prev_selected = embeddings[0, selected].unsqueeze(0)
+                if not hasattr(state, 'last_action_executed') or state.last_action_executed.item():
+                    prev_selected = embeddings[0, selected].unsqueeze(0)
                 embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
                 decoder_input = self._precompute(embeddings)
             elif state.arrival_occured:
+                arrival_mask = ~state.not_arrived_[:,0,:]
                 masked_input = self._mask_input(input, ~state.not_arrived_[:,0,:])
                 if self.edge_feature_type == 'adjacency':
                     edge_features = masked_input['graph'].long()
@@ -447,7 +471,9 @@ class DynamicAttentionModel(nn.Module):
             if self.use_arrival_lstm and state.arrival_occured:
                 arrival_sequences = []
                 # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
-                arrival_indices = torch.tensor(range(mask.size(-1), masked_input['all_nodes'].size(1))).to(input['all_nodes'].device)
+                newly_known = (~state.not_arrived_[:, 0, :]) & ~previously_known
+                current_indices = torch.nonzero(arrival_mask.reshape(-1), as_tuple=False).flatten()
+                arrival_indices = torch.nonzero(newly_known[0, current_indices], as_tuple=False).flatten()
                 if arrival_indices.numel() > 0:
                     if self.scale_times:
                         arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], (masked_input['time_horizon'][0]+masked_input['latest_end'][0]))
@@ -464,7 +490,9 @@ class DynamicAttentionModel(nn.Module):
 
         all_sequences = torch.stack(sequences, 1)
 
-        return all_sequences, state.visit_times
+        all_sequences = state.construct_solutions(all_sequences)
+        visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
+        return all_sequences, visit_times
     
     def _inner_msa(self, input, print_query_times=False, num_scenarios=10):
 
@@ -515,7 +543,9 @@ class DynamicAttentionModel(nn.Module):
 
         all_sequences = torch.stack(sequences, 1)
 
-        return all_sequences, state.visit_times
+        all_sequences = state.construct_solutions(all_sequences)
+        visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
+        return all_sequences, visit_times
 
 
     def _mask_input(self, input, mask):

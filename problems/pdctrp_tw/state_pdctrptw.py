@@ -1,6 +1,9 @@
 from typing import NamedTuple
 import torch
 from utils import scale_time
+from problems.time_window_events import (
+    reveal_and_wait_if_idle, slice_records, solution_tensors, update_time_window_state,
+)
 
 class StatePDCTRPTW(NamedTuple):
 
@@ -32,6 +35,8 @@ class StatePDCTRPTW(NamedTuple):
     visit_times: list # Tracks the time at which each node was visited
     not_arrived_: torch.Tensor
     arrival_occured: torch.Tensor # Tracks if a new arrival has occurred in the last step
+    routes: list
+    last_action_executed: torch.Tensor
     i: torch.Tensor # current timestep
 
     def __getitem__(self, key):
@@ -39,6 +44,9 @@ class StatePDCTRPTW(NamedTuple):
 
         return self._replace(
             ids = self.ids[key],
+            visit_times=slice_records(self.visit_times, key),
+            routes=slice_records(self.routes, key),
+            last_action_executed=self.last_action_executed[key],
             prev_a = self.prev_a[key],
             cur_times = self.cur_times[key],
             cur_coords = self.cur_coords[key],
@@ -68,7 +76,7 @@ class StatePDCTRPTW(NamedTuple):
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
         visited[:, :, 0] = True  # depot starts visited
         
-        return StatePDCTRPTW(
+        state = StatePDCTRPTW(
             coords=loc,
             arrival_times=arrival_times,
             service_times=service_times,
@@ -88,87 +96,19 @@ class StatePDCTRPTW(NamedTuple):
             used_cap=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             visited_= visited,
             visit_times=[[0.0] for _ in range(batch_size)],
+            routes=[[0] for _ in range(batch_size)],
+            last_action_executed=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             arrival_occured=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
         )
 
+        return reveal_and_wait_if_idle(state)
+
     def update(self, selected):
+        return update_time_window_state(self, selected)
 
-        batch_size, _, _ = self.coords.size()
-
-        prev_a = selected[:, None]
-
-        cur_coords = self.coords[self.ids, prev_a]
-        distances_travelled = self.distance_matrix[self.ids, self.prev_a, prev_a]
-
-        service_starts = torch.maximum(self.cur_times  + torch.round((distances_travelled / self.speed), decimals=4), self.window_starts[self.ids, prev_a])
-
-        # advance the current time by the travel time and service time
-        cur_times = service_starts + (self.service_times[self.ids, prev_a])
-
-        for i in range(batch_size):
-            self.visit_times[i].append(service_starts[i, 0].item())
-
-        arrival_occured = torch.zeros(batch_size, dtype=torch.bool, device=self.coords.device)
-
-        # find out which dynamic nodes have arrived in the meantime
-        new_arrival_mask = self.not_arrived_.clone()
-        for i in range(batch_size):
-            new_arrivals = torch.nonzero(
-                self.not_arrived_[i, 0]
-                & (self.arrival_times[i] >= self.cur_times[i])
-                & (self.arrival_times[i] <= cur_times[i])
-            )
-            new_arrival_mask[i, 0, new_arrivals] = False
-            if new_arrivals.numel() > 0:
-                arrival_occured[i] = True
-
-        visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
-
-        # if, for any of the environments in the batch, after checking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
-        for i in range(batch_size):            
-            if torch.logical_or(visited_[i], new_arrival_mask[i]).all():
-                if not visited_[i].all():
-                    # fast forward the current time to the minimum of the remaining arrival times ...
-                    min_arrival_times = torch.min(self.arrival_times[i][new_arrival_mask[i][0]])
-                    cur_times[i] = torch.maximum(cur_times[i], min_arrival_times)
-                    # ... and update the mask accordingly
-                    new_arrivals = torch.nonzero(
-                        new_arrival_mask[i, 0]
-                        & (self.arrival_times[i] >= self.cur_times[i])
-                        & (self.arrival_times[i] <= cur_times[i])
-                    )
-                    new_arrival_mask[i, 0, new_arrivals] = False
-                    if new_arrivals.numel() > 0:
-                        arrival_occured[i] = True
-
-        # update the used capacity
-        selected_demand = self.demands[self.ids, prev_a]
-
-        # increase capacity if depot is not visited, otherwise reset to 0
-        used_capacity = (self.used_cap + selected_demand) * (prev_a != 0).float()
-
-        # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
-        if visited_.all():
-            distances_back_to_depot = self.distance_matrix[self.ids, prev_a, 0]
-            time_back_at_depot = cur_times + torch.round((distances_back_to_depot / self.speed), decimals=4)
-            for i in range(batch_size):
-                self.visit_times[i].append(time_back_at_depot[i, 0].item())
-
-        return self._replace(
-            prev_a=prev_a,
-            cur_times=cur_times,
-            cur_coords=cur_coords,
-            used_cap=used_capacity,
-            lengths=self.lengths + distances_travelled,
-            visited_=visited_,
-            not_arrived_=new_arrival_mask,
-            i=self.i + 1,
-            arrival_occured=arrival_occured
-        )
-    
     def all_finished(self):
         return self.visited_.all()
     
@@ -202,7 +142,10 @@ class StatePDCTRPTW(NamedTuple):
         return self.arrival_occured
     
     def construct_solutions(self, actions):
-        return actions
+        return solution_tensors(self)[0]
+
+    def get_visit_times(self):
+        return solution_tensors(self)[1]
 
     def get_timestep(self, normalize=True):
         if normalize:

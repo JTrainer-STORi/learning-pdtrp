@@ -68,9 +68,7 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'distance_matrix': move_to(dataset['distance_matrix'], device).unsqueeze(0),
                 'speed': move_to(dataset['speed'], device),
                 'time_horizon': move_to(dataset['time_horizon'], device),
-                'latest_end': move_to(dataset['latest_end'], device), 
-                'service_times_mean': move_to(dataset['service_times_mean'], device),
-                'service_times_std': move_to(dataset['service_times_std'], device)
+                'latest_end': move_to(dataset['latest_end'], device),
             }
         elif problem == 'pdctrp':
             input = {
@@ -127,8 +125,6 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'distance_matrix': move_to(dataset['distance_matrix'], device),
                 'time_horizon': move_to(dataset['time_horizon'], device),
                 'latest_end': move_to(dataset['latest_end'], device),
-                'service_times_mean': move_to(dataset['service_times_mean'], device),
-                'service_times_std': move_to(dataset['service_times_std'], device)
             }
         elif problem == 'pdctrp':
             input = {
@@ -174,7 +170,18 @@ def dataset_to_input(dataset, problem, device, pomo_batch_size=1):
                 'gamma': move_to(dataset['gamma'], device),
                 'theta': move_to(dataset['theta'], device),
             }
-            
+    # Preserve configured sampling priors independently of realized observations.
+    # Older saved/handcrafted samples may omit this optional metadata.
+    for key in ('service_times_mean', 'service_times_std', 'min_time_window', 'max_time_window'):
+        if key in dataset:
+            value = move_to(dataset[key], device)
+            if value.dim() == 0:
+                value = value.unsqueeze(0)
+            batch_size = input['all_nodes'].shape[0]
+            if value.shape[0] == 1 and batch_size > 1:
+                value = value.expand((batch_size,) + value.shape[1:])
+            input[key] = value
+
     if pomo_batch_size > 1:
         # If the dataset is batched, we assume it is already in the correct format
         return {k: torch.repeat_interleave(v, repeats=pomo_batch_size, dim=0) for k, v in input.items()}

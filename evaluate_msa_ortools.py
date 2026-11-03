@@ -7,9 +7,12 @@ fixed source instance and use its asymmetric road-duration matrix.
 
 import argparse
 import json
+import multiprocessing
+import os
 import time
 from collections import Counter
-from contextlib import redirect_stderr, redirect_stdout
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
@@ -18,11 +21,19 @@ import torch
 
 from utils import load_problem
 from utils.data_utils import dataset_to_input
-from problems.utils import generate_scaled_demands, read_vrplib
+from utils.service_times import (
+    add_service_time_arguments,
+    sample_service_times,
+    service_time_parameters,
+    validate_service_time_arguments,
+)
+from problems.utils import generate_scaled_demands, read_vrplib, sample_ortec_customer_indices
+from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
 
 
 TW_PROBLEMS = {"pdtrptw", "pdctrptw"}
 CAPACITY_PROBLEMS = {"pdctrp", "pdctrptw"}
+DEMAND_SCALE = 1000000
 
 
 def make_ortec_context(filename):
@@ -84,18 +95,16 @@ def sample_ortec_scenario(
     ortec, problem_name, n_total, dod, min_trips, max_trips
 ):
     """Sample once from the fixed ORTEC pool without reparsing the VRPLIB file."""
-    unsorted_source_ids = np.concatenate(
-        ([0], np.random.choice(np.arange(1, len(ortec["coords"])), n_total - 1, replace=False))
+    scaled_windows = ortec["time_windows"] * 482.0 / np.max(ortec["time_windows"][1:])
+    customer_ids = sample_ortec_customer_indices(
+        scaled_windows[:, 0], n_total - 1, fully_dynamic=dod == 1.0,
     )
+    unsorted_source_ids = np.concatenate(([0], customer_ids))
     coordinates = ortec["coords"][unsorted_source_ids]
     coordinates = coordinates / coordinates.max(axis=0)
     service = ortec["service_times"][unsorted_source_ids] / 60.0
-    customer_windows = (
-        ortec["time_windows"][unsorted_source_ids[1:]]
-        * 482.0
-        / np.max(ortec["time_windows"][1:])
-    )
-    n_immediate = int(dod * n_total)
+    customer_windows = scaled_windows[unsorted_source_ids[1:]]
+    n_immediate = int(dod * (n_total - 1))
     immediate = np.random.choice(n_total - 1, n_immediate, replace=False)
     arrivals = np.zeros(n_total)
     arrivals[immediate + 1] = customer_windows[immediate, 0] - 60.0
@@ -125,28 +134,97 @@ def sample_ortec_scenario(
     return result
 
 
-def solve_scenario(data, problem_name, time_limit_ms):
+class NoImprovementTracker:
+    """Track strict incumbent improvements with an injectable monotonic clock.
+
+    The first observation starts the patience interval; it is the initial
+    incumbent rather than an improvement. Checking expiry does not depend on
+    receiving another solution callback.
+    """
+
+    def __init__(self, no_improvement_ms, *, clock=None):
+        if no_improvement_ms <= 0:
+            raise ValueError("no_improvement_ms must be positive")
+        self.no_improvement_seconds = no_improvement_ms / 1000.0
+        self.clock = time.monotonic if clock is None else clock
+        self.best_objective = None
+        self.last_improvement_at = None
+        self.improvement_count = 0
+
+    def observe(self, objective):
+        if self.best_objective is None:
+            self.best_objective = objective
+            self.last_improvement_at = self.clock()
+            return False
+        if objective < self.best_objective:
+            self.best_objective = objective
+            self.last_improvement_at = self.clock()
+            self.improvement_count += 1
+            return True
+        return False
+
+    def expired(self):
+        return (
+            self.last_improvement_at is not None
+            and self.clock() - self.last_improvement_at
+            >= self.no_improvement_seconds
+        )
+
+
+def solve_scenario(
+    data,
+    problem_name,
+    time_limit_ms=None,
+    *,
+    no_improvement_ms=None,
+    return_details=False,
+):
+    """Solve a routing scenario using GLS and an explicit stopping rule.
+
+    A time budget retains the historical bounded online/MSA interface. Patience
+    instead stops after no strict improvement of the best objective for the
+    requested interval; this does not prove optimality. Times use integer units
+    of 0.0001, matching the scorer's four-decimal travel times. Service/release/
+    window times are rounded to that grid and weights to 0.000001, so objectives
+    remain a numeric approximation of floating-point scoring.
+    """
+    if time_limit_ms is None and no_improvement_ms is None:
+        raise ValueError("A positive time limit or no-improvement interval is required")
+    if time_limit_ms is not None and (
+        not np.isfinite(time_limit_ms) or time_limit_ms <= 0
+    ):
+        raise ValueError("time_limit_ms must be finite and positive")
+    if no_improvement_ms is not None and (
+        not np.isfinite(no_improvement_ms) or no_improvement_ms <= 0
+    ):
+        raise ValueError("no_improvement_ms must be finite and positive")
+
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
+    started = time.monotonic()
     size = len(data["distance"])
     manager = pywrapcp.RoutingIndexManager(size, 1, 0)
     routing = pywrapcp.RoutingModel(manager)
 
-    time_scale = 1000
-    weight_scale = 1000
+    time_scale = 10000
+    weight_scale = 1000000
+    demand_scale = DEMAND_SCALE
+    objective_scale = time_scale * weight_scale
+    distance = np.asarray(data["distance"])
+    # Round travel separately from service, as in problem.get_times().
+    travel = np.rint(np.round(distance / data["speed"], 4) * time_scale).astype(np.int64)
+    service = np.rint(np.asarray(data["service"]) * time_scale).astype(np.int64)
+    arrivals = np.rint(
+        np.asarray(data.get("arrival_times", np.zeros(size))) * time_scale
+    ).astype(np.int64)
+    theta = data["theta"] if problem_name in TW_PROBLEMS else 1.0
+    gamma = max(0, int(round(data["gamma"] * weight_scale))) if problem_name in TW_PROBLEMS else 0
+    lateness_constant = 0
 
     def transit(from_index, to_index):
         source = manager.IndexToNode(from_index)
         target = manager.IndexToNode(to_index)
-        return int(
-            round(
-                (
-                    data["distance"][source, target] / data["speed"]
-                    + data["service"][source]
-                )
-                * time_scale
-            )
-        )
+        return int(travel[source, target] + service[source])
 
     transit_index = routing.RegisterTransitCallback(transit)
 
@@ -155,10 +233,7 @@ def solve_scenario(data, problem_name, time_limit_ms):
         target = manager.IndexToNode(to_index)
         return int(
             round(
-                data["theta"]
-                * data["distance"][source, target]
-                * time_scale
-                * weight_scale
+                theta * distance[source, target] * objective_scale
             )
         )
 
@@ -166,27 +241,54 @@ def solve_scenario(data, problem_name, time_limit_ms):
     routing.SetArcCostEvaluatorOfAllVehicles(objective_index)
 
     if problem_name in TW_PROBLEMS:
-        routing.AddDimension(transit_index, 10**9, 10**9, True, "Time")
+        # Include enough room to visit every customer after the latest release
+        # or opening time, even for scenarios using large absolute time units.
+        windows = np.rint(np.asarray(data["windows"]) * time_scale).astype(np.int64)
+        horizon = int(
+            max(0, int(arrivals.max()), int(windows[:, 0].max()))
+            + (size + 1) * (int(travel.max()) + int(service.max()) + 1)
+        )
+        routing.AddDimension(transit_index, horizon, horizon, True, "Time")
         dimension = routing.GetDimensionOrDie("Time")
-        for node, (start, end) in enumerate(data["windows"]):
+        solver = routing.solver()
+        for node, (start, end) in enumerate(windows):
             if node == 0:
                 continue
             index = manager.NodeToIndex(node)
-            dimension.CumulVar(index).SetMin(max(0, int(round(start * time_scale))))
-            dimension.SetCumulVarSoftUpperBound(
-                index,
-                max(0, int(round(end * time_scale))),
-                max(0, int(round(data["gamma"] * weight_scale))),
-            )
+            dimension.CumulVar(index).SetMin(max(0, int(start)))
+            if node not in data["reload_nodes"]:
+                # Relative deadlines may already have passed. Since cumul >= 0,
+                # max(cumul-end, 0) = cumul + (-end) whenever end < 0.
+                lateness_constant += gamma * max(0, -int(end))
+                dimension.SetCumulVarSoftUpperBound(
+                    index,
+                    max(0, int(end)),
+                    gamma,
+                )
+            # The scorer waits until the request is revealed before beginning
+            # travel to it: service_start >= release + incoming travel. A bare
+            # release lower bound would let an offline route depart too early.
+            for source_index in range(routing.Size()):
+                source = manager.IndexToNode(source_index)
+                if source == node:
+                    continue
+                lower_bound = int(arrivals[node] + travel[source, node])
+                if lower_bound <= 0:
+                    continue
+                selected_arc = solver.IsEqualCstVar(routing.NextVar(source_index), index)
+                solver.Add(
+                    dimension.CumulVar(index)
+                    >= lower_bound * selected_arc
+                )
 
     if problem_name in CAPACITY_PROBLEMS:
-        scaled_demands = np.rint(data["demand"] * 1000).astype(int)
+        scaled_demands = np.rint(data["demand"] * demand_scale).astype(np.int64)
 
         def demand(index):
             return int(scaled_demands[manager.IndexToNode(index)])
 
         demand_index = routing.RegisterUnaryTransitCallback(demand)
-        capacity = int(round(data["capacity"] * 1000))
+        capacity = int(round(data["capacity"] * demand_scale))
         routing.AddDimension(
             demand_index, capacity, capacity, True, "Capacity"
         )
@@ -211,7 +313,8 @@ def solve_scenario(data, problem_name, time_limit_ms):
     parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    parameters.time_limit.FromMilliseconds(time_limit_ms)
+    if time_limit_ms is not None:
+        parameters.time_limit.FromMilliseconds(time_limit_ms)
 
     # Give OR-Tools an explicit feasible incumbent. First-solution heuristics
     # are unreliable with optional negative-demand reload nodes, even when the
@@ -227,8 +330,7 @@ def solve_scenario(data, problem_name, time_limit_ms):
                 (
                     node
                     for node in first_nodes
-                    if float(data["demand"][0]) + float(data["demand"][node])
-                    <= float(data["capacity"]) + 1e-5
+                    if scaled_demands[0] + scaled_demands[node] <= capacity
                 ),
                 None,
             )
@@ -244,11 +346,11 @@ def solve_scenario(data, problem_name, time_limit_ms):
     initial_route = []
     if problem_name in CAPACITY_PROBLEMS:
         bins = [[]]
-        bin_loads = [float(data["demand"][0])]
+        bin_loads = [int(scaled_demands[0])]
         remaining = customers
         if first_nodes:
             bins[0].append(customers[0])
-            bin_loads[0] += float(data["demand"][customers[0]])
+            bin_loads[0] += int(scaled_demands[customers[0]])
             remaining = customers[1:]
         remaining = sorted(
             remaining,
@@ -256,9 +358,9 @@ def solve_scenario(data, problem_name, time_limit_ms):
             reverse=True,
         )
         for node in remaining:
-            node_demand = float(data["demand"][node])
+            node_demand = int(scaled_demands[node])
             for index, load in enumerate(bin_loads):
-                if load + node_demand <= data["capacity"] + 1e-5:
+                if load + node_demand <= capacity:
                     bins[index].append(node)
                     bin_loads[index] += node_demand
                     break
@@ -278,30 +380,109 @@ def solve_scenario(data, problem_name, time_limit_ms):
     else:
         initial_route = customers
 
+    # Reading a seed implicitly closes the model. Close it with our search
+    # parameters first so the seed does not silently select default descent
+    # instead of the requested guided local search.
+    routing.CloseModelWithParameters(parameters)
     initial_assignment = routing.ReadAssignmentFromRoutes(
         [initial_route], True
     )
+
+    def result(assignment, termination_reason, tracker=None):
+        route = []
+        if assignment is not None:
+            index = routing.Start(0)
+            while not routing.IsEnd(index):
+                route.append(manager.IndexToNode(index))
+                index = assignment.Value(routing.NextVar(index))
+            route = route[1:]
+        if not return_details:
+            return route
+        return {
+            "route": route,
+            "solver_objective": (
+                (assignment.ObjectiveValue() + lateness_constant) / objective_scale
+                if assignment is not None else None
+            ),
+            "solver_status": int(routing.status()),
+            "termination_reason": termination_reason,
+            "elapsed_seconds": time.monotonic() - started,
+            "improvement_count": tracker.improvement_count if tracker is not None else 0,
+            "time_scale": time_scale,
+            "weight_scale": weight_scale,
+            "objective_scale": objective_scale,
+            "demand_scale": demand_scale,
+        }
+
     if initial_assignment is None:
-        return []
+        return result(None, "no_feasible_solution")
+
+    tracker = NoImprovementTracker(
+        no_improvement_ms if no_improvement_ms is not None else float("inf")
+    )
+    tracker.observe(initial_assignment.ObjectiveValue())
+    objective_var = routing.CostVar()
+
+    def at_solution():
+        tracker.observe(objective_var.Value())
+
+    routing.AddAtSolutionCallback(at_solution)
+    stagnation_reached = False
+
+    def stagnation_limit_reached():
+        nonlocal stagnation_reached
+        if tracker.expired():
+            stagnation_reached = True
+        return stagnation_reached
+
+    # Keep Python callbacks and the monitor alive throughout every solve. A
+    # search limit is checked even when GLS is not producing solution events.
+    stagnation_limit = None
+    if no_improvement_ms is not None:
+        stagnation_limit = routing.solver().CustomLimit(stagnation_limit_reached)
+        routing.AddSearchMonitor(stagnation_limit)
+    search_started = time.monotonic()
     solution = routing.SolveFromAssignmentWithParameters(
         initial_assignment, parameters
     )
-    if solution is None:
+    if (
+        solution is None
+        and time_limit_ms is not None
+        and no_improvement_ms is None
+        and not stagnation_reached
+    ):
         # Very short evaluation budgets can expire before OR-Tools constructs
         # its first feasible route, especially with optional reload nodes.
         # Retry only for feasibility, with a bounded larger budget.
-        parameters.time_limit.FromMilliseconds(max(250, time_limit_ms * 4))
+        retry_time_ms = max(250, time_limit_ms * 4)
+        parameters.time_limit.FromMilliseconds(retry_time_ms)
+        search_started = time.monotonic()
         solution = routing.SolveFromAssignmentWithParameters(
             initial_assignment, parameters
         )
+        effective_time_limit_ms = retry_time_ms
+    else:
+        effective_time_limit_ms = time_limit_ms
+    search_elapsed = time.monotonic() - search_started
+    if stagnation_reached:
+        termination_reason = "no_improvement"
+    elif int(routing.status()) == 7:
+        termination_reason = "search_completed"
+    elif (
+        effective_time_limit_ms is not None
+        and (
+            search_elapsed >= effective_time_limit_ms / 1000.0 * 0.95
+            or int(routing.status()) in (2, 4)
+        )
+    ):
+        termination_reason = "time_limit"
+    else:
+        termination_reason = "search_completed"
     if solution is None:
-        return []
-    route = []
-    index = routing.Start(0)
-    while not routing.IsEnd(index):
-        route.append(manager.IndexToNode(index))
-        index = solution.Value(routing.NextVar(index))
-    return route[1:]
+        # An expired search can reject its current leaf. The validated seed is
+        # still a feasible incumbent, including under very small time budgets.
+        solution = initial_assignment
+    return result(solution, termination_reason, tracker)
 
 
 def make_scenario(
@@ -319,6 +500,7 @@ def make_scenario(
     arrival_weights=None,
     arrival_skews=None,
 ):
+    service_mean, service_std = service_time_parameters(actual)
     if ortec is not None:
         sampled = sample_ortec_scenario(
             ortec, problem_name, n_total, dod, min_trips, max_trips
@@ -335,6 +517,13 @@ def make_scenario(
                 n_subregions=n_subregions,
                 arrival_weights=arrival_weights,
                 arrival_skews=arrival_skews,
+                service_times_mean=service_mean,
+                service_times_var=service_std ** 2,
+                min_time_window=float(actual.get("min_time_window", 60.0)),
+                max_time_window=float(actual.get("max_time_window", 180.0)),
+                speed=float(actual["speed"].item()) * 60.0,
+                time_horizon=float(actual["time_horizon"].item()) / 60.0,
+                latest_end=float(actual.get("latest_end", 120.0)) / 60.0,
                 vehicle_capacity=1.0,
                 min_trips_required_lb=min_trips,
                 min_trips_required_ub=max_trips,
@@ -363,8 +552,13 @@ def make_scenario(
             if sampled_source_ids[node] not in revealed_source_ids
         ]
 
+    # Every unserved customer's realized duration is hidden, even after its
+    # request arrives. Draw one independent duration per scenario customer,
+    # including future ORTEC customers instead of using their saved durations.
+    customer_service = iter(sample_service_times(actual, len(known_ids) + len(future_ids)))
     coords = [actual["all_nodes"][0, state.prev_a.item()]]
     service = [torch.tensor(0.0)]
+    arrivals = [-current_time]
     mapping = [None]
     source_ids = (
         [actual_source_ids[state.prev_a.item()]] if ortec is not None else None
@@ -372,6 +566,7 @@ def make_scenario(
     reload_nodes = []
     first_nodes = []
     demand = [float(state.used_cap.item())] if problem_name in CAPACITY_PROBLEMS else []
+    capacity = float(actual["vehicle_capacity"].item()) if problem_name in CAPACITY_PROBLEMS else 1.0
     windows = [(0.0, 10**6)]
 
     if problem_name in CAPACITY_PROBLEMS:
@@ -381,18 +576,26 @@ def make_scenario(
         for _ in range(max_trips * 2):
             reload_nodes.append(len(coords))
             coords.append(actual["all_nodes"][0, 0])
-            service.append(torch.tensor(0.0))
+            service.append(actual["service_times"][0, 0])
+            arrivals.append(float(actual["arrival_times"][0, 0]) - current_time)
             mapping.append(0)
             if ortec is not None:
                 source_ids.append(0)
-            demand.append(-1.0)
-            windows.append((0.0, 10**6))
+            demand.append(-capacity)
+            windows.append(
+                (
+                    float(actual["window_starts"][0, 0]) - current_time,
+                    float(actual["window_ends"][0, 0]) - current_time,
+                )
+                if problem_name in TW_PROBLEMS else (0.0, 10**6)
+            )
 
     for node in known_ids:
         if actual_feasible[node].item():
             first_nodes.append(len(coords))
         coords.append(actual["all_nodes"][0, node])
-        service.append(actual["service_times"][0, node])
+        service.append(torch.tensor(next(customer_service), dtype=torch.float))
+        arrivals.append(float(actual["arrival_times"][0, node]) - current_time)
         mapping.append(node)
         if ortec is not None:
             source_ids.append(actual_source_ids[node])
@@ -410,20 +613,17 @@ def make_scenario(
 
     for node in future_ids:
         coords.append(sampled["all_nodes"][node])
-        service.append(sampled["service_times"][node])
+        service.append(torch.tensor(next(customer_service), dtype=torch.float))
+        arrivals.append(float(sampled["arrival_times"][node]) - current_time)
         mapping.append(None)
         if ortec is not None:
             source_ids.append(sampled_source_ids[node])
         if problem_name in CAPACITY_PROBLEMS:
-            demand.append(float(sampled["demand"][node]))
+            demand.append(float(sampled["demand"][node]) * capacity)
         if problem_name in TW_PROBLEMS:
             windows.append(
                 (
-                    max(
-                        float(sampled["window_starts"][node]),
-                        float(sampled["arrival_times"][node]),
-                    )
-                    - current_time,
+                    float(sampled["window_starts"][node]) - current_time,
                     float(sampled["window_ends"][node]) - current_time,
                 )
             )
@@ -438,11 +638,12 @@ def make_scenario(
     return {
         "distance": scenario_distance,
         "service": torch.stack(service).numpy(),
+        "arrival_times": np.asarray(arrivals),
         "speed": float(actual["speed"].item()),
         "mapping": mapping,
         "windows": windows,
         "demand": np.asarray(demand),
-        "capacity": 1.0,
+        "capacity": capacity,
         "reload_nodes": set(reload_nodes),
         "first_nodes": first_nodes,
         "gamma": float(actual["gamma"].item()) if problem_name in TW_PROBLEMS else 0.0,
@@ -450,40 +651,138 @@ def make_scenario(
     }
 
 
-def evaluate_instance(args, problem, item, ortec=None):
+def resolve_worker_count(workers, scenarios=None):
+    """Resolve zero to the CPUs available to this process, avoiding idle workers."""
+    if workers < 0:
+        raise ValueError("workers must be zero (automatic) or positive")
+    if workers == 0:
+        try:
+            workers = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            workers = os.cpu_count() or 1
+    if scenarios is not None:
+        if scenarios < 1:
+            raise ValueError("scenarios must be positive")
+        workers = min(workers, scenarios)
+    return max(1, workers)
+
+
+def initialize_scenario_worker():
+    """Keep tensor helpers from creating a thread pool inside every process."""
+    torch.set_num_threads(1)
+
+
+def create_scenario_executor(workers):
+    """Create a reusable process pool; spawn avoids inherited solver/thread state."""
+    if workers < 1:
+        raise ValueError("executor workers must be positive")
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=initialize_scenario_worker,
+    )
+
+
+def solve_prepared_scenario(job):
+    """Solve an already sampled scenario without touching the parent's RNGs."""
+    scenario, problem_name, time_limit_ms, no_improvement_ms = job
+    details = solve_scenario(
+        scenario,
+        problem_name,
+        time_limit_ms,
+        no_improvement_ms=no_improvement_ms,
+        return_details=True,
+    )
+    details["worker_pid"] = os.getpid()
+    return details
+
+
+def evaluate_instance(
+    args, problem, item, ortec=None, executor=None, return_details=False
+):
+    """Evaluate MSA, returning wall-clock runtime rather than summed worker time.
+
+    A supplied executor is reused and remains owned by the caller. Without one,
+    ``args.workers`` selects sequential solving or a pool scoped to this call.
+    Optional details separate parent batch waiting time from summed per-scenario
+    solver durations, which may exceed wall time when scenarios run in parallel.
+    """
+    started = time.perf_counter()
+    workers = resolve_worker_count(getattr(args, "workers", 1), args.scenarios)
+    if executor is not None:
+        # A caller-provided pool may deliberately differ from args.workers.
+        workers = getattr(executor, "_max_workers", workers)
+    pool_context = (
+        create_scenario_executor(workers)
+        if executor is None and workers > 1 else nullcontext(executor)
+    )
+    with pool_context as pool:
+        objective, details = _evaluate_instance(args, problem, item, ortec, pool, workers)
+    runtime = time.perf_counter() - started
+    details["wall_time_seconds"] = runtime
+    if return_details:
+        return objective, runtime, details
+    return objective, runtime
+
+
+def _evaluate_instance(args, problem, item, ortec, executor, workers):
     actual = dataset_to_input(item, args.problem, torch.device("cpu"))
+    service_mean, service_std = service_time_parameters(actual)
     actual_source_ids = map_ortec_nodes(item, ortec) if ortec is not None else None
     state = problem.make_state(actual)
     tour = [0]
-    solve_time = 0.0
+    time_limit_ms = getattr(args, "solver_time_ms", None)
+    no_improvement_ms = getattr(args, "solver_no_improvement_ms", 60000)
+    solver_wall_time = 0.0
+    aggregate_solver_time = 0.0
+    scenario_count = 0
+    improvement_count = 0
+    termination_counts = Counter()
     while not state.all_finished():
         feasible = ~state.get_mask()[0, 0]
         feasible[0] = False
         if not feasible.any():
             selected = torch.tensor([0])
         else:
-            votes = []
+            # Sample in the parent and finish the entire batch before solving.
+            # Worker count and completion order cannot change the RNG sequence.
+            scenarios = []
             for _ in range(args.scenarios):
-                scenario = make_scenario(
-                    problem,
-                    args.problem,
-                    actual,
-                    state,
-                    len(item["all_nodes"]),
-                    args.dod,
-                    args.min_trips,
-                    args.max_trips,
-                    ortec,
-                    actual_source_ids,
-                    args.n_subregions,
-                    args.arrival_weights,
-                    args.arrival_skews,
+                scenarios.append(
+                    make_scenario(
+                        problem,
+                        args.problem,
+                        actual,
+                        state,
+                        len(item["all_nodes"]),
+                        args.dod,
+                        args.min_trips,
+                        args.max_trips,
+                        ortec,
+                        actual_source_ids,
+                        getattr(args, "n_subregions", 1),
+                        getattr(args, "arrival_weights", None),
+                        getattr(args, "arrival_skews", None),
+                    )
                 )
-                started = time.perf_counter()
-                route = solve_scenario(
-                    scenario, args.problem, args.solver_time_ms
-                )
-                solve_time += time.perf_counter() - started
+            jobs = [
+                (scenario, args.problem, time_limit_ms, no_improvement_ms)
+                for scenario in scenarios
+            ]
+            batch_started = time.perf_counter()
+            if executor is None:
+                results = list(map(solve_prepared_scenario, jobs))
+            else:
+                # executor.map preserves input order, including for voting ties.
+                results = list(executor.map(solve_prepared_scenario, jobs))
+            solver_wall_time += time.perf_counter() - batch_started
+            votes = []
+            for scenario, details in zip(scenarios, results):
+                scenario_count += 1
+                aggregate_solver_time += details["elapsed_seconds"]
+                improvement_count += details["improvement_count"]
+                termination_counts[details["termination_reason"]] += 1
+                route = details["route"]
                 if not route:
                     continue
                 action = scenario["mapping"][route[0]]
@@ -504,28 +803,58 @@ def evaluate_instance(args, problem, item, ortec=None):
                 [Counter(votes).most_common(1)[0][0]], dtype=torch.long
             )
         state = state.update(selected)
-        tour.append(selected.item())
+        if not hasattr(state, "last_action_executed") or state.last_action_executed.item():
+            tour.append(selected.item())
 
     pi = torch.tensor(tour, dtype=torch.long).unsqueeze(0)
-    visit_times, _ = problem.get_times(actual, pi)
+    if hasattr(state, "get_visit_times"):
+        visit_times = torch.tensor(state.get_visit_times())
+    else:
+        visit_times, _ = problem.get_times(actual, pi)
     if args.problem in TW_PROBLEMS:
         objective = problem.get_costs(
             actual, pi, visit_times, actual["gamma"], actual["theta"]
         )[0].item()
     else:
         objective = problem.get_costs(actual, pi)[0].item()
-    return objective, solve_time
+    return objective, {
+        "solver_wall_time_seconds": solver_wall_time,
+        "aggregate_solver_seconds": aggregate_solver_time,
+        "scenario_count": scenario_count,
+        "workers": workers,
+        "termination_counts": dict(termination_counts),
+        "improvement_count": improvement_count,
+        "solver_no_improvement_ms": no_improvement_ms,
+        "solver_time_ms": time_limit_ms,
+        "service_time_model": "sampled",
+        "service_times_mean": service_mean,
+        "service_times_var": service_std ** 2,
+    }
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
+    add_service_time_arguments(parser)
+    add_time_window_arguments(parser)
     parser.add_argument("--problem", required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--dod", type=float, required=True)
     parser.add_argument("--scenarios", type=int, default=10)
-    parser.add_argument("--solver-time-ms", type=int, default=250)
+    parser.add_argument(
+        "--solver-no-improvement-ms", type=int, default=60000,
+        help="Stop each GLS scenario after this interval without a strict best improvement (default: 60000)",
+    )
+    parser.add_argument(
+        "--solver-time-ms", type=int,
+        help="Optional total search time cap per scenario; unset by default",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=1,
+        help="Parallel scenario processes (default: 1); 0 uses available CPUs, up to the scenario count",
+    )
     parser.add_argument("--num-samples", type=int, default=100)
+    parser.add_argument("--offset", type=int, default=0, help="First zero-based dataset instance to evaluate")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--min-trips", type=int, default=3)
     parser.add_argument("--max-trips", type=int, default=9)
@@ -545,40 +874,102 @@ def main():
         nargs="+",
         choices=("early", "uniform", "late"),
     )
-    args = parser.parse_args()
-    if args.scenarios < 1 or args.solver_time_ms < 1:
-        parser.error("scenarios and solver-time-ms must be positive")
+    args = parser.parse_args(argv)
+    if args.scenarios < 1 or args.solver_no_improvement_ms < 1:
+        parser.error("scenarios and solver-no-improvement-ms must be positive")
+    if args.solver_time_ms is not None and args.solver_time_ms < 1:
+        parser.error("solver-time-ms must be positive when supplied")
+    if args.workers < 0:
+        parser.error("workers must be zero (automatic) or positive")
+    if args.num_samples < 1:
+        parser.error("num-samples must be positive")
+    if args.offset < 0:
+        parser.error("offset must be nonnegative")
+    if args.seed < 0:
+        parser.error("seed must be nonnegative")
+    validate_service_time_arguments(parser, args)
+    validate_time_window_arguments(parser, args)
     if args.arrival_weights is not None and len(args.arrival_weights) != args.n_subregions:
         parser.error("arrival-weights must have one value per subregion")
     if args.arrival_skews is not None and len(args.arrival_skews) != args.n_subregions:
         parser.error("arrival-skews must have one value per subregion")
+    return args
 
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+
+def instance_seed(base_seed, global_sample_index):
+    """Derive the same scenario RNG seed regardless of dataset chunk boundaries."""
+    if base_seed < 0 or global_sample_index < 0:
+        raise ValueError("base seed and global sample index must be nonnegative")
+    return int(
+        np.random.SeedSequence([base_seed, global_sample_index]).generate_state(1)[0]
+    )
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
     problem = load_problem(args.problem)
     ortec = make_ortec_context(args.use_ortec) if args.use_ortec else None
     dataset = problem.make_dataset(
         filename=args.dataset,
         batch_size=1,
         num_samples=args.num_samples,
+        offset=args.offset,
         vehicle_capacity=1.0,
         min_trips_required_lb=args.min_trips,
         min_trips_required_ub=args.max_trips,
         use_ortec=args.use_ortec,
+        service_times_mean=args.service_times_mean,
+        service_times_var=args.service_times_var,
+        min_time_window=args.min_time_window,
+        max_time_window=args.max_time_window,
     )
+    if not len(dataset):
+        raise ValueError(f"No samples found in dataset {args.dataset} at offset {args.offset}")
     rows = []
-    for index in range(len(dataset)):
-        objective, runtime = evaluate_instance(
-            args, problem, dataset[index], ortec
-        )
-        rows.append(
-            {"sample": index, "objective": objective, "runtime": runtime}
-        )
+    workers = resolve_worker_count(args.workers, args.scenarios)
+    pool_context = create_scenario_executor(workers) if workers > 1 else nullcontext(None)
+    started = time.perf_counter()
+    # Keep workers alive across every decision and dataset instance. Startup and
+    # shutdown are included in the whole-dataset evaluation wall time.
+    with pool_context as executor:
+        for index in range(len(dataset)):
+            sample_index = args.offset + index
+            sample_seed = instance_seed(args.seed, sample_index)
+            np.random.seed(sample_seed)
+            torch.manual_seed(sample_seed)
+            objective, runtime, details = evaluate_instance(
+                args, problem, dataset[index], ortec,
+                executor=executor, return_details=True,
+            )
+            rows.append(
+                {
+                    "sample": sample_index,
+                    "instance_seed": sample_seed,
+                    "objective": objective,
+                    "runtime": runtime,
+                    **details,
+                }
+            )
+    wall_time = time.perf_counter() - started
+    termination_counts = Counter()
+    for row in rows:
+        termination_counts.update(row["termination_counts"])
     result = {
         "problem": args.problem,
         "dataset": args.dataset,
+        "offset": args.offset,
         "scenarios": args.scenarios,
         "solver_time_ms": args.solver_time_ms,
+        "solver_no_improvement_ms": args.solver_no_improvement_ms,
+        "service_time_model": "sampled",
+        "service_times_mean": args.service_times_mean,
+        "service_times_var": args.service_times_var,
+        "workers_requested": args.workers,
+        "time_window_scenario": args.time_window_scenario,
+        "min_time_window": args.min_time_window,
+        "max_time_window": args.max_time_window,
+        "workers": workers,
         "seed": args.seed,
         "distribution": (
             "ortec"
@@ -592,6 +983,12 @@ def main():
         "objective_mean": float(np.mean([row["objective"] for row in rows])),
         "objective_std": float(np.std([row["objective"] for row in rows])),
         "runtime_mean": float(np.mean([row["runtime"] for row in rows])),
+        "wall_time_seconds": wall_time,
+        "solver_wall_time_seconds": sum(row["solver_wall_time_seconds"] for row in rows),
+        "aggregate_solver_seconds": sum(row["aggregate_solver_seconds"] for row in rows),
+        "scenario_count": sum(row["scenario_count"] for row in rows),
+        "termination_counts": dict(termination_counts),
+        "improvement_count": sum(row["improvement_count"] for row in rows),
     }
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -60,9 +60,13 @@ def nearest_neighbour(problem, model_input):
         else:
             raise RuntimeError("Environment has unfinished work but no feasible action")
         state = state.update(selected)
-        tour.append(selected.item())
+        if not hasattr(state, "last_action_executed") or state.last_action_executed.item():
+            tour.append(selected.item())
     tour_tensor = torch.tensor(tour, dtype=torch.long).unsqueeze(0)
-    visit_times, _ = problem.get_times(model_input, tour_tensor)
+    if hasattr(state, "get_visit_times"):
+        visit_times = torch.tensor(state.get_visit_times())
+    else:
+        visit_times, _ = problem.get_times(model_input, tour_tensor)
     return tour_tensor, visit_times
 
 
@@ -105,10 +109,14 @@ def first_come_first_served(problem, model_input):
             )
 
         state = state.update(selected)
-        tour.append(selected.item())
+        if not hasattr(state, "last_action_executed") or state.last_action_executed.item():
+            tour.append(selected.item())
 
     tour_tensor = torch.tensor(tour, dtype=torch.long).unsqueeze(0)
-    visit_times, _ = problem.get_times(model_input, tour_tensor)
+    if hasattr(state, "get_visit_times"):
+        visit_times = torch.tensor(state.get_visit_times())
+    else:
+        visit_times, _ = problem.get_times(model_input, tour_tensor)
     return tour_tensor, visit_times
 
 

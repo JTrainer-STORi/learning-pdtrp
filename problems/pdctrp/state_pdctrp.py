@@ -1,6 +1,7 @@
 from typing import NamedTuple
 import torch
 from utils import scale_time
+from problems.request_events import reveal_and_wait_if_idle
 
 class StatePDCTRP(NamedTuple):
 
@@ -61,7 +62,7 @@ class StatePDCTRP(NamedTuple):
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
         visited[:, :, 0] = True  # depot starts visited
 
-        return StatePDCTRP(
+        state = StatePDCTRP(
             coords=loc,
             arrival_times=arrival_times,
             service_times=service_times,
@@ -83,6 +84,8 @@ class StatePDCTRP(NamedTuple):
             arrival_occured=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),
         )
+
+        return reveal_and_wait_if_idle(state)
 
     def update(self, selected):
 

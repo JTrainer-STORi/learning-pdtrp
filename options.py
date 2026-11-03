@@ -2,6 +2,7 @@ import os
 import time
 import argparse
 import torch
+from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
 
 # Note on the store_true and store_false arguments in argparse:
 # The store_true action is used to create a boolean flag that is set to True if the option is provided, and False otherwise.
@@ -71,11 +72,8 @@ def get_options(args=None):
     parser.add_argument('--latest_end', type=int, default=2,
                         help='maximum amount of time after the time horizon passes that a customer\'s time window can end, default is 2 hours')
     parser.add_argument('--reaction_time', type=int, default=60,
-                        help="Reaction time, in minutes, the reaction time is the minimum amount of time that must pass between a customer arriving and their time window starting. ")
-    parser.add_argument('--min_time_window', type=int, default=60,
-                        help='Minimum time window length in minutes')
-    parser.add_argument('--max_time_window', type=int, default=100,
-                        help='Maximum time window length in minutes')
+                        help="Legacy ORTEC call-to-opening delay in minutes; synthetic TW generation uses depot travel instead")
+    add_time_window_arguments(parser)
     parser.add_argument('--vehicle_capacity', type=float, default=1.0,
                         help='Vehicle capacity, default is 1.0 (1 unit of demand)')
     parser.add_argument('--min_trips_required_lb', type=int, default=3,
@@ -194,6 +192,7 @@ def get_options(args=None):
     parser.add_argument('--print_query_times', action='store_true',
                         help='Print query times for the model to stdout')
     opts = parser.parse_args(args)
+    validate_time_window_arguments(parser, opts)
 
     if opts.val_every < 1:
         parser.error("--val_every must be at least 1")

@@ -1,3 +1,5 @@
+from itertools import islice
+
 from torch.utils.data import Dataset
 import torch
 from tqdm import tqdm
@@ -117,6 +119,10 @@ class PDCTRPDataset(Dataset):
         super(PDCTRPDataset, self).__init__()
         if batch_size < 1 or num_samples % batch_size != 0:
             raise ValueError("num_samples must be divisible by a positive batch_size")
+        if num_samples < 1:
+            raise ValueError("num_samples must be positive")
+        if offset < 0:
+            raise ValueError("offset must be nonnegative")
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total
@@ -156,22 +162,29 @@ class PDCTRPDataset(Dataset):
 
             print("Loading from {}...".format(filename))
 
-            for line in tqdm(open(filename, "r").readlines()[offset:offset + num_samples], ascii=True):
-                line = line.split(" ")
-                n_nodes = int(line.index('arrival_times')//2)
-                self.all_nodes.append(
-                    [[float(line[idx]), float(line[idx + 1])] for idx in range(0, 2 * n_nodes, 2)]
+            with open(filename, "r") as dataset_file:
+                lines = islice(dataset_file, offset, offset + num_samples)
+                for line in tqdm(lines, ascii=True):
+                    line = line.split(" ")
+                    n_nodes = int(line.index('arrival_times')//2)
+                    self.all_nodes.append(
+                        [[float(line[idx]), float(line[idx + 1])] for idx in range(0, 2 * n_nodes, 2)]
+                    )
+                    self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
+                    self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('demands')]])
+                    self.demands.append([float(x) for x in line[line.index('demands') + 1:line.index('tour')]])
+                    self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
+                    if self.use_ortec is not None:
+                        # If using ORTEC, the distance matrix is already computed
+                        self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:line.index('distance_matrix')]])
+                        self.distance_matrix.append(np.reshape(np.array([float(x) for x in line[line.index('distance_matrix') + 1:]]), (n_nodes, n_nodes)))
+                    else:
+                        self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
+
+            if not self.all_nodes:
+                raise ValueError(
+                    f"No samples found in dataset {filename} at offset {offset}"
                 )
-                self.arrival_times.append([float(x) for x in line[line.index('arrival_times') + 1:line.index('service_times')]])
-                self.service_times.append([float(x) for x in line[line.index('service_times') + 1:line.index('demands')]])
-                self.demands.append([float(x) for x in line[line.index('demands') + 1:line.index('tour')]])
-                self.tours.append([int(x) - 1 for x in line[line.index('tour') + 1:line.index('visit_times') - 1]])
-                if self.use_ortec is not None:
-                    # If using ORTEC, the distance matrix is already computed
-                    self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:line.index('distance_matrix')]])
-                    self.distance_matrix.append(np.reshape(np.array([float(x) for x in line[line.index('distance_matrix') + 1:]]), (n_nodes, n_nodes)))
-                else: 
-                    self.visit_times.append([float(x) for x in line[line.index('visit_times') + 1:]])
 
         elif self.use_ortec is not None:
             print("Generating PDCTRP instances from ORTEC instance: {}".format(self.use_ortec))
@@ -188,7 +201,7 @@ class PDCTRPDataset(Dataset):
                 demands = []
                 for _ in range(batch_size):
                     # sample the number of immediate customers for this instance
-                    n_imm = np.random.randint(int(self.min_dod * n_total), int(self.max_dod * n_total) + 1, dtype=int)
+                    n_imm = np.random.randint(int(self.min_dod * (n_total - 1)), int(self.max_dod * (n_total - 1)) + 1, dtype=int)
                     batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _,batch_demands = subsample_ortec(instance_file=self.use_ortec, problem='pdctrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, vehicle_capacity=self.vehicle_capacity, min_trips_required_lb=self.min_trips_required_lb, min_trips_required_ub=self.min_trips_required_ub, n_imm=n_imm,
                     reaction_time=self.reaction_time, latest_end=self.latest_end)
                     all_nodes.append(batch_nodes)
@@ -291,6 +304,8 @@ class PDCTRPDataset(Dataset):
             'all_nodes': torch.FloatTensor(all_nodes),
             'arrival_times': torch.FloatTensor(arrival_times),
             'service_times': torch.FloatTensor(service_times),
+            'service_times_mean': torch.FloatTensor([self.service_times_mean]),
+            'service_times_std': torch.FloatTensor([self.service_times_std]),
             'graph': ~torch.BoolTensor(nn_graph),
             'demand': torch.FloatTensor(demands),
             'speed': torch.FloatTensor([self.speed]),

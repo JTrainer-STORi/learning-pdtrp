@@ -54,10 +54,28 @@ def normalize_coordinates(coords):
     max_y = np.max(coords[:, 1])
     return coords / np.array([max_x, max_y])
 
+def sample_ortec_customer_indices(window_starts, n_customers, *, fully_dynamic=False, reaction_time=60.0):
+    """Retain depot identity and require positive call times for a fully dynamic draw."""
+    candidates = np.arange(1, len(window_starts))
+    if fully_dynamic:
+        calls = np.round(np.asarray(window_starts)[candidates] - reaction_time, decimals=3)
+        candidates = candidates[calls > 0]
+    if n_customers > len(candidates):
+        kind = " with positive call times" if fully_dynamic else ""
+        raise ValueError(
+            f"ORTEC source has only {len(candidates)} customers{kind}; requested {n_customers}"
+        )
+    return np.random.choice(candidates, n_customers, replace=False)
+
+
 def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, n_imm=None, reaction_time=None):
 
     # choose n_locations - 1 random indices (always retain depot)
-    indices = np.random.choice(range(1, len(rl_instance['coords'])), n_locations - 1, replace=False)
+    scaled_windows = rl_instance['time_windows'] * (480 + latest_end) / np.max(rl_instance['time_windows'][1:])
+    indices = sample_ortec_customer_indices(
+        scaled_windows[:, 0], n_locations - 1,
+        fully_dynamic=n_imm == n_locations - 1, reaction_time=reaction_time,
+    )
     # create a new instance with the chosen locations
 
     indices_plus_depot = np.concatenate(([0], indices))  # +1 because depot is at index 0
@@ -73,7 +91,7 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
     # convert service times to minutes
     service_times = rl_instance['service_times'][indices_plus_depot] / 60.0
     # scale time windows to fit in time_horizon
-    time_windows = rl_instance['time_windows'][indices] * (time_horizon + latest_end) / np.max(rl_instance['time_windows'][1:])  # normalize to [0, time_horizon + latest_end]
+    time_windows = scaled_windows[indices]  # normalize to [0, time_horizon + latest_end]
 
     immediate_indices = np.random.choice(range(0,len(indices)), n_imm, replace=False)
     arrival_times = np.zeros(len(indices))

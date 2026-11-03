@@ -52,7 +52,7 @@ def test_model_classifies_canonical_problem_names(problem):
 
 
 @pytest.mark.parametrize("problem", PROBLEMS)
-@pytest.mark.parametrize("mode", ("masked", "recursive"))
+@pytest.mark.parametrize("mode", ("masked", "recursive", "recursive_plus_removal"))
 def test_every_problem_completes_model_forward(problem, mode):
     model_input = make_small_input(problem)
     model = DynamicAttentionModel(
@@ -72,6 +72,21 @@ def test_every_problem_completes_model_forward(problem, mode):
     assert cost.shape == (1,)
     assert torch.isfinite(cost).all()
     assert log_likelihood is None
+
+
+@pytest.mark.parametrize("mode", ["recursive", "recursive_plus_removal"])
+@pytest.mark.parametrize("batch_size,pomo", [(0, 1), (2, 1), (1, 2)])
+def test_recursive_evaluation_requires_one_instance_and_one_rollout(mode, batch_size, pomo):
+    model = DynamicAttentionModel(
+        PDTRP, embedding_dim=32, encoder_class=GNNEncoder,
+        n_encode_layers=1, n_heads=4,
+    ).eval()
+    # Invalid batches must fail at the public boundary, before encoding or
+    # constructing state; no other input fields should be needed for this check.
+    inputs = {"all_nodes": torch.zeros(batch_size, 3, 2)}
+
+    with pytest.raises(ValueError, match="exactly one instance and one rollout"):
+        model(inputs, mode=mode, pomo_batch_size=pomo)
 
 
 @pytest.mark.parametrize("problem", PROBLEMS)

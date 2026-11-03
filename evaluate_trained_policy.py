@@ -2,9 +2,11 @@
 """Evaluate one trained policy checkpoint on one or more fixed datasets."""
 
 import argparse
+from contextlib import redirect_stdout
 import csv
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -17,11 +19,19 @@ from utils import load_model
 from utils.data_utils import dataset_to_input
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--problem", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--datasets", nargs="+", required=True)
+    parser.add_argument(
+        "--num-samples", type=int, default=12800,
+        help="Maximum instances to evaluate from each dataset after offset (default: 12800)",
+    )
+    parser.add_argument(
+        "--offset", type=int, default=0,
+        help="First zero-based dataset instance to evaluate (default: 0)",
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--evaluation-seed", type=int, default=1234)
     parser.add_argument("--speed", type=float, default=4.0)
@@ -32,7 +42,12 @@ def parse_args():
         help="ORTEC source instance; used when loading *_testing_ortec_* files",
     )
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.num_samples < 1:
+        parser.error("num-samples must be positive")
+    if args.offset < 0:
+        parser.error("offset must be nonnegative")
+    return args
 
 
 def problem_class(name):
@@ -57,6 +72,8 @@ def evaluate_dataset(model, problem, dataset_path, device, args):
     dataset = problem.make_dataset(
         filename=str(dataset_path),
         batch_size=1,
+        num_samples=args.num_samples,
+        offset=args.offset,
         speed=args.speed,
         time_horizon=args.time_horizon,
         latest_end=args.latest_end,
@@ -76,7 +93,7 @@ def evaluate_dataset(model, problem, dataset_path, device, args):
                 torch.cuda.synchronize()
             rows.append(
                 {
-                    "sample": sample_index,
+                    "sample": args.offset + sample_index,
                     "objective": float(cost.reshape(-1)[0].cpu()),
                     "runtime_seconds": time.perf_counter() - started,
                 }
@@ -84,8 +101,8 @@ def evaluate_dataset(model, problem, dataset_path, device, args):
     return rows
 
 
-def main():
-    args = parse_args()
+def main(argv=None):
+    args = parse_args(argv)
     checkpoint = Path(args.checkpoint).resolve()
     output_dir = Path(args.output_dir).resolve()
     datasets = [Path(path).resolve() for path in args.datasets]
@@ -105,7 +122,8 @@ def main():
 
     device = torch.device(args.device)
     problem = problem_class(args.problem)()
-    model, model_args = load_model(str(checkpoint))
+    with redirect_stdout(sys.stderr):
+        model, model_args = load_model(str(checkpoint))
     model.to(device)
     model.eval()
     set_decode_type(model, "greedy")
@@ -118,12 +136,15 @@ def main():
         "device": str(device),
         "ortec_source": args.use_ortec,
         "training_seed": model_args.get("seed"),
+        "num_samples_requested": args.num_samples,
+        "offset": args.offset,
         "datasets": [],
     }
 
     for dataset_path in datasets:
-        print(f"Evaluating {dataset_path}", flush=True)
-        rows = evaluate_dataset(model, problem, dataset_path, device, args)
+        print(f"Evaluating {dataset_path}", file=sys.stderr, flush=True)
+        with redirect_stdout(sys.stderr):
+            rows = evaluate_dataset(model, problem, dataset_path, device, args)
         stem = dataset_path.stem
         samples_path = output_dir / f"{stem}.samples.csv"
         summary_path = output_dir / f"{stem}.summary.json"
@@ -142,6 +163,8 @@ def main():
             "problem": args.problem,
             "dataset": str(dataset_path),
             "samples": len(rows),
+            "num_samples_requested": args.num_samples,
+            "offset": args.offset,
             "mean_objective": float(objectives.mean()),
             "std_objective": float(objectives.std()),
             "mean_runtime_seconds": float(runtimes.mean()),
@@ -155,7 +178,8 @@ def main():
     with (output_dir / "manifest.json").open("w") as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    print(f"POLICY EVALUATION PASSED: {len(datasets)} datasets", flush=True)
+    print(json.dumps(manifest, indent=2, sort_keys=True), flush=True)
+    return manifest
 
 
 if __name__ == "__main__":
