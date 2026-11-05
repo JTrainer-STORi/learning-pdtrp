@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from nets.encoders.gnn_encoder import aggregate_neighbor_messages
 
 class TGNNLayer(nn.Module):
     def __init__(self, hidden_dim, aggregation="sum", norm="batch", learn_norm=True, track_norm=False, gated=True):
@@ -63,9 +64,9 @@ class TGNNLayer(nn.Module):
         Bh = self.B(h)  # B x V x H
         Ce = self.C(e)  # B x V x V x H
 
-        # Update edge features and compute edge gates
+        # Use the previous edge states for the simultaneous node update.
+        gates = torch.sigmoid(e_in)  # B x V x V x H
         e = Ah.unsqueeze(1) + Bh.unsqueeze(2) + Ce  # B x V x V x H
-        gates = torch.sigmoid(e)  # B x V x V x H
 
         # Update node features
         h = Uh + self.aggregate(Vh, graph, gates, mask)  # B x V x H
@@ -99,9 +100,6 @@ class TGNNLayer(nn.Module):
         Returns:
             Aggregated neighborhood features (B x V x H)
         """
-        # Perform feature-wise gating mechanism
-        Vh = gates * Vh  # B x V x V x H
-        
         # Keep only edges where neighbor exists in the graph
         # and the neighbor node is active in the temporal mask
         if mask is not None:
@@ -111,29 +109,7 @@ class TGNNLayer(nn.Module):
         else:
             combined_mask = graph.bool()
 
-        # Zero out non-neighbor contributions
-        Vh = Vh * combined_mask.unsqueeze(-1)  # B x V x V x H  
-
-        # Degree for each node (how many valid neighbors)
-        deg = combined_mask.sum(dim=2)  # (B x V)
-
-        if self.aggregation == "mean":
-            # Avoid division by zero: set to 1 where deg == 0
-            deg_safe = deg.clamp(min=1).unsqueeze(-1)  # (B x V x 1)
-            out = Vh.sum(dim=2) / deg_safe
-        elif self.aggregation == "max":
-            # Mask out invalid edges
-            Vh_masked = Vh.masked_fill(~combined_mask.unsqueeze(-1), float('-inf'))
-            out = Vh_masked.max(dim=2)[0]
-            # Where deg == 0, set to zero vector
-            out[deg == 0] = 0
-            return out
-        else:  # sum
-            out = Vh.sum(dim=2)
-
-        # If no neighbors, return zero
-        out[deg == 0] = 0
-        return out
+        return aggregate_neighbor_messages(gates * Vh, combined_mask, self.aggregation)
     
 
 class IncrementalUpdateEncoder(nn.Module):

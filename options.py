@@ -1,7 +1,9 @@
 import os
 import time
 import argparse
+import json
 import torch
+from problems.size_conventions import CUSTOMER_SIZE_CONVENTION, resolve_node_bounds
 from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
 
 # Note on the store_true and store_false arguments in argparse:
@@ -15,10 +17,14 @@ def get_options(args=None):
     # Data
     parser.add_argument('--problem', default='pdtrp', 
                         help="The problem to solve, options are: 'pdtrp', 'pdtrptw', 'pdctrp' or 'pdctrptw'")
-    parser.add_argument('--min_total', type=int, default=40, 
-                        help="The minimum number of total nodes")
-    parser.add_argument('--max_total', type=int, default=100, 
-                        help="The maximum number of total nodes")
+    parser.add_argument('--min-customers', '--min_customers', type=int,
+                        help="Minimum N, excluding the depot (default: 40)")
+    parser.add_argument('--max-customers', '--max_customers', type=int,
+                        help="Maximum N, excluding the depot (default: 100)")
+    parser.add_argument('--min_total', type=int,
+                        help="Legacy minimum total-node count INCLUDING the depot; use --min-customers for N")
+    parser.add_argument('--max_total', type=int,
+                        help="Legacy maximum total-node count INCLUDING the depot; use --max-customers for N")
     parser.add_argument('--min_dod', type=float, default=0.2,
                         help='The minimum ratio of dynamic nodes')
     parser.add_argument('--max_dod', type=float, default=0.8,
@@ -194,6 +200,31 @@ def get_options(args=None):
     opts = parser.parse_args(args)
     validate_time_window_arguments(parser, opts)
 
+    # Resuming without size overrides inherits the saved bounds, including the
+    # old total-node convention used by checkpoints without size metadata.
+    if opts.resume and all(value is None for value in (
+        opts.min_total, opts.max_total, opts.min_customers, opts.max_customers
+    )):
+        saved_args = os.path.join(os.path.dirname(opts.resume), 'args.json')
+        if os.path.isfile(saved_args):
+            with open(saved_args) as handle:
+                saved = json.load(handle)
+            if 'min_customers' in saved and 'max_customers' in saved:
+                opts.min_customers, opts.max_customers = saved['min_customers'], saved['max_customers']
+            else:
+                opts.min_total, opts.max_total = saved.get('min_total'), saved.get('max_total')
+    try:
+        opts.min_total, opts.max_total = resolve_node_bounds(
+            opts.min_total, opts.max_total, opts.min_customers, opts.max_customers,
+            default_min_customers=40,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    opts.min_customers, opts.max_customers = opts.min_total - 1, opts.max_total - 1
+    opts.size_convention = CUSTOMER_SIZE_CONVENTION
+
+    if opts.accumulation_steps < 1:
+        parser.error("--accumulation_steps must be at least 1")
     if opts.val_every < 1:
         parser.error("--val_every must be at least 1")
     if opts.baseline_update_every < 1:
@@ -203,7 +234,7 @@ def get_options(args=None):
     opts.run_name = "{}_{}".format(opts.run_name, time.strftime("%Y%m%dT%H%M%S"))
     opts.save_dir = os.path.join(
         opts.output_dir,
-        "{}_{}-{}-{}-{}".format(opts.problem, opts.min_total, opts.max_total, opts.min_dod, opts.max_dod),
+        "{}_{}-{}-{}-{}".format(opts.problem, opts.min_customers, opts.max_customers, opts.min_dod, opts.max_dod),
         opts.run_name
     )
     if opts.bl_warmup_epochs is None:

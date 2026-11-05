@@ -36,6 +36,10 @@ computationalGraphs/
 *.log
 *.out
 *.err
+*.pdf
+
+# Ignore docs 
+docs/
 
 # Local data/model workspaces. Curated, already tracked research artifacts are
 # retained by Git; these rules prevent accidental addition of new large files.
@@ -57,7 +61,6 @@ solomon_datasets/
 recomputed_results/skew_policy_evaluation/
 recomputed_table.tex
 ablation_study_plot.py
-generate_data.py
 generate_data_all_random.py
 joshi_comparison.py
 reproduce_comparison_tables.py

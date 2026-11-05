@@ -2,6 +2,7 @@ from itertools import islice
 
 from torch.utils.data import Dataset
 import torch
+from problems.size_conventions import resolve_node_bounds
 from tqdm import tqdm
 import numpy as np
 
@@ -115,8 +116,11 @@ class PDCTRP(object):
         return StatePDCTRP.initialize(*args, **kwargs)
 
 class PDCTRPDataset(Dataset):
-    def __init__(self, min_total=20, max_total=100, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=None, dimension_scale=1.0):
+    def __init__(self, min_total=None, max_total=None, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights = None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=1.0, min_trips_required_lb=3, min_trips_required_ub=9, use_ortec=None, dimension_scale=1.0, min_customers=None, max_customers=None):
         super(PDCTRPDataset, self).__init__()
+        min_total, max_total = resolve_node_bounds(
+            min_total, max_total, min_customers, max_customers
+        )
         if batch_size < 1 or num_samples % batch_size != 0:
             raise ValueError("num_samples must be divisible by a positive batch_size")
         if num_samples < 1:
@@ -126,6 +130,8 @@ class PDCTRPDataset(Dataset):
         self.filename = filename
         self.min_total = min_total
         self.max_total = max_total
+        self.min_customers = min_total - 1
+        self.max_customers = max_total - 1
         self.min_dod = min_dod
         self.max_dod = max_dod
         self.batch_size = batch_size

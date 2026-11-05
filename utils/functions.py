@@ -70,7 +70,8 @@ def load_args(filename):
     if 'aggregation_graph' not in args:
         args['aggregation_graph'] = "mean"
 
-    return args
+    from problems.size_conventions import annotate_size_metadata
+    return annotate_size_metadata(args)
 
 
 def load_model(path, epoch=None, extra_logging=False, route_id=None):

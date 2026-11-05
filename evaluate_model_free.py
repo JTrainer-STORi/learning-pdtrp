@@ -12,10 +12,12 @@ import torch
 
 from utils import load_problem
 from utils.data_utils import dataset_to_input
+from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
+    add_dataset_time_arguments(parser)
     parser.add_argument("--problem", required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--output", required=True)
@@ -26,7 +28,9 @@ def parse_args():
         choices=("nearest_neighbour", "first_come_first_served"),
         default="nearest_neighbour",
     )
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    validate_dataset_time_arguments(parser, args)
+    return args
 
 
 def cost(problem, problem_name, model_input, tour, visit_times):
@@ -134,6 +138,7 @@ def main():
         "batch_size": 1,
         "num_samples": args.num_samples,
         "use_ortec": args.use_ortec,
+        **dataset_time_options(args),
     }
     dataset = problem.make_dataset(filename=args.dataset, **dataset_kwargs)
     heuristic_costs = []
@@ -170,6 +175,7 @@ def main():
         "problem": args.problem,
         "dataset": args.dataset,
         "method": args.method,
+        "dataset_parameters": dataset_time_options(args),
         "samples": len(heuristic_costs),
         "objective_mean": float(np.mean(heuristic_costs)),
         "objective_std": float(np.std(heuristic_costs)),

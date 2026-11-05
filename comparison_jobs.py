@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from utils.dataset_parameters import DATASET_TIME_DEFAULTS, dataset_time_options
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -135,6 +136,7 @@ def build_plan(args):
             "service_times_mean": case.get("service_times_mean", 3.0),
             "service_times_var": case.get("service_times_var", 5.0),
         }
+        dataset_parameters = dataset_time_options(case)
         if any(isinstance(value, bool) or not isinstance(value, (int, float))
                or not math.isfinite(value) or value < 0 for value in service_prior.values()):
             raise ValueError("Service-time mean and variance must be finite and nonnegative")
@@ -155,7 +157,8 @@ def build_plan(args):
         if "msa" in args.methods and (not isinstance(dod, (int, float)) or not 0 <= dod <= 1):
             raise ValueError("MSA cases need dod between zero and one")
         case_key = digest({"problem": case["problem"], "dataset": dataset, "dod": dod,
-                           "ortec": ortec, "options": options, "service_time_prior": service_prior})
+                           "ortec": ortec, "options": options, "service_time_prior": service_prior,
+                           "dataset_parameters": dataset_parameters})
         if case_key in seen_cases:
             raise ValueError("Duplicate comparison case")
         seen_cases.add(case_key)
@@ -168,6 +171,7 @@ def build_plan(args):
                         "dataset": dataset, "ortec": ortec, "sample": sample, "seed": seed,
                         "dod": dod, "scenario_options": options, "scenarios": args.scenarios,
                         "service_time_prior": service_prior,
+                        "dataset_parameters": dataset_parameters,
                         "workers": workers if method == "msa" else 1,
                         "no_improvement_ms": args.no_improvement_ms,
                         "time_limit_ms": args.time_limit_ms,
@@ -366,6 +370,8 @@ def evaluation_command(plan, task, directory):
                "--problem", task["problem"], "--dataset", task["dataset"]["path"],
                "--offset", str(task["sample"]), "--num-samples", "1", "--output",
                str(directory / ("raw.json" if msa else "raw"))]
+    for key, value in task.get("dataset_parameters", DATASET_TIME_DEFAULTS).items():
+        command.extend(["--" + key.replace("_", "-"), str(value)])
     if task["ortec"]:
         command.extend(["--use-ortec", task["ortec"]["path"]])
     if task["method"] != "oracle":
@@ -416,7 +422,8 @@ def read_evaluation(directory, task):
         service_metadata["service_time_model"] = "sampled" if task["method"] == "msa" else "expected"
     return {"task_id": task["id"], "method": task["method"], "problem": task["problem"],
             "dataset": task["dataset"]["path"], "sample": task["sample"], "seed": task["seed"],
-            "workers": task["workers"], **values, **service_metadata}
+            "workers": task["workers"], **values, **service_metadata,
+            **task.get("dataset_parameters", DATASET_TIME_DEFAULTS)}
 
 
 def run_task(plan_path, array_name, index):
@@ -484,7 +491,7 @@ def collect_results(plan_path, allow_partial=False):
         raise ValueError(f"{len(missing)} tasks are incomplete; retry them or explicitly use --allow-partial")
     groups = defaultdict(list)
     group_fields = ("method", "problem", "dataset", "seed", "service_time_model",
-                    "service_times_mean", "service_times_var")
+                    "service_times_mean", "service_times_var", "speed", "time_horizon", "latest_end")
     for record in records:
         key = tuple(record.get(field) for field in group_fields)
         groups[key].append(record)
@@ -501,7 +508,7 @@ def collect_results(plan_path, allow_partial=False):
     columns = ["task_id", "method", "problem", "dataset", "sample", "seed", "workers",
                "objective", "runtime_seconds", "job_wall_time_seconds", "aggregate_solver_seconds",
                "scenario_count", "instance_seed", "termination_counts", "service_time_model",
-               "service_times_mean", "service_times_var"]
+               "service_times_mean", "service_times_var", "speed", "time_horizon", "latest_end"]
     with (output / "samples.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()

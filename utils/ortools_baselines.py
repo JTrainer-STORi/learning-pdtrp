@@ -12,7 +12,13 @@ import torch
 from evaluate_msa_ortools import CAPACITY_PROBLEMS, DEMAND_SCALE, TW_PROBLEMS
 from utils import load_problem
 from utils.data_utils import dataset_to_input
+from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
 from utils.service_times import add_service_time_arguments, validate_service_time_arguments
+from utils.solver_budgets import (
+    add_solver_budget_arguments,
+    run_solver_budget_sweep,
+    validate_solver_budget_arguments,
+)
 
 
 def scenario_from_nodes(
@@ -135,6 +141,8 @@ def parse_args(argv=None, *, method=None):
         None: "Evaluate online and clairvoyant OR-Tools baselines together.",
     }
     parser = argparse.ArgumentParser(description=descriptions[method])
+    add_dataset_time_arguments(parser)
+    add_solver_budget_arguments(parser)
     parser.add_argument("--problem", required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--output", required=True)
@@ -155,7 +163,7 @@ def parse_args(argv=None, *, method=None):
     for prefix in prefixes:
         label = "online reoptimization" if prefix == "online" else "clairvoyant oracle"
         parser.add_argument(
-            f"--{prefix}-no-improvement-ms", type=int, default=60000,
+            f"--{prefix}-no-improvement-ms", type=int,
             help=f"Stop each {label} solve after this many milliseconds without a new best objective (default: 60000)",
         )
         parser.add_argument(
@@ -163,11 +171,10 @@ def parse_args(argv=None, *, method=None):
             help=f"Optional total time limit per {label} solve in milliseconds; unset by default",
         )
     args = parser.parse_args(argv)
-    counts = [args.num_samples, args.max_trips]
-    counts.extend(getattr(args, f"{prefix}_no_improvement_ms") for prefix in prefixes)
-    limits = [getattr(args, f"{prefix}_time_ms") for prefix in prefixes]
-    if min(counts) < 1 or any(limit is not None and limit < 1 for limit in limits):
-        parser.error("sample count, time limits, and max-trips must be positive")
+    validate_dataset_time_arguments(parser, args)
+    validate_solver_budget_arguments(parser, args, prefixes)
+    if min(args.num_samples, args.max_trips) < 1:
+        parser.error("sample count and max-trips must be positive")
     if args.offset < 0:
         parser.error("offset must be nonnegative")
     if method != "oracle":
@@ -177,6 +184,17 @@ def parse_args(argv=None, *, method=None):
 
 def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
     """Evaluate the selected methods and write their established result formats."""
+
+    if getattr(args, "solve_seconds", None) is not None:
+        prefixes = {"online": ("online",), "oracle": ("static",),
+                    "both": ("online", "static")}[args.method]
+        return run_solver_budget_sweep(
+            args,
+            lambda run_args: run_evaluation(
+                run_args, online_evaluator=online_evaluator, static_evaluator=static_evaluator
+            ),
+            prefixes,
+        )
 
     problem = load_problem(args.problem)
     prior_options = {}
@@ -191,6 +209,7 @@ def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
         num_samples=args.num_samples,
         offset=args.offset,
         use_ortec=args.use_ortec,
+        **dataset_time_options(args),
         **prior_options,
     )
     if not len(dataset):
@@ -246,11 +265,14 @@ def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
 
     summary = {
         "problem": args.problem,
+        "dataset_parameters": dataset_time_options(args),
         "dataset": args.dataset,
         "offset": args.offset,
         "method": args.method,
         "samples": len(rows),
     }
+    if getattr(args, "solve_budget_seconds", None) is not None:
+        summary["solve_seconds"] = args.solve_budget_seconds
     if run_online:
         summary.update({
             "online_service_time_model": "expected",
@@ -258,7 +280,9 @@ def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
             "service_times_var": args.service_times_var,
             "online_time_ms": args.online_time_ms,
             "online_no_improvement_ms": args.online_no_improvement_ms,
-            "online_stopping_rule": "no_improvement",
+            "online_stopping_rule": (
+                "time_limit" if args.online_no_improvement_ms is None else "no_improvement"
+            ),
             "online_termination_reasons": dict(sorted(online_termination_reasons.items())),
             "online_objective_mean": float(np.mean([r["online_objective"] for r in rows])),
             "online_objective_std": float(np.std([r["online_objective"] for r in rows])),
@@ -270,7 +294,9 @@ def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
         summary.update({
             "static_time_ms": args.static_time_ms,
             "static_no_improvement_ms": args.static_no_improvement_ms,
-            "static_stopping_rule": "no_improvement",
+            "static_stopping_rule": (
+                "time_limit" if args.static_no_improvement_ms is None else "no_improvement"
+            ),
             "static_termination_reasons": {
                 reason: sum(row["static_termination_reason"] == reason for row in rows)
                 for reason in sorted({row["static_termination_reason"] for row in rows})

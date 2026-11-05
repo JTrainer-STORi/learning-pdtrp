@@ -235,7 +235,8 @@ def test_explicit_total_budget_can_stop_before_patience():
     assert np.isfinite(details["solver_objective"])
 
 
-def test_oracle_total_budget_is_not_extended_by_feasibility_retry(monkeypatch):
+@pytest.mark.parametrize("patience", [None, 1000])
+def test_oracle_total_budget_is_not_extended_by_feasibility_retry(monkeypatch, patience):
     from ortools.constraint_solver import pywrapcp
 
     routing_model = pywrapcp.RoutingModel
@@ -254,7 +255,7 @@ def test_oracle_total_budget_is_not_extended_by_feasibility_retry(monkeypatch):
 
     monkeypatch.setattr(pywrapcp, "RoutingModel", NoSearchSolution)
     details = msa.solve_scenario(
-        search_scenario(), "pdtrp", 20, no_improvement_ms=1000, return_details=True
+        search_scenario(), "pdtrp", 20, no_improvement_ms=patience, return_details=True
     )
 
     assert limits == [20]

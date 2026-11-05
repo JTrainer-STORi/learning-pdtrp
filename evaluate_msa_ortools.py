@@ -21,11 +21,17 @@ import torch
 
 from utils import load_problem
 from utils.data_utils import dataset_to_input
+from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
 from utils.service_times import (
     add_service_time_arguments,
     sample_service_times,
     service_time_parameters,
     validate_service_time_arguments,
+)
+from utils.solver_budgets import (
+    add_solver_budget_arguments,
+    run_solver_budget_sweep,
+    validate_solver_budget_arguments,
 )
 from problems.utils import generate_scaled_demands, read_vrplib, sample_ortec_customer_indices
 from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
@@ -445,33 +451,15 @@ def solve_scenario(
     solution = routing.SolveFromAssignmentWithParameters(
         initial_assignment, parameters
     )
-    if (
-        solution is None
-        and time_limit_ms is not None
-        and no_improvement_ms is None
-        and not stagnation_reached
-    ):
-        # Very short evaluation budgets can expire before OR-Tools constructs
-        # its first feasible route, especially with optional reload nodes.
-        # Retry only for feasibility, with a bounded larger budget.
-        retry_time_ms = max(250, time_limit_ms * 4)
-        parameters.time_limit.FromMilliseconds(retry_time_ms)
-        search_started = time.monotonic()
-        solution = routing.SolveFromAssignmentWithParameters(
-            initial_assignment, parameters
-        )
-        effective_time_limit_ms = retry_time_ms
-    else:
-        effective_time_limit_ms = time_limit_ms
     search_elapsed = time.monotonic() - search_started
     if stagnation_reached:
         termination_reason = "no_improvement"
     elif int(routing.status()) == 7:
         termination_reason = "search_completed"
     elif (
-        effective_time_limit_ms is not None
+        time_limit_ms is not None
         and (
-            search_elapsed >= effective_time_limit_ms / 1000.0 * 0.95
+            search_elapsed >= time_limit_ms / 1000.0 * 0.95
             or int(routing.status()) in (2, 4)
         )
     ):
@@ -834,15 +822,17 @@ def _evaluate_instance(args, problem, item, ortec, executor, workers):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
+    add_dataset_time_arguments(parser)
     add_service_time_arguments(parser)
     add_time_window_arguments(parser)
+    add_solver_budget_arguments(parser)
     parser.add_argument("--problem", required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--dod", type=float, required=True)
     parser.add_argument("--scenarios", type=int, default=10)
     parser.add_argument(
-        "--solver-no-improvement-ms", type=int, default=60000,
+        "--solver-no-improvement-ms", type=int,
         help="Stop each GLS scenario after this interval without a strict best improvement (default: 60000)",
     )
     parser.add_argument(
@@ -875,10 +865,10 @@ def parse_args(argv=None):
         choices=("early", "uniform", "late"),
     )
     args = parser.parse_args(argv)
-    if args.scenarios < 1 or args.solver_no_improvement_ms < 1:
-        parser.error("scenarios and solver-no-improvement-ms must be positive")
-    if args.solver_time_ms is not None and args.solver_time_ms < 1:
-        parser.error("solver-time-ms must be positive when supplied")
+    validate_dataset_time_arguments(parser, args)
+    validate_solver_budget_arguments(parser, args, ("solver",))
+    if args.scenarios < 1:
+        parser.error("scenarios must be positive")
     if args.workers < 0:
         parser.error("workers must be zero (automatic) or positive")
     if args.num_samples < 1:
@@ -907,7 +897,12 @@ def instance_seed(base_seed, global_sample_index):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.solve_seconds is not None:
+        return run_solver_budget_sweep(args, run_evaluation, ("solver",), file_output=True)
+    return run_evaluation(args)
 
+
+def run_evaluation(args):
     problem = load_problem(args.problem)
     ortec = make_ortec_context(args.use_ortec) if args.use_ortec else None
     dataset = problem.make_dataset(
@@ -923,6 +918,7 @@ def main(argv=None):
         service_times_var=args.service_times_var,
         min_time_window=args.min_time_window,
         max_time_window=args.max_time_window,
+        **dataset_time_options(args),
     )
     if not len(dataset):
         raise ValueError(f"No samples found in dataset {args.dataset} at offset {args.offset}")
@@ -957,11 +953,15 @@ def main(argv=None):
         termination_counts.update(row["termination_counts"])
     result = {
         "problem": args.problem,
+        "dataset_parameters": dataset_time_options(args),
         "dataset": args.dataset,
         "offset": args.offset,
         "scenarios": args.scenarios,
         "solver_time_ms": args.solver_time_ms,
         "solver_no_improvement_ms": args.solver_no_improvement_ms,
+        "solver_stopping_rule": (
+            "time_limit" if args.solver_no_improvement_ms is None else "no_improvement"
+        ),
         "service_time_model": "sampled",
         "service_times_mean": args.service_times_mean,
         "service_times_var": args.service_times_var,
@@ -990,10 +990,13 @@ def main(argv=None):
         "termination_counts": dict(termination_counts),
         "improvement_count": sum(row["improvement_count"] for row in rows),
     }
+    if getattr(args, "solve_budget_seconds", None) is not None:
+        result["solve_seconds"] = args.solve_budget_seconds
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2))
     print(json.dumps({key: value for key, value in result.items() if key != "samples"}, indent=2))
+    return result
 
 
 if __name__ == "__main__":

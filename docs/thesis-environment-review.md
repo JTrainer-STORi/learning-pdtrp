@@ -229,9 +229,12 @@ extensions, not homogeneous Poisson arrivals.
 
 These are reasonable experimental choices if documented. Use one subregion or
 explicit uniform weights for the chapter 5 spatial setting; the default random
-regional weights do not reproduce its uniform service region. Synthetic size
-parameters also count the depot in the configured total, whereas thesis customer
-counts exclude it. Integer rounding affects the achieved degree of dynamism.
+regional weights do not reproduce its uniform service region. Public N now
+counts customers excluding the depot, matching the thesis. The new
+`min_customers` / `max_customers` dataset arguments and customer-count CLIs
+follow that convention; explicitly named legacy total-node bounds retain their
+old meanings. Earlier saved instances are not resized or relabelled.
+Integer rounding affects the achieved degree of dynamism.
 
 **Proposed evaluation extension:** Keep fixed-size training and existing
 fixed-size test sets, and add separate Poisson-arrival evaluation sets. For a

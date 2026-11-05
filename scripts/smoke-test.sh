@@ -16,8 +16,8 @@ from utils.data_utils import dataset_to_input
 
 problem = PDTRP()
 dataset = problem.make_dataset(
-    min_total=8,
-    max_total=8,
+    min_customers=8,
+    max_customers=8,
     min_dod=0.5,
     max_dod=0.5,
     num_samples=1,
@@ -28,7 +28,7 @@ dataset = problem.make_dataset(
 )
 model_input = dataset_to_input(dataset[0], problem.NAME, torch.device("cpu"))
 tour, visit_times = nearest_neighbour(problem, model_input)
-assert tour.shape[1] == 8
+assert tour.shape[1] == 9
 assert visit_times.shape == (tour.shape[0], tour.shape[1] + 1)
 PY
 

@@ -3,6 +3,21 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+
+def aggregate_neighbor_messages(messages, graph, aggregation):
+    """Reduce messages over positive adjacency, with zero for empty neighborhoods."""
+    neighbors = graph.bool().unsqueeze(-1)
+    degree = neighbors.sum(dim=2)
+    if aggregation == "max":
+        result = messages.masked_fill(~neighbors, float('-inf')).max(dim=2)[0]
+        return torch.where(degree > 0, result, torch.zeros_like(result))
+
+    result = messages.masked_fill(~neighbors, 0).sum(dim=2)
+    if aggregation == "mean":
+        result = result / degree.clamp(min=1).to(messages.dtype)
+    return result
+
+
 class TimeEncoding(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -20,9 +35,9 @@ class GNNLayer(nn.Module):
     """Configurable GNN Layer
 
     Implements the Gated Graph ConvNet layer:
-        h_i = ReLU ( U*h_i + Aggr.( sigma_ij, V*h_j) ),
-        sigma_ij = sigmoid( A*h_i + B*h_j + C*e_ij ),
-        e_ij = ReLU ( A*h_i + B*h_j + C*e_ij ),
+        h_i' = h_i + ReLU ( Norm( U*h_i + Aggr.( sigma_ij * V*h_j) ) ),
+        sigma_ij = sigmoid( e_ij ),
+        e_ij' = e_ij + ReLU ( Norm( A*h_j + B*h_i + C*e_ij ) ),
         where Aggr. is an aggregation function: sum/mean/max.
 
     References:
@@ -87,9 +102,9 @@ class GNNLayer(nn.Module):
         Bh = self.B(h)  # B x V x H
         Ce = self.C(e)  # B x V x V x H
 
-        # Update edge features and compute edge gates
+        # Both updates use the previous layer's features (Joshi et al., Eq. 2–3).
+        gates = torch.sigmoid(e_in)  # B x V x V x H
         e = Ah.unsqueeze(1) + Bh.unsqueeze(2) + Ce  # B x V x V x H
-        gates = torch.sigmoid(e)  # B x V x V x H
 
         # Update node features
         h = Uh + self.aggregate(Vh, graph, gates)  # B x V x H
@@ -123,20 +138,7 @@ class GNNLayer(nn.Module):
         Returns:
             Aggregated neighborhood features (B x V x H)
         """
-        # Perform feature-wise gating mechanism
-        Vh = gates * Vh  # B x V x V x H
-        
-        # Enforce graph structure through masking
-        Vh = Vh * graph.unsqueeze(-1).expand_as(Vh)  # B x V x V x H
-        
-        if self.aggregation == "mean":
-            return torch.sum(Vh, dim=2) / torch.sum(1-graph, dim=2).unsqueeze(-1).type_as(Vh)
-        
-        elif self.aggregation == "max":
-            return torch.max(Vh, dim=2)[0]
-        
-        else:
-            return torch.sum(Vh, dim=2)
+        return aggregate_neighbor_messages(gates * Vh, graph, self.aggregation)
         
 
 class GNNEncoder(nn.Module):

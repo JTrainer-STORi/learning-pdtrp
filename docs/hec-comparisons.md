@@ -26,6 +26,22 @@ module required by your site before creating the venv and submitting jobs.
 The runner invokes the venv interpreter directly; activation is unnecessary
 inside a job.
 
+For synthetic uniform-uniform instances, generate the fixed files with
+`generate_data.py` before planning comparisons. For example:
+
+```bash
+python generate_data.py --problem pdtrp --num-customers 50 --dod 0.5 \
+  --num-samples 100 --seed 20 \
+  --output artifacts/benchmarks/uniform-uniform/pdtrp50-dod0.5-seed20.txt
+```
+
+Repeat for the desired canonical problems and dynamism levels, then reference
+those files in the cases JSON. Keep the `.txt.json` metadata alongside each
+dataset when copying it to HEC. N=50 means 50 customers plus the depot, for 51
+graph nodes. The embedded nearest-neighbour tours are heuristic references;
+comparison tasks compute their own method-specific routes. See the
+[generation details](../README.md#generate-uniform-uniform-benchmarks).
+
 Create a JSON file such as `/path/to/cases.json`:
 
 ```json
@@ -52,6 +68,13 @@ and `arrival_skews` describe the MSA sampling distribution; `time_window_scenari
 selects `narrow` (30–90 minutes) or `wide` (60–180, default) for synthetic TW
 scenarios, with optional `min_time_window` / `max_time_window` overrides. These
 must match the dataset's generating prior; they do not rewrite saved windows.
+Optional `speed` (distance units/hour), `time_horizon` (hours), and `latest_end`
+(hours after the call horizon) must also match generation. Defaults are 4, 8,
+and 2. For the N=50 Scenario C scaled benchmark, set `"time_horizon": 10`.
+These settings reach every comparison method, are recorded in task
+fingerprints, and remain separate in collected result groups. Evaluation
+summaries record them under `dataset_parameters`; collected CSV/JSON results
+include `speed`, `time_horizon`, and `latest_end`.
 `use_ortec` selects
 the source for ORTEC-derived datasets.
 

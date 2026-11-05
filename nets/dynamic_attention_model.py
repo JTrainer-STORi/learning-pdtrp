@@ -341,15 +341,20 @@ class DynamicAttentionModel(nn.Module):
                 selected = self._select_node(
                     log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
                 
+            # Track request revelation independently of action feasibility/capacity.
+            if self.use_arrival_lstm:
+                previously_pending = state.not_arrived_.clone()
+
             #update problem state
             state = state.update(selected)
 
             # if we're using the decoder LSTM, we need to input any arrivals that occurred to it
             if self.use_arrival_lstm:
+                newly_revealed = previously_pending & ~state.not_arrived_
                 arrival_sequences = []
-                for i in range(batch_size):
-                    if state.arrival_occured[i]:
-                        arrival_indices = torch.nonzero(torch.logical_and(~state.get_mask()[i, 0], mask[i, 0]), as_tuple=False).squeeze(-1).to(input['all_nodes'].device)
+                for i in range(input['all_nodes'].size(0)):
+                    arrival_indices = torch.nonzero(newly_revealed[i, 0], as_tuple=False).squeeze(-1)
+                    if arrival_indices.numel() > 0:
                         if self.scale_times:
                             arrival_times = scale_time(input['arrival_times'][i, arrival_indices][:, None], (input['time_horizon'][0]+input['latest_end'][0]))
                         else:
@@ -358,7 +363,7 @@ class DynamicAttentionModel(nn.Module):
                             arrival_times = self.time_encoding(arrival_times)
                         arrival_features = torch.cat([torch.gather(embeddings[i, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), arrival_times], dim=-1)
                     else: 
-                        arrival_features = torch.empty((0,))
+                        arrival_features = embeddings.new_empty((0, self.lstm.input_size))
                     arrival_sequences.append(arrival_features)
 
                 self.update_lstm_with_arrivals_packed(arrival_sequences)

@@ -221,7 +221,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                     batch,
                     tb_logger,
                     wandb_run,
-                    opts
+                    opts,
+                    num_batches=len(train_dataloader),
                 )
 
                 step += 1
@@ -237,7 +238,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                     batch,
                     tb_logger,
                     wandb_run,
-                    opts
+                    opts,
+                    num_batches=len(train_dataloader),
                 )
 
                 step += 1
@@ -323,7 +325,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
 
 
 def train_batch(model, optimizer, baseline, epoch, 
-                batch_id, step, batch, tb_logger, wandb_run, opts):
+                batch_id, step, batch, tb_logger, wandb_run, opts, num_batches=None):
     
     use_pomo = opts.pomo_batch_size > 1 
 
@@ -354,20 +356,36 @@ def train_batch(model, optimizer, baseline, epoch,
     reinforce_loss = ((cost - bl_val) * log_likelihood).mean()
     loss = reinforce_loss + bl_loss
     
-    # Normalize loss for gradient accumulation
-    loss = loss / opts.accumulation_steps
+    # Normalize the last, possibly shorter, group by its actual batch count.
+    accumulation_steps = opts.accumulation_steps
+    group_start = (batch_id // accumulation_steps) * accumulation_steps
+    group_size = (
+        min(accumulation_steps, num_batches - group_start)
+        if num_batches is not None else accumulation_steps
+    )
+    loss = loss / group_size
 
     # Perform backward pass
     loss.backward()
     
-    # Clip gradient norms and get (clipped) gradient norms for logging
-    grad_norms = clip_grad_norms(optimizer.param_groups, opts.max_grad_norm)
-    
-    # Perform optimization step after accumulating gradients
-    if step % opts.accumulation_steps == 0:
+    # Clip once per complete group, including the final partial group.
+    should_step = (batch_id + 1) % accumulation_steps == 0 or (
+        num_batches is not None and batch_id + 1 == num_batches
+    )
+    if should_step:
+        grad_norms = clip_grad_norms(optimizer.param_groups, opts.max_grad_norm)
         optimizer.step()
         optimizer.zero_grad()
 
     # Logging
     if step % int(opts.log_step) == 0:
+        if not should_step:
+            # Observe intermediate norms without modifying accumulated gradients.
+            norms = []
+            for group in optimizer.param_groups:
+                parameter_norms = [
+                    p.grad.detach().norm(2) for p in group['params'] if p.grad is not None
+                ]
+                norms.append(torch.stack(parameter_norms).norm(2) if parameter_norms else 0.0)
+            grad_norms = norms, norms
         log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood, reinforce_loss, bl_loss, tb_logger, wandb_run, opts, info)

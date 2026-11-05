@@ -28,6 +28,27 @@ def load_dataset(filename):
 
     with open(check_extension(filename), 'rb') as f:
         return pickle.load(f)
+
+
+def format_dataset_row(sample, tour, visit_times):
+    """Serialize a sample and reference route in the problem loaders' text format.
+
+    Input tours are zero-based and include the initial depot. Files use
+    one-based indices and an additional final depot, which loaders strip.
+    """
+    def values(tensor):
+        return [str(float(value)) for value in tensor.reshape(-1)]
+
+    fields = values(sample['all_nodes'])
+    for key in ('arrival_times', 'service_times', 'window_starts', 'window_ends', 'demand'):
+        if key in sample:
+            fields.append('demands' if key == 'demand' else key)
+            fields.extend(values(sample[key]))
+    fields.append('tour')
+    fields.extend(str(int(node) + 1) for node in tour.reshape(-1))
+    fields.extend(('1', 'visit_times'))
+    fields.extend(values(visit_times))
+    return ' '.join(fields) + '\n'
     
     
 class BatchedRandomSampler(Sampler):

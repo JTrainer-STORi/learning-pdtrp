@@ -15,6 +15,23 @@ arrival-history LSTM. The implementation builds on ideas and code structure
 from *Learning TSP Requires Rethinking Generalization* and *Attention, Learn to
 Solve Routing Problems!*.
 
+**Problem size N is the number of customers, excluding the depot.** N=50
+therefore has 51 graph nodes. Use `--num-customers` for benchmark generation,
+`--min-customers` / `--max-customers` for training, and `min_customers` /
+`max_customers` in the dataset API. Saved training arguments record both
+customer bounds and resolved node bounds with an explicit size convention.
+The explicitly named legacy `--num-nodes`, `--min_total` / `--max_total`, and
+dataset `min_total` / `max_total` retain their depot-inclusive meanings for
+reproducing old runs. Customer and legacy bounds cannot be mixed.
+Existing files and checkpoints retain their actual sizes; older directory
+names alone do not establish customer counts. Resuming without size overrides
+inherits the saved bounds, including the legacy convention of old checkpoints.
+
+Enable arrival memory with `--use_arrival_lstm`. Each newly revealed request
+updates the memory even when remaining vehicle capacity prevents immediate
+service. Reloading does not re-add previously revealed requests. Memory is
+maintained independently for each batch instance and POMO rollout.
+
 ## Installation
 
 Python 3.11 is the supported version. With Python 3.11 installed, run these
@@ -48,8 +65,9 @@ python run.py \
   --model dattention \
   --encoder gnn \
   --baseline rollout \
-  --min_total 20 \
-  --max_total 50 \
+  --min-customers 20 \
+  --max-customers 50 \
+  --gated --knn_strat percentage --neighbors 0.2 \
   --min_dod 0.2 \
   --max_dod 0.8 \
   --n_epochs 1 \
@@ -62,6 +80,11 @@ python run.py \
 
 The portable wrappers in [`scripts/`](scripts/) expose the common workflows.
 Run `python run.py --help` for the complete training interface.
+
+Use `--accumulation_steps N` to average gradients over N training batches per
+optimizer update. Gradients are clipped once per update. A final group with
+fewer than N batches is averaged over its actual count and applied before the
+epoch ends.
 
 Evaluate a saved checkpoint on a fixed dataset:
 
@@ -87,6 +110,103 @@ all remaining instances, and an empty slice raises an error. Defaults are offset
 0 and at most 12800 instances per dataset. The wrapper accepts these options
 after `--` as extra arguments.
 
+## Generate uniform-uniform benchmarks
+
+`generate_data.py` uses the current environments to save fixed-size synthetic
+instances with uniform locations and uniform dynamic call times:
+
+```bash
+python generate_data.py \
+  --problem pdtrp --num-customers 50 --dod 0.5 \
+  --num-samples 100 --seed 20 \
+  --output artifacts/benchmarks/uniform-uniform/pdtrp50-dod0.5-seed20.txt
+```
+
+Choose `pdtrp`, `pdctrp`, `pdtrptw`, or `pdctrptw`. N excludes the depot:
+`--num-customers 50` gives 50 customers and a depot at (0.5, 0.5). Locations are
+uniform in the unit square, and dynamic call times are uniform from minute 1
+through minute 480, rounded to three decimals. Advance requests call at zero.
+Dynamic customer counts use `floor(dod * N)`: 10, 25, and 40 for N=50 at the
+usual 0.2, 0.5, and 0.8 settings.
+
+Defaults are speed 4 units/hour, an 8-hour call horizon, log-normal service
+times with mean 3 minutes and variance 5, and, for capacity problems, capacity
+1 with demand scaling using trip bounds 3–9. TW problems use the current
+depot-travel opening rule and the wide 60–180 minute width preset. Select
+`--time-window-scenario narrow` for 30–90 minute widths. Run `--help` for
+parameter overrides.
+
+The text file loads through the existing evaluation commands. Its accompanying
+`.txt.json` records the full generation settings, realized dynamism, seed,
+dataset checksum, Git revision, and hashes of the generation/environment code.
+The same settings and seed reproduce the same rows; increasing the sample
+count preserves the prefix. Existing files are never overwritten. Generation
+retains every sampled instance, without filtering on solver success.
+
+The legacy text schema requires tours and visit times, so each row includes a
+feasible nearest-neighbour reference. These references are heuristic and must
+not be treated as optimal solutions when reporting gaps. Benchmark methods
+evaluate their own routes on the saved instances. When using nondefault
+generation parameters, pass matching settings to dataset loaders/evaluators;
+they do not automatically read the metadata sidecar.
+
+For the Scenario C horizon scaling `T = 8 * N / 40` hours, N=50 uses 10 hours:
+
+```bash
+python generate_data.py --problem pdtrp --num-customers 50 --dod 0.5 \
+  --time-horizon 10 --num-samples 100 --seed 20 \
+  --output artifacts/benchmarks/uniform-uniform/pdtrp50-dod0.5-th10-seed20.txt
+```
+
+Pass `--time-horizon 10` to trained-policy, heuristic, online, oracle, paired,
+and MSA evaluation commands. All accept `--speed`, `--time-horizon`, and
+`--latest-end`; their defaults remain 4 units/hour, 8 hours, and 2 hours.
+For HEC plans, set `"time_horizon": 10` in the case JSON. Those settings are
+included in task fingerprints and result summaries; collected results group
+different physical-time settings separately.
+
+## Generate Larsen's Poisson evaluation scenarios
+
+Chapter 5 scenarios use expected customer counts of 20 (A), 30 (B), and 40 (C),
+excluding the depot. Generate Scenario A with:
+
+```bash
+python generate_larsen_data.py --scenario A --instances-per-dod 50 --seed 20 \
+  --output-dir artifacts/benchmarks/larsen/scenario-a-seed20
+```
+
+For each candidate, draw an integer advance count `a` uniformly from 0 through
+the expected count `mu`, then draw `k ~ Poisson(mu - a)` dynamic customers.
+Conditional on `k`, their call times are independent uniform draws over the
+eight-hour horizon, with no one-minute lower offset. Locations are uniform in
+the unit square, the depot is central, speed is 4 units/hour, and service times
+are log-normal with mean 3 minutes and variance 5. This follows the thesis's
+stated 10-km square / 40-km/hour interpretation in normalized coordinates.
+
+Candidates fill 21 exact dynamism groups at 0%, 5%, ..., 100%, each with 50
+instances by default, yielding 1,050 instances. Selection uses integer rational
+arithmetic, without rounding the percentage to a neighboring group. The thesis
+does not specify the original code's integer endpoint/rounding conventions;
+the inclusive integer advance-count rule and exact-percentage interpretation
+are recorded in the manifest. Balancing conditions the original Poisson
+distribution, so the accepted dataset's mean need not equal the nominal `mu`.
+Exact ratios also constrain possible realized sizes within each group.
+
+The output directory contains `instances.txt` in dynamism-group order,
+`dod-000.txt` through `dod-100.txt`, per-instance counts/rates and nearest-neighbour
+reference measurements in `samples.csv`, generation settings and checksums in
+`manifest.json`, and a preview in `overview.png` / `overview.pdf`. Existing
+directories are protected against overwriting. A candidate budget that cannot
+fill every quota fails explicitly rather than returning an incomplete set.
+
+These are uncapacitated PDTRP instances, with variable customer counts and no
+hard shift-end constraint. Existing dataset loaders can process them one at a
+time. Reference completion times include the final depot return after serving
+all generated requests, without forcing idle time to the calling horizon.
+Current MSA scenario sampling still assumes a fixed count and must be adapted
+before making a Poisson-prior comparison. Realized final counts and dynamism
+belong in analysis metadata rather than online observations.
+
 ## Fully dynamic instances
 
 All four problem variants support 100% dynamic customer requests. Set
@@ -96,14 +216,14 @@ All four problem variants support 100% dynamic customer requests. Set
 from problems import PDTRP
 
 dataset = PDTRP.make_dataset(
-    min_total=50, max_total=50,
+    min_customers=50, max_customers=50,
     min_dod=1.0, max_dod=1.0,
     n_subregions=1, batch_size=1, num_samples=10,
 )
 ```
 
-Here, 50 is the node count including the depot, so each instance has 49
-customers. Every customer calls after time zero. The vehicle waits at the depot
+Here, N=50 means 50 customers plus the depot. Every customer calls after time
+zero. The vehicle waits at the depot
 until the first call, reveals simultaneous calls together, and then starts
 making decisions. This initial wait adds no travel or duplicate depot visit.
 
@@ -242,6 +362,48 @@ respective waits. Optional `--online-time-ms` and `--solver-time-ms` impose
 total limits per online solve and per scenario solve. In the wrapper, set
 `ONLINE_NO_IMPROVEMENT_MS` or `SOLVER_NO_IMPROVEMENT_MS` to change the wait;
 leave `ONLINE_TIME_MS` and `SOLVER_TIME_MS` unset for uncapped searches.
+
+For a solver-time sensitivity study, pass a list of seconds per solve directly
+to any OR-Tools evaluator, including the paired entry point:
+
+```bash
+DATASET=artifacts/benchmarks/uniform-uniform/pdtrp50-dod0.5-th10-seed20.txt
+python evaluate_online_ortools.py --problem pdtrp --dataset "$DATASET" \
+  --speed 4 --time-horizon 10 --num-samples 100 \
+  --solve-seconds 1 5 15 60 --output results/online-sweep
+python evaluate_clairvoyant_ortools.py --problem pdtrp --dataset "$DATASET" \
+  --speed 4 --time-horizon 10 --num-samples 100 \
+  --solve-seconds 1 5 15 60 --output results/oracle-sweep
+python evaluate_msa_ortools.py --problem pdtrp --dataset "$DATASET" \
+  --speed 4 --time-horizon 10 --num-samples 100 --dod 0.5 \
+  --scenarios 10 --workers 1 --seed 0 \
+  --solve-seconds 1 5 15 60 --output results/msa-sweep.json
+```
+
+Each budget reruns the same selected instances, sequentially. The values above
+are candidate budgets, not calibrated settings. `--solve-seconds` disables
+no-improvement stopping so that patience cannot truncate the time-budget study.
+Do not combine it with the existing `--*-time-ms` or
+`--*-no-improvement-ms` arguments. Without this option, the previous defaults
+and output paths remain available. Fractional seconds are supported in whole
+milliseconds, for example `--solve-seconds 0.1 0.5 1`.
+
+Online, oracle and paired sweeps write a `solve-1s/`, `solve-5s/`, etc. directory
+under `--output`, each containing `samples.csv` and `summary.json`. They also
+write `budget-summary.csv` and `sweep.json` in the output root. MSA writes
+`msa-sweep.solve-1s.json`, etc., beside the requested output filename, with
+`msa-sweep.budget-summary.csv` and `msa-sweep.sweep.json` for the comparison.
+Each completed budget is saved before the next starts. Individual results
+record `solve_seconds`, the millisecond search cap and the `time_limit`
+stopping rule; comparison files contain one summary per completed budget.
+
+MSA resets each instance's sampling seed for every budget. Initial scenario
+draws therefore match across budgets, although different chosen actions can
+lead to different subsequent scenarios. Keep the scenario count, seed and
+worker allocation fixed when isolating the effect of solver time. Caps apply
+to individual searches; scenario preparation, model construction and other
+evaluation overhead are additional elapsed time. An expired search falls back
+to its validated initial route rather than retrying with a larger budget.
 
 MSA can solve independent scenarios in parallel CPU worker processes. Use
 `--workers` (`MSA_WORKERS` in the wrapper); the default is `1`, and `0` selects

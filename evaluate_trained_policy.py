@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 from train import set_decode_type
 from utils import load_model
 from utils.data_utils import dataset_to_input
+from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
 
 
 def parse_args(argv=None):
@@ -34,15 +35,14 @@ def parse_args(argv=None):
     )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--evaluation-seed", type=int, default=1234)
-    parser.add_argument("--speed", type=float, default=4.0)
-    parser.add_argument("--time-horizon", type=int, default=8)
-    parser.add_argument("--latest-end", type=int, default=2)
+    add_dataset_time_arguments(parser)
     parser.add_argument(
         "--use-ortec",
         help="ORTEC source instance; used when loading *_testing_ortec_* files",
     )
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
     args = parser.parse_args(argv)
+    validate_dataset_time_arguments(parser, args)
     if args.num_samples < 1:
         parser.error("num-samples must be positive")
     if args.offset < 0:
@@ -134,6 +134,7 @@ def main(argv=None):
         "problem": args.problem,
         "evaluation_seed": args.evaluation_seed,
         "device": str(device),
+        "dataset_parameters": dataset_time_options(args),
         "ortec_source": args.use_ortec,
         "training_seed": model_args.get("seed"),
         "num_samples_requested": args.num_samples,

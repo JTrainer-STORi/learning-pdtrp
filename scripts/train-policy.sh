@@ -9,7 +9,7 @@ PROBLEM is one of: pdtrp, pdctrp, pdtrptw, pdctrptw.
 
 Environment variables:
   DEVICE=auto|cpu|GPU_INDEX  Execution device (default: auto)
-  MIN_CUSTOMERS=20           Minimum training instance size
+  MIN_CUSTOMERS=20           Minimum N, excluding the depot
   MIN_DOD=0.2 / MAX_DOD=0.8  Training degree-of-dynamism range
   N_EPOCHS=100               Training epochs
   EPOCH_SIZE=12800           Instances generated per epoch
@@ -80,8 +80,8 @@ python -u run.py \
     --model dattention \
     --encoder gnn \
     --baseline rollout \
-    --min_total "$MIN_CUSTOMERS" \
-    --max_total "$MAX_CUSTOMERS" \
+    --min-customers "$MIN_CUSTOMERS" \
+    --max-customers "$MAX_CUSTOMERS" \
     --min_dod "$MIN_DOD" \
     --max_dod "$MAX_DOD" \
     --neighbors 0.2 \

@@ -38,7 +38,7 @@ def run_rl(opts) -> None:
     # Configure logging options
     tb_logger = None
     if not opts.no_tensorboard:
-        tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_total, opts.max_total, opts.min_dod, opts.max_dod), opts.run_name))
+        tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_customers, opts.max_customers, opts.min_dod, opts.max_dod), opts.run_name))
     if not opts.no_wandb:
         wandb_run = wandb.init(
             project="dynamic VRP",
