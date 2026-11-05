@@ -38,8 +38,10 @@ computationalGraphs/
 *.err
 *.pdf
 
-# Ignore docs 
+# Ignore docs for now
 docs/
+README.md
+AGENTS.md
 
 # Local data/model workspaces. Curated, already tracked research artifacts are
 # retained by Git; these rules prevent accidental addition of new large files.
