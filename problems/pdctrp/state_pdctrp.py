@@ -6,7 +6,7 @@ from problems.request_events import reveal_and_wait_if_idle
 class StatePDCTRP(NamedTuple):
 
     # Fixed input
-    coords: torch.Tensor # Depot + static_loc + dynamic_loc
+    coords: torch.Tensor # Depot followed by customers in their saved order
     arrival_times: torch.Tensor
     service_times: torch.Tensor
     demands: torch.Tensor

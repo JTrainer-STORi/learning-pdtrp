@@ -131,6 +131,7 @@ def build_plan(args):
         options = {key: case[key] for key in (
             "n_subregions", "arrival_weights", "arrival_skews",
             "time_window_scenario", "min_time_window", "max_time_window",
+            "dimension_scale",
         ) if key in case}
         service_prior = {
             "service_times_mean": case.get("service_times_mean", 3.0),
@@ -143,6 +144,9 @@ def build_plan(args):
         if service_prior["service_times_mean"] == 0 and service_prior["service_times_var"] != 0:
             raise ValueError("A zero service-time mean requires zero variance")
         ortec = None
+        ortec_locations = None
+        if case.get("use_ortec") and case.get("ortec_locations"):
+            raise ValueError("Choose use_ortec or ortec_locations, not both")
         if case.get("use_ortec"):
             ortec_path = Path(case["use_ortec"])
             if not ortec_path.is_absolute():
@@ -151,13 +155,22 @@ def build_plan(args):
             if key not in identities:
                 identities[key] = file_identity(key)
             ortec = identities[key]
-        elif "_testing_ortec_" in Path(dataset_path).name:
+        elif "_testing_ortec_" in Path(dataset_path).name and not case.get("ortec_locations"):
             raise ValueError("ORTEC cases need use_ortec so the saved asymmetric distance matrix is loaded")
+        if case.get("ortec_locations"):
+            location_path = Path(case["ortec_locations"])
+            if not location_path.is_absolute():
+                location_path = cases_path.parent / location_path
+            key = str(location_path.resolve(strict=True))
+            if key not in identities:
+                identities[key] = file_identity(key)
+            ortec_locations = identities[key]
         dod = case.get("dod")
         if "msa" in args.methods and (not isinstance(dod, (int, float)) or not 0 <= dod <= 1):
             raise ValueError("MSA cases need dod between zero and one")
         case_key = digest({"problem": case["problem"], "dataset": dataset, "dod": dod,
-                           "ortec": ortec, "options": options, "service_time_prior": service_prior,
+                           "ortec": ortec, "ortec_locations": ortec_locations,
+                           "options": options, "service_time_prior": service_prior,
                            "dataset_parameters": dataset_parameters})
         if case_key in seen_cases:
             raise ValueError("Duplicate comparison case")
@@ -169,6 +182,7 @@ def build_plan(args):
                     task = {
                         "id": f"{len(tasks):06d}", "method": method, "problem": case["problem"],
                         "dataset": dataset, "ortec": ortec, "sample": sample, "seed": seed,
+                        "ortec_locations": ortec_locations,
                         "dod": dod, "scenario_options": options, "scenarios": args.scenarios,
                         "service_time_prior": service_prior,
                         "dataset_parameters": dataset_parameters,
@@ -378,6 +392,8 @@ def evaluation_command(plan, task, directory):
         for name, value in task["service_time_prior"].items():
             command.extend(["--" + name.replace("_", "-"), str(value)])
     if msa:
+        if task.get("ortec_locations"):
+            command.extend(["--ortec-locations", task["ortec_locations"]["path"]])
         command.extend(["--dod", str(task["dod"]), "--seed", str(task["seed"]),
                         "--scenarios", str(task["scenarios"]), "--workers", str(task["workers"])])
         for key, value in task["scenario_options"].items():
@@ -441,7 +457,7 @@ def run_task(plan_path, array_name, index):
             return {"skipped": True, "record": completion_record(destination, plan, task)}
         if source_digest() != plan["source_digest"]:
             raise ValueError("Source changed after planning; create a new plan from the frozen checkout")
-        for identity in (task["dataset"], task["ortec"]):
+        for identity in (task["dataset"], task["ortec"], task.get("ortec_locations")):
             if identity is not None:
                 stat = Path(identity["path"]).stat()
                 if stat.st_size != identity["size"] or stat.st_mtime_ns != identity["mtime_ns"]:

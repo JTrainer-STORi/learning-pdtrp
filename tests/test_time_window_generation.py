@@ -65,6 +65,28 @@ def test_impossible_window_fails_instead_of_sampling_reversed_bounds():
         generate_time_windows([480], [70], 60, 180, 600)
 
 
+@pytest.mark.parametrize("make_rng", [np.random.RandomState, np.random.default_rng])
+def test_window_draws_preserve_customers_and_random_stream_across_dynamism(make_rng):
+    releases = np.arange(1, 7) * 30.0
+    travel = np.arange(1, 7, dtype=float)
+    previous = None
+    following_draws = None
+    for dynamic_count in (0, 2, 4, 6):
+        rng = make_rng(20)
+        calls = releases.copy()
+        calls[dynamic_count:] = 0
+        starts, ends = generate_time_windows(calls, travel, 60, 180, 600, rng=rng)
+        tail = rng.random(5)
+        if previous is not None:
+            previous_calls, previous_starts, previous_ends = previous
+            unchanged = calls == previous_calls
+            np.testing.assert_array_equal(starts[unchanged], previous_starts[unchanged])
+            np.testing.assert_array_equal(ends[unchanged], previous_ends[unchanged])
+            np.testing.assert_array_equal(tail, following_draws)
+        previous = calls, starts, ends
+        following_draws = tail
+
+
 @pytest.mark.parametrize("minimum,maximum", [(-1, 90), (100, 30), (30, float("nan"))])
 def test_invalid_width_bounds_are_rejected(minimum, maximum):
     with pytest.raises(ValueError, match="bounds"):

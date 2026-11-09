@@ -353,7 +353,9 @@ class DynamicAttentionModel(nn.Module):
                 newly_revealed = previously_pending & ~state.not_arrived_
                 arrival_sequences = []
                 for i in range(input['all_nodes'].size(0)):
-                    arrival_indices = torch.nonzero(newly_revealed[i, 0], as_tuple=False).squeeze(-1)
+                    arrival_indices = self._arrival_indices_by_time(
+                        input['arrival_times'][i], newly_revealed[i, 0]
+                    )
                     if arrival_indices.numel() > 0:
                         if self.scale_times:
                             arrival_times = scale_time(input['arrival_times'][i, arrival_indices][:, None], (input['time_horizon'][0]+input['latest_end'][0]))
@@ -478,7 +480,9 @@ class DynamicAttentionModel(nn.Module):
                 # If we're using the decoder LSTM, we need to input any arrivals that occurred to it
                 newly_known = (~state.not_arrived_[:, 0, :]) & ~previously_known
                 current_indices = torch.nonzero(arrival_mask.reshape(-1), as_tuple=False).flatten()
-                arrival_indices = torch.nonzero(newly_known[0, current_indices], as_tuple=False).flatten()
+                arrival_indices = self._arrival_indices_by_time(
+                    masked_input['arrival_times'][0], newly_known[0, current_indices]
+                )
                 if arrival_indices.numel() > 0:
                     if self.scale_times:
                         arrival_times = scale_time(masked_input['arrival_times'][0, arrival_indices][:, None], (masked_input['time_horizon'][0]+masked_input['latest_end'][0]))
@@ -804,6 +808,13 @@ class DynamicAttentionModel(nn.Module):
             .expand(v.size(0), v.size(1) if num_steps is None else num_steps, v.size(2), self.n_heads, -1)
             .permute(3, 0, 1, 2, 4)  # (n_heads, batch_size, num_steps, graph_size, head_dim)
         )
+
+    @staticmethod
+    def _arrival_indices_by_time(arrival_times, newly_revealed):
+        """Order observed events chronologically without renumbering customers."""
+        indices = torch.nonzero(newly_revealed, as_tuple=False).flatten()
+        order = torch.argsort(arrival_times[indices], stable=True)
+        return indices[order]
 
     def update_lstm_with_arrivals_packed(self, arrival_sequences):
         """

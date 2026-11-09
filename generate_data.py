@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Generate fixed-size synthetic uniform-uniform benchmark instances."""
+"""Generate synthetic benchmarks with uniform or normalized ORTEC locations."""
 
 import argparse
 import contextlib
@@ -16,6 +16,7 @@ import torch
 from evaluate_model_free import nearest_neighbour
 from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
 from problems.size_conventions import CUSTOMER_SIZE_CONVENTION
+from problems.ortec_locations import load_ortec_locations, make_ortec_location_dataset
 from utils import load_problem
 from utils.data_utils import dataset_to_input, format_dataset_row
 
@@ -32,6 +33,10 @@ def parse_args(argv=None):
     parser.add_argument("--dod", type=float, default=0.5, help="Dynamic fraction, floored to an integer customer count")
     parser.add_argument("--seed", type=int, default=20)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--ortec-locations", type=Path,
+        help="Use only this ORTEC file's normalized coordinates, with synthetic timings and Euclidean travel",
+    )
     parser.add_argument("--speed", type=float, default=4.0, help="Distance units per hour")
     parser.add_argument("--time-horizon", type=float, default=8.0, help="Call horizon in hours")
     parser.add_argument("--dimension-scale", type=float, default=1.0)
@@ -95,7 +100,12 @@ def generate(args):
                        gamma=args.gamma, theta=args.theta)
 
     # Keep exactly the sampled instances: no solver-success filtering or replacements.
-    dataset = problem.make_dataset(**options)
+    locations = None
+    if args.ortec_locations is None:
+        dataset = problem.make_dataset(**options)
+    else:
+        locations = load_ortec_locations(args.ortec_locations, args.dimension_scale)
+        dataset, source_ids = make_ortec_location_dataset(problem, options, locations, args.seed)
     rows = []
     for index, sample in enumerate(dataset):
         actual = dataset_to_input(sample, args.problem, "cpu")
@@ -122,8 +132,10 @@ def generate(args):
     ).stdout.strip() or None
     dynamic_count = int(args.dod * args.num_customers)
     metadata = {
-        "schema_version": 2, "size_convention": CUSTOMER_SIZE_CONVENTION,
-        "distribution": "uniform-uniform", "problem": args.problem,
+        "schema_version": 3, "size_convention": CUSTOMER_SIZE_CONVENTION,
+        "customer_order": "sampling_order",
+        "distribution": "uniform-uniform" if locations is None else "ortec-locations-uniform",
+        "problem": args.problem,
         "seed": args.seed, "num_samples": len(dataset), "num_nodes_including_depot": args.num_nodes,
         "num_customers": args.num_customers, "dynamic_customers": dynamic_count,
         "requested_dod": args.dod, "realized_dod": dynamic_count / args.num_customers,
@@ -134,6 +146,15 @@ def generate(args):
         "sha256": hashlib.sha256(payload.encode()).hexdigest(), "git_revision": revision,
         "source_sha256": {name: hashlib.sha256((source_root / name).read_bytes()).hexdigest() for name in sources},
     }
+    if locations is not None:
+        metadata.update({
+            "distance_model": "euclidean", "coordinate_rounding_decimals": None,
+            "location_source": {key: locations[key] for key in ("filename", "sha256", "normalization")},
+            "source_id_convention": "zero_based_including_depot",
+            "source_ids": source_ids,
+        })
+        name = "problems/ortec_locations.py"
+        metadata["source_sha256"][name] = hashlib.sha256((source_root / name).read_bytes()).hexdigest()
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x") as handle:
         handle.write(payload)

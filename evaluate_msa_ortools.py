@@ -22,6 +22,7 @@ import torch
 from utils import load_problem
 from utils.data_utils import dataset_to_input
 from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
+from utils.ortools_reloads import DEPOT_RETURN_POLICY, depot_return_allowance
 from utils.service_times import (
     add_service_time_arguments,
     sample_service_times,
@@ -35,6 +36,7 @@ from utils.solver_budgets import (
 )
 from problems.utils import generate_scaled_demands, read_vrplib, sample_ortec_customer_indices
 from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
+from problems.ortec_locations import load_ortec_locations, make_ortec_location_dataset
 
 
 TW_PROBLEMS = {"pdtrptw", "pdctrptw"}
@@ -67,11 +69,15 @@ def map_ortec_nodes(item, ortec):
     distance = np.asarray(item["distance_matrix"], dtype=float)
     source_coordinates = ortec["coords"]
     source_distance = ortec["distance"]
-    if len(coordinates) == 0 or np.any(coordinates[0] == 0):
-        raise ValueError("Cannot recover ORTEC coordinate scaling from depot")
-    scale = source_coordinates[0] / coordinates[0]
-    recovered_coordinates = coordinates * scale
-    source_scale = np.maximum(np.abs(scale), 1.0)
+    if ortec.get("locations_only", False):
+        recovered_coordinates = coordinates
+        source_scale = np.ones(2)
+    else:
+        if len(coordinates) == 0 or np.any(coordinates[0] == 0):
+            raise ValueError("Cannot recover ORTEC coordinate scaling from depot")
+        scale = source_coordinates[0] / coordinates[0]
+        recovered_coordinates = coordinates * scale
+        source_scale = np.maximum(np.abs(scale), 1.0)
     selected = []
     used = set()
     for node in range(len(coordinates)):
@@ -90,7 +96,12 @@ def map_ortec_nodes(item, ortec):
         raise ValueError("Saved ORTEC depot did not map to source depot")
     reconstructed = source_distance[np.ix_(selected, selected)]
     error = float(np.max(np.abs(reconstructed - distance)))
-    if error > 0.0011:
+    tolerance = 0.0011
+    if ortec.get("locations_only", False):
+        tolerance = 1e-6 * max(1.0, ortec["normalization"]["dimension_scale"])
+        if np.max(np.abs(source_coordinates[selected] - coordinates)) > tolerance:
+            raise ValueError("Saved coordinates do not match the ORTEC location source")
+    if error > tolerance:
         raise ValueError(
             f"Could not reliably map saved ORTEC nodes (matrix error {error:.6f})"
         )
@@ -140,6 +151,30 @@ def sample_ortec_scenario(
     return result
 
 
+def sample_ortec_location_scenario(ortec, problem, actual, n_total, dod, min_trips, max_trips):
+    """Use source geography with the same synthetic priors as the actual dataset."""
+    mean, std = service_time_parameters(actual)
+    options = dict(
+        min_total=n_total, max_total=n_total, min_dod=dod, max_dod=dod,
+        batch_size=1, num_samples=1, n_subregions=1,
+        arrival_weights=[1], arrival_skews=["uniform"],
+        service_times_mean=mean, service_times_var=std ** 2,
+        min_time_window=float(actual.get("min_time_window", 60.0)),
+        max_time_window=float(actual.get("max_time_window", 180.0)),
+        speed=float(actual["speed"].item()) * 60.0,
+        time_horizon=float(actual["time_horizon"].item()) / 60.0,
+        latest_end=float(actual.get("latest_end", 120.0)) / 60.0,
+        dimension_scale=ortec["normalization"]["dimension_scale"],
+        vehicle_capacity=1.0, min_trips_required_lb=min_trips, min_trips_required_ub=max_trips,
+    )
+    seed = int(np.random.randint(0, 2**32, dtype=np.uint32))
+    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        dataset, source_ids = make_ortec_location_dataset(problem, options, ortec, seed)
+    sample = dataset[0]
+    sample["source_ids"] = source_ids[0]
+    return sample
+
+
 class NoImprovementTracker:
     """Track strict incumbent improvements with an injectable monotonic clock.
 
@@ -175,6 +210,49 @@ class NoImprovementTracker:
             and self.clock() - self.last_improvement_at
             >= self.no_improvement_seconds
         )
+
+
+def initial_route_policy(problem_name):
+    if problem_name == "pdctrptw":
+        return "best_of_demand_packing_and_earliest_deadline"
+    return "demand_packing" if problem_name in CAPACITY_PROBLEMS else "customer_order"
+
+
+def _deadline_ordered_route(customers, first_nodes, windows, demands, capacity, reload_nodes):
+    """Visit earliest deadlines first, reloading before capacity is exceeded.
+
+    MSA must start with an executable observed customer, even when a sampled
+    future customer has an earlier deadline. Demand units match the integer
+    capacity model, including any capacity already used at the current node.
+    """
+    ordered = sorted(customers, key=lambda node: (int(windows[node, 1]), node))
+    if first_nodes:
+        allowed = set(first_nodes)
+        first = next(
+            (node for node in ordered
+             if node in allowed and demands[0] + demands[node] <= capacity),
+            None,
+        )
+        if first is None:
+            return None
+        ordered = [first, *[node for node in ordered if node != first]]
+
+    route = []
+    used = int(demands[0])
+    reloads = iter(sorted(reload_nodes))
+    for node in ordered:
+        demand = int(demands[node])
+        if demand > capacity:
+            return None
+        if used + demand > capacity:
+            reload = next(reloads, None)
+            if reload is None:
+                return None
+            route.append(reload)
+            used = 0
+        route.append(node)
+        used += demand
+    return route
 
 
 def solve_scenario(
@@ -386,13 +464,47 @@ def solve_scenario(
     else:
         initial_route = customers
 
-    # Reading a seed implicitly closes the model. Close it with our search
-    # parameters first so the seed does not silently select default descent
-    # instead of the requested guided local search.
-    routing.CloseModelWithParameters(parameters)
-    initial_assignment = routing.ReadAssignmentFromRoutes(
-        [initial_route], True
-    )
+    initial_routes = [
+        ("demand_packing" if problem_name in CAPACITY_PROBLEMS else "customer_order",
+         initial_route)
+    ]
+    if problem_name == "pdctrptw":
+        deadline_route = _deadline_ordered_route(
+            customers, first_nodes, windows, scaled_demands, capacity, data["reload_nodes"]
+        )
+        if deadline_route is not None and deadline_route != initial_route:
+            initial_routes.append(("earliest_deadline", deadline_route))
+
+    # Reading a seed implicitly closes the model. Preserve guided local search
+    # when closing it, but do not apply the improvement-search deadline to seed
+    # restoration: validating a large capacity route can take longer than a
+    # millisecond-scale scenario budget. The capped parameters are passed to
+    # SolveFromAssignmentWithParameters below, with no search-budget extension.
+    seed_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    seed_parameters.CopyFrom(parameters)
+    seed_parameters.ClearField("time_limit")
+    seed_parameters.solution_limit = 1  # Restore one assignment per candidate route.
+    routing.CloseModelWithParameters(seed_parameters)
+    initial_assignment = None
+    initial_method = None
+    initial_objective = None
+    initial_objectives = {}
+    for method, candidate_route in initial_routes:
+        candidate = routing.ReadAssignmentFromRoutes([candidate_route], True)
+        if candidate is None:
+            initial_objectives[method] = None
+            continue
+        candidate_objective = candidate.ObjectiveValue()
+        initial_objectives[method] = (
+            candidate_objective + lateness_constant
+        ) / objective_scale
+        if initial_objective is None or candidate_objective < initial_objective:
+            # ReadAssignmentFromRoutes reuses model-owned assignment storage.
+            # Preserve the incumbent before restoring another candidate, even
+            # if that later restoration fails or produces a worse route.
+            initial_assignment = routing.solver().Assignment(candidate)
+            initial_method = method
+            initial_objective = candidate_objective
 
     def result(assignment, termination_reason, tracker=None):
         route = []
@@ -418,6 +530,13 @@ def solve_scenario(
             "weight_scale": weight_scale,
             "objective_scale": objective_scale,
             "demand_scale": demand_scale,
+            "initial_route_policy": initial_route_policy(problem_name),
+            "initial_route_method": initial_method,
+            "initial_solver_objective": (
+                (initial_objective + lateness_constant) / objective_scale
+                if initial_objective is not None else None
+            ),
+            "initial_route_objectives": initial_objectives,
         }
 
     if initial_assignment is None:
@@ -490,9 +609,14 @@ def make_scenario(
 ):
     service_mean, service_std = service_time_parameters(actual)
     if ortec is not None:
-        sampled = sample_ortec_scenario(
-            ortec, problem_name, n_total, dod, min_trips, max_trips
-        )
+        if ortec.get("locations_only", False):
+            sampled = sample_ortec_location_scenario(
+                ortec, problem, actual, n_total, dod, min_trips, max_trips
+            )
+        else:
+            sampled = sample_ortec_scenario(
+                ortec, problem_name, n_total, dod, min_trips, max_trips
+            )
     else:
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             sampled = problem.make_dataset(
@@ -558,10 +682,10 @@ def make_scenario(
     windows = [(0.0, 10**6)]
 
     if problem_name in CAPACITY_PROBLEMS:
-        # A scenario combines observed demand from the actual instance with
-        # sampled future demand from another draw, so its total can exceed one
-        # generated instance's nominal trip upper bound.
-        for _ in range(max_trips * 2):
+        # Count both observed and sampled future customers. Demand-generation
+        # trip bounds must not cap the route's optional depot returns.
+        reload_count = depot_return_allowance(len(known_ids) + len(future_ids))
+        for _ in range(reload_count):
             reload_nodes.append(len(coords))
             coords.append(actual["all_nodes"][0, 0])
             service.append(actual["service_times"][0, 0])
@@ -846,11 +970,26 @@ def parse_args(argv=None):
     parser.add_argument("--num-samples", type=int, default=100)
     parser.add_argument("--offset", type=int, default=0, help="First zero-based dataset instance to evaluate")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--min-trips", type=int, default=3)
-    parser.add_argument("--max-trips", type=int, default=9)
     parser.add_argument(
+        "--min-trips", type=int, default=3,
+        help="Lower trip bound for sampled demand generation",
+    )
+    parser.add_argument(
+        "--max-trips", type=int, default=9,
+        help="Upper trip bound for sampled demand generation; does not cap depot returns",
+    )
+    ortec_mode = parser.add_mutually_exclusive_group()
+    ortec_mode.add_argument(
         "--use-ortec",
-        help="ORTEC VRPLIB source; scenarios sample its fixed customer pool",
+        help="Legacy ORTEC datasets with the imported road-duration matrix",
+    )
+    ortec_mode.add_argument(
+        "--ortec-locations",
+        help="ORTEC coordinate-only source; use synthetic timing priors and Euclidean travel",
+    )
+    parser.add_argument(
+        "--dimension-scale", type=float, default=1.0,
+        help="Coordinate square size for --ortec-locations; must match generation (default: 1)",
     )
     parser.add_argument(
         "--n-subregions",
@@ -877,6 +1016,8 @@ def parse_args(argv=None):
         parser.error("offset must be nonnegative")
     if args.seed < 0:
         parser.error("seed must be nonnegative")
+    if not np.isfinite(args.dimension_scale) or args.dimension_scale <= 0:
+        parser.error("dimension-scale must be finite and positive")
     validate_service_time_arguments(parser, args)
     validate_time_window_arguments(parser, args)
     if args.arrival_weights is not None and len(args.arrival_weights) != args.n_subregions:
@@ -904,7 +1045,10 @@ def main(argv=None):
 
 def run_evaluation(args):
     problem = load_problem(args.problem)
-    ortec = make_ortec_context(args.use_ortec) if args.use_ortec else None
+    if args.ortec_locations:
+        ortec = load_ortec_locations(args.ortec_locations, args.dimension_scale)
+    else:
+        ortec = make_ortec_context(args.use_ortec) if args.use_ortec else None
     dataset = problem.make_dataset(
         filename=args.dataset,
         batch_size=1,
@@ -970,15 +1114,25 @@ def run_evaluation(args):
         "min_time_window": args.min_time_window,
         "max_time_window": args.max_time_window,
         "workers": workers,
+        "depot_return_policy": (
+            DEPOT_RETURN_POLICY if args.problem in CAPACITY_PROBLEMS else "not_applicable"
+        ),
+        "initial_route_policy": initial_route_policy(args.problem),
         "seed": args.seed,
         "distribution": (
-            "ortec"
+            "ortec-locations-uniform"
+            if args.ortec_locations
+            else "ortec"
             if ortec is not None
             else "skew-spatio-temporal"
             if args.arrival_weights is not None or args.arrival_skews is not None
             else "uniform"
         ),
         "ortec_source": args.use_ortec,
+        "ortec_location_source": (
+            {key: ortec[key] for key in ("filename", "sha256", "normalization")}
+            if args.ortec_locations else None
+        ),
         "samples": rows,
         "objective_mean": float(np.mean([row["objective"] for row in rows])),
         "objective_std": float(np.std([row["objective"] for row in rows])),

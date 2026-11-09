@@ -9,10 +9,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from evaluate_msa_ortools import CAPACITY_PROBLEMS, DEMAND_SCALE, TW_PROBLEMS
+from evaluate_msa_ortools import CAPACITY_PROBLEMS, DEMAND_SCALE, TW_PROBLEMS, initial_route_policy
 from utils import load_problem
 from utils.data_utils import dataset_to_input
 from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
+from utils.ortools_reloads import DEPOT_RETURN_POLICY, depot_return_allowance
 from utils.service_times import add_service_time_arguments, validate_service_time_arguments
 from utils.solver_budgets import (
     add_solver_budget_arguments,
@@ -29,6 +30,7 @@ def scenario_from_nodes(
 
     Realized durations remain the default for the explicitly clairvoyant oracle.
     Depot/reload service is a known operational duration, not a customer draw.
+    ``max_trips`` is retained for caller compatibility; it does not cap reloads.
     """
     capacity = (
         float(actual["vehicle_capacity"].item())
@@ -37,8 +39,8 @@ def scenario_from_nodes(
     )
     reload_count = 0
     if problem_name in CAPACITY_PROBLEMS:
-        # First-fit decreasing supplies a feasible incumbent even when
-        # indivisible demands require more trips than ceil(total demand).
+        # Preserve the demand-packing order used by the feasible incumbent.
+        # Packing must not restrict the model's optional depot returns.
         bins = [[]]
         packed_capacity = int(round(capacity * DEMAND_SCALE))
         bin_loads = [int(round(used_capacity * DEMAND_SCALE))]
@@ -58,7 +60,7 @@ def scenario_from_nodes(
                 bins.append([node])
                 bin_loads.append(node_demand)
         node_ids = [node for group in bins for node in group]
-        reload_count = len(bins) - 1
+        reload_count = depot_return_allowance(len(node_ids))
 
     source_ids = [current_node]
     mapping = [None]
@@ -149,7 +151,10 @@ def parse_args(argv=None, *, method=None):
     parser.add_argument("--use-ortec")
     parser.add_argument("--num-samples", type=int, default=100)
     parser.add_argument("--offset", type=int, default=0, help="First zero-based dataset instance to evaluate")
-    parser.add_argument("--max-trips", type=int, default=9)
+    parser.add_argument(
+        "--max-trips", type=int, default=9,
+        help="Legacy compatibility option; depot returns follow the unserved customer count, not a trip cap",
+    )
     if method != "oracle":
         add_service_time_arguments(parser)
     if method is None:
@@ -270,6 +275,10 @@ def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
         "offset": args.offset,
         "method": args.method,
         "samples": len(rows),
+        "depot_return_policy": (
+            DEPOT_RETURN_POLICY if args.problem in CAPACITY_PROBLEMS else "not_applicable"
+        ),
+        "initial_route_policy": initial_route_policy(args.problem),
     }
     if getattr(args, "solve_budget_seconds", None) is not None:
         summary["solve_seconds"] = args.solve_budget_seconds

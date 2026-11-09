@@ -264,17 +264,7 @@ class PDCTRPTWDataset(Dataset):
                     window_starts.append(batch_start_times)
                     window_ends.append(batch_end_times)
 
-                # step 3: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
-                    distance_matrix[i] = distance_matrix[i][idx][:, idx]
-                    window_starts[i] = window_starts[i][idx]
-                    window_ends[i] = window_ends[i][idx]
-                    demands[i] = demands[i][idx]
-
+                # Keep sampled customer indices and their attached attributes.
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times
                 self.service_times += service_times
@@ -323,14 +313,7 @@ class PDCTRPTWDataset(Dataset):
                     )
                     batch_start_times.append(start_times)
                     batch_end_times.append(end_times)
-                # step 10: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
-                    batch_start_times[i] = batch_start_times[i][idx]
-                    batch_end_times[i] = batch_end_times[i][idx]
+                # Retain sampled indices for coordinates, calls and windows.
                 # Step 11: Generate the demands for each customer
                 demands_without_depot = generate_scaled_demands(batch_size, n_total, self.vehicle_capacity, self.min_trips_required_lb, self.min_trips_required_ub)
 

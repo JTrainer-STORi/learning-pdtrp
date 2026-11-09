@@ -141,6 +141,233 @@ def test_near_capacity_packing_supplies_reload_required_by_integer_model(problem
     assert details["solver_objective"] == pytest.approx(value, abs=1e-4)
 
 
+@pytest.mark.parametrize("problem", (PDCTRP, PDCTRPTW))
+@pytest.mark.parametrize("customers", [0, 1, 4])
+def test_capacity_scenario_allows_reloads_independently_of_packing_and_trip_bound(problem, customers):
+    coords = np.column_stack((np.arange(customers + 1), np.zeros(customers + 1)))
+    distance = np.linalg.norm(coords[:, None] - coords[None, :], axis=-1)
+    actual = actual_input(distance.tolist())
+    for max_trips in (1, 9):
+        scenario = baselines.scenario_from_nodes(
+            problem.NAME, actual, 0, list(range(1, customers + 1)), 0.0, max_trips
+        )
+        # These demands all fit on one load. Optional returns must still allow
+        # time-aware routes to split that load across additional trips.
+        assert len(scenario["reload_nodes"]) == customers
+        assert [node for node in scenario["mapping"] if node not in (None, 0)] == list(range(1, customers + 1))
+        for node in scenario["reload_nodes"]:
+            assert scenario["mapping"][node] == 0
+            assert scenario["demand"][node] == -1.0
+
+
+@pytest.mark.parametrize("problem", (PDCTRP, PDCTRPTW))
+def test_capacity_scenario_covers_initial_reload_with_partially_used_capacity(problem):
+    coords = np.column_stack((np.arange(4), np.zeros(4)))
+    actual = actual_input(np.linalg.norm(coords[:, None] - coords[None, :], axis=-1).tolist())
+    actual["demand"] = torch.tensor([[0.0, 0.8, 0.8, 0.9]])
+    scenario = baselines.scenario_from_nodes(problem.NAME, actual, 3, [1, 2], 0.9, 1)
+
+    details = msa.solve_scenario(scenario, problem.NAME, 10, return_details=True)
+    mapped = [scenario["mapping"][node] for node in details["route"]]
+
+    assert mapped[0] == 0  # The current load must be cleared before either delivery.
+    assert mapped.count(0) == 2
+    assert sorted(node for node in mapped if node != 0) == [1, 2]
+    assert np.isfinite(details["solver_objective"])
+
+
+def test_extra_optional_reload_admits_a_better_time_window_route(monkeypatch):
+    from ortools.constraint_solver import pywrapcp
+
+    coords = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]])
+    actual = actual_input(np.linalg.norm(coords[:, None] - coords[None, :], axis=-1).tolist())
+    actual["demand"] = torch.tensor([[0.0, 0.6, 0.4, 0.6, 0.4]])
+    actual["window_starts"] = torch.tensor([[0.0, 0.0, 100.0, 0.0, 100.0]])
+    actual["window_ends"] = torch.tensor([[0.0, 5.0, 200.0, 5.0, 200.0]])
+    scenario = baselines.scenario_from_nodes("pdctrptw", actual, 0, [1, 2, 3, 4], 0.0, 1)
+    nodes = {node: index for index, node in enumerate(scenario["mapping"]) if node not in (None, 0)}
+    reloads = sorted(scenario["reload_nodes"])
+    # Packing the demands needs only two trips (one reload). Respecting both
+    # early deadlines benefits from three trips (two reloads).
+    candidate = [nodes[1], reloads[0], nodes[3], nodes[2], reloads[1], nodes[4]]
+    original_read = pywrapcp.RoutingModel.ReadAssignmentFromRoutes
+
+    def read_candidate(routing, routes, ignore_inactive):
+        # Validate the known counterexample in the actual OR-Tools model,
+        # independently of whether a short heuristic search discovers it.
+        assignment = original_read(routing, [candidate], ignore_inactive)
+        assert assignment is not None
+        return assignment
+
+    monkeypatch.setattr(pywrapcp.RoutingModel, "ReadAssignmentFromRoutes", read_candidate)
+    details = msa.solve_scenario(scenario, "pdctrptw", 1, return_details=True)
+    tour = [0, *[scenario["mapping"][node] for node in details["route"]]]
+    value = baselines.score(PDCTRPTW, "pdctrptw", actual, torch.tensor([tour]))
+
+    assert value == pytest.approx(6.0)
+    assert details["solver_objective"] == pytest.approx(value, abs=1e-4)
+    assert baselines.score(PDCTRPTW, "pdctrptw", actual,
+                           torch.tensor([[0, 1, 2, 0, 3, 4]])) == pytest.approx(101.0)
+
+
+@pytest.fixture
+def initial_route_only(monkeypatch):
+    """Validate real assignments without letting search conceal seed quality."""
+    from ortools.constraint_solver import pywrapcp
+
+    monkeypatch.setattr(
+        pywrapcp.RoutingModel, "SolveFromAssignmentWithParameters",
+        lambda routing, assignment, parameters: None,
+    )
+
+
+def test_deadline_seed_adds_returns_to_serve_urgent_customers_first(initial_route_only):
+    coords = np.array([[0.0, 0.0], *([[1.0, 0.0]] * 4)])
+    actual = actual_input(np.linalg.norm(coords[:, None] - coords[None, :], axis=-1).tolist())
+    actual["demand"] = torch.tensor([[0.0, 0.6, 0.4, 0.6, 0.4]])
+    actual["window_starts"] = torch.tensor([[0.0, 0.0, 100.0, 0.0, 100.0]])
+    actual["window_ends"] = torch.tensor([[0.0, 5.0, 200.0, 5.0, 200.0]])
+
+    value, tour, details = solve_actual(PDCTRPTW, actual)
+
+    assert tour == [0, 1, 0, 3, 2, 0, 4]
+    assert value == pytest.approx(6.0)
+    assert details["initial_route_method"] == "earliest_deadline"
+    assert details["initial_route_objectives"] == pytest.approx(
+        {"demand_packing": 101.0, "earliest_deadline": 6.0}
+    )
+    assert details["initial_solver_objective"] == pytest.approx(value)
+    assert details["solver_objective"] == pytest.approx(value)
+
+
+@pytest.mark.parametrize(("gamma", "theta", "method", "tour", "value"), [
+    (2.0, 1.0, "earliest_deadline", [0, 2, 1], 4.0),
+    (0.5, 2.0, "demand_packing", [0, 1, 2], 6.5),
+])
+def test_initial_route_selection_uses_full_weighted_objective(
+    initial_route_only, gamma, theta, method, tour, value,
+):
+    actual = actual_input()
+    actual["arrival_times"] = torch.tensor([[0.0, 100.0, 0.0]])
+    actual["window_starts"] = torch.tensor([[0.0, 100.0, 0.0]])
+    actual["window_ends"] = torch.tensor([[0.0, 102.0, 101.0]])
+    actual["gamma"] = torch.tensor([gamma])
+    actual["theta"] = torch.tensor([theta])
+
+    score, selected_tour, details = solve_actual(PDCTRPTW, actual)
+
+    assert selected_tour == tour
+    assert score == pytest.approx(value)
+    assert details["initial_route_method"] == method
+    assert details["initial_solver_objective"] == pytest.approx(value)
+    assert details["solver_objective"] == pytest.approx(value)
+    # In the second case the preferred assignment must survive restoring the
+    # worse deadline route into OR-Tools' reused assignment storage.
+    for candidate, candidate_tour in (
+        ("demand_packing", [0, 1, 2]), ("earliest_deadline", [0, 2, 1]),
+    ):
+        expected = baselines.score(PDCTRPTW, "pdctrptw", actual, torch.tensor([candidate_tour]))
+        assert details["initial_route_objectives"][candidate] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("rejected", ["demand_packing", "earliest_deadline", "both"])
+def test_initial_route_selection_keeps_any_valid_candidate(monkeypatch, initial_route_only, rejected):
+    from ortools.constraint_solver import pywrapcp
+
+    actual = actual_input()
+    actual["window_ends"] = torch.tensor([[0.0, 100.0, 50.0]])
+    scenario = baselines.scenario_from_nodes("pdctrptw", actual, 0, [1, 2], 0.0, 9)
+    original_read = pywrapcp.RoutingModel.ReadAssignmentFromRoutes
+    attempts = []
+
+    def reject_candidate(routing, routes, ignore_inactive):
+        method = "demand_packing" if not attempts else "earliest_deadline"
+        attempts.append(method)
+        if rejected in (method, "both"):
+            return None
+        return original_read(routing, routes, ignore_inactive)
+
+    monkeypatch.setattr(pywrapcp.RoutingModel, "ReadAssignmentFromRoutes", reject_candidate)
+    details = msa.solve_scenario(scenario, "pdctrptw", 1, return_details=True)
+
+    assert attempts == ["demand_packing", "earliest_deadline"]
+    if rejected == "both":
+        assert details["route"] == []
+        assert details["termination_reason"] == "no_feasible_solution"
+        assert details["initial_route_method"] is None
+        assert details["initial_solver_objective"] is None
+    else:
+        expected = "earliest_deadline" if rejected == "demand_packing" else "demand_packing"
+        assert details["initial_route_method"] == expected
+        tour = [0, *[scenario["mapping"][node] for node in details["route"]]]
+        score = baselines.score(PDCTRPTW, "pdctrptw", actual, torch.tensor([tour]))
+        assert details["solver_objective"] == pytest.approx(score)
+        assert details["initial_route_objectives"][rejected] is None
+
+
+def test_deadline_seed_respects_first_stage_eligibility_and_used_capacity(initial_route_only):
+    actual = actual_input((np.ones((4, 4)) - np.eye(4)).tolist())
+    actual["demand"] = torch.tensor([[0.0, 0.5, 0.7, 0.3]])
+    actual["window_ends"] = torch.tensor([[0.0, 50.0, 10.0, 1.0]])
+    scenario = baselines.scenario_from_nodes("pdctrptw", actual, 0, [1, 2, 3], 0.4, 9)
+    nodes = {node: index for index, node in enumerate(scenario["mapping"]) if node not in (None, 0)}
+    # Customer 3 is a sampled future request; customer 2 cannot fit before a
+    # reload. Only customer 1 is an executable first action at the current load.
+    scenario["first_nodes"] = [nodes[2], nodes[1]]
+    scenario["mapping"][nodes[3]] = None
+
+    details = msa.solve_scenario(scenario, "pdctrptw", 1, return_details=True)
+
+    assert details["initial_route_method"] == "earliest_deadline"
+    assert details["route"][0] == nodes[1]
+    assert [node for node in details["route"] if node not in scenario["reload_nodes"]] == [nodes[1], nodes[3], nodes[2]]
+    demands = np.rint(scenario["demand"] * msa.DEMAND_SCALE).astype(np.int64)
+    used = int(demands[0])
+    for node in details["route"]:
+        used = 0 if node in scenario["reload_nodes"] else used + int(demands[node])
+        assert used <= msa.DEMAND_SCALE
+
+
+def test_deadline_seed_can_start_with_a_required_reload(initial_route_only):
+    actual = actual_input()
+    actual["demand"] = torch.tensor([[0.0, 0.8, 0.8]])
+    actual["window_ends"] = torch.tensor([[0.0, 1000.0, 0.0]])
+    scenario = baselines.scenario_from_nodes("pdctrptw", actual, 0, [1, 2], 0.9, 9)
+
+    details = msa.solve_scenario(scenario, "pdctrptw", 1, return_details=True)
+    mapped = [scenario["mapping"][node] for node in details["route"]]
+
+    assert details["initial_route_method"] == "earliest_deadline"
+    assert mapped == [0, 2, 0, 1]
+    assert np.isfinite(details["solver_objective"])
+
+
+@pytest.mark.parametrize("problem", (PDCTRP, PDCTRPTW))
+def test_msa_reload_allowance_covers_known_and_sampled_customers(monkeypatch, problem):
+    coords = np.column_stack((np.arange(7), np.zeros(7)))
+    actual = actual_input(np.linalg.norm(coords[:, None] - coords[None, :], axis=-1).tolist())
+    actual["demand"] = torch.tensor([[0.0, *([0.6] * 6)]])
+    sampled = {
+        "all_nodes": actual["all_nodes"][0] + torch.tensor([0.0, 1.0]),
+        "arrival_times": torch.tensor([0.0, *([10.0] * 6)]),
+        "demand": actual["demand"][0],
+        "window_starts": actual["window_starts"][0],
+        "window_ends": actual["window_ends"][0],
+    }
+    fake_problem = SimpleNamespace(make_dataset=lambda **kwargs: [sampled])
+    state = problem.make_state(actual)
+    scenario = msa.make_scenario(fake_problem, problem.NAME, actual, state, 7, 0.5, 1, 1)
+    customers = [node for node in range(1, len(scenario["mapping"])) if node not in scenario["reload_nodes"]]
+
+    assert len(customers) == 12  # Six observed customers plus six future draws.
+    assert len(scenario["reload_nodes"]) == 12
+    details = msa.solve_scenario(scenario, problem.NAME, 10, return_details=True)
+    visited = [node for node in details["route"] if node not in scenario["reload_nodes"]]
+    assert sorted(visited) == customers
+    assert details["route"][0] in scenario["first_nodes"]
+    assert np.isfinite(details["solver_objective"])
+
+
 @pytest.mark.parametrize("problem", TW_PROBLEMS)
 def test_negative_deadline_keeps_overdue_constant_in_objective(problem):
     actual = actual_input([[0.0, 1.0], [1.0, 0.0]])
@@ -261,6 +488,49 @@ def test_oracle_total_budget_is_not_extended_by_feasibility_retry(monkeypatch, p
     assert limits == [20]
     # The already validated initial assignment is still usable as fallback.
     assert sorted(details["route"]) == [1, 2, 3, 4, 5]
+
+
+@pytest.mark.parametrize("problem", (PDCTRP, PDCTRPTW))
+def test_short_search_budget_does_not_reject_seed_during_restoration(monkeypatch, problem):
+    from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+
+    routing_model = pywrapcp.RoutingModel
+    restored_with_limits, search_limits = [], []
+
+    class SlowSeedRestoration:
+        def __init__(self, manager):
+            self.routing = routing_model(manager)
+            self.restoration_limit = None
+
+        def __getattr__(self, name):
+            return getattr(self.routing, name)
+
+        def CloseModelWithParameters(self, parameters):
+            self.restoration_limit = (parameters.time_limit.ToMilliseconds()
+                                      if parameters.HasField("time_limit") else None)
+            assert parameters.local_search_metaheuristic == routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+            return self.routing.CloseModelWithParameters(parameters)
+
+        def ReadAssignmentFromRoutes(self, routes, ignore_inactive):
+            restored_with_limits.append(self.restoration_limit)
+            # Emulate feasible seed validation requiring more time than the
+            # one-millisecond improvement search; do not add a slow sleep.
+            if self.restoration_limit is not None and self.restoration_limit < 50:
+                return None
+            return self.routing.ReadAssignmentFromRoutes(routes, ignore_inactive)
+
+        def SolveFromAssignmentWithParameters(self, assignment, parameters):
+            search_limits.append(parameters.time_limit.ToMilliseconds())
+            return None  # Exercise the validated incumbent as the fallback.
+
+    monkeypatch.setattr(pywrapcp, "RoutingModel", SlowSeedRestoration)
+    scenario = baselines.scenario_from_nodes(problem.NAME, actual_input(), 0, [1, 2], 0.0, 9)
+    details = msa.solve_scenario(scenario, problem.NAME, 1, return_details=True)
+
+    assert restored_with_limits == [None]
+    assert search_limits == [1]
+    assert sorted(scenario["mapping"][node] for node in details["route"] if node not in scenario["reload_nodes"]) == [1, 2]
+    assert np.isfinite(details["solver_objective"])
 
 
 def test_timed_solver_still_returns_plain_route_by_default():

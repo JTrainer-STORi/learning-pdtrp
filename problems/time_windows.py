@@ -20,14 +20,15 @@ def resolve_time_window_bounds(scenario="wide", minimum=None, maximum=None):
     return lower, upper
 
 
-def generate_time_windows(arrivals, depot_travel, minimum, maximum, closing_horizon):
+def generate_time_windows(arrivals, depot_travel, minimum, maximum, closing_horizon, rng=None):
     """Generate customer windows; inputs exclude the depot and use minutes.
 
     Immediate windows open at call time plus depot travel. Advance requests
     retain a random opening no earlier than direct depot arrival. Closing times
     use configurable width bounds, clipped to the final closing horizon. This
     specifies our closing-time convention where the thesis leaves sampling
-    details incomplete.
+    details incomplete. Draws stay attached to customer indices so changing
+    dynamism does not shift subsequent instance or demand generation.
     """
     minimum, maximum = resolve_time_window_bounds("wide", minimum, maximum)
     arrivals = np.asarray(arrivals, dtype=float)
@@ -40,17 +41,21 @@ def generate_time_windows(arrivals, depot_travel, minimum, maximum, closing_hori
     if not math.isfinite(closing_horizon) or closing_horizon < minimum:
         raise ValueError("closing horizon must be finite and at least the minimum window width")
 
+    rng = np.random if rng is None else rng
     starts = arrivals + depot_travel
     advance = arrivals == 0
+    # Draw for every customer even when its opening is determined by its call.
+    # This fixes random consumption and customer/window pairing across DoDs.
+    advance_openings = rng.uniform(0, closing_horizon - minimum, size=arrivals.size)
     starts[advance] = np.maximum(
         depot_travel[advance],
-        np.random.uniform(0, closing_horizon - minimum, size=int(advance.sum())),
+        advance_openings[advance],
     )
     lower_ends = starts + minimum
     upper_ends = np.minimum(starts + maximum, closing_horizon)
     if (lower_ends > upper_ends).any():
         raise ValueError("Cannot fit the minimum time-window width before the closing horizon")
-    ends = np.random.uniform(lower_ends, upper_ends)
+    ends = rng.uniform(lower_ends, upper_ends)
     return np.round(starts, 3), np.round(ends, 3)
 
 

@@ -46,6 +46,8 @@ def test_uniform_benchmark_round_trip_preserves_instances_and_reference_routes(
     assert metadata["num_nodes_including_depot"] == 51
     assert metadata["num_customers"] == 50
     assert metadata["size_convention"] == "customers_excluding_depot"
+    assert metadata["schema_version"] == 3
+    assert metadata["customer_order"] == "sampling_order"
     assert metadata["dynamic_customers"] == dynamic_count
     assert metadata["realized_dod"] == dynamic_count / 50
     assert metadata["reference_method"] == "nearest_neighbour"
@@ -64,7 +66,6 @@ def test_uniform_benchmark_round_trip_preserves_instances_and_reference_routes(
         assert torch.all((nodes >= 0) & (nodes <= 1))
         assert calls[0] == 0
         assert (calls[1:] > 0).sum() == dynamic_count
-        assert torch.all(calls[1:] >= calls[:-1])
         assert torch.all((calls[calls > 0] >= 1) & (calls[calls > 0] <= 480))
         assert actual["service_times"][0] == 0
         assert actual["service_times"].ge(0).all()
@@ -95,6 +96,26 @@ def test_seed_and_sample_count_produce_stable_benchmark_prefixes(tmp_path, probl
     rows = lambda result: Path(result["dataset"]).read_bytes().splitlines()
     assert rows(first) == rows(again) == rows(longer)[:2]
     assert rows(first) != rows(other)
+
+
+@pytest.mark.parametrize("problem_name", ["pdtrptw", "pdctrptw"])
+def test_saved_uniform_tw_benchmarks_keep_locations_services_and_demands_across_dods(tmp_path, problem_name):
+    datasets = []
+    for dod in (0.2, 0.5, 0.8):
+        result, metadata = generate(tmp_path, problem_name, dod, count=3, name=f"dod-{dod}.txt")
+        datasets.append(load_problem(problem_name).make_dataset(
+            filename=result["dataset"], **metadata["dataset_options"]
+        ))
+    for index in range(3):
+        reference = datasets[0][index]
+        for dataset in datasets[1:]:
+            sample = dataset[index]
+            for key in ("all_nodes", "service_times", "distance_matrix", "demand"):
+                if key in reference:
+                    torch.testing.assert_close(sample[key], reference[key], rtol=0, atol=0)
+            retained = reference["arrival_times"] > 0
+            torch.testing.assert_close(sample["arrival_times"][retained],
+                                       reference["arrival_times"][retained], rtol=0, atol=0)
 
 
 def test_generator_refuses_to_overwrite_existing_benchmarks(tmp_path):

@@ -216,15 +216,7 @@ class PDCTRPDataset(Dataset):
                     distance_matrix.append(batch_distance_matrix)
                     demands.append(batch_demands)
 
-                # step 3: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
-                    distance_matrix[i] = distance_matrix[i][idx][:, idx]
-                    demands[i] = demands[i][idx]
-
+                # Keep sampled customer indices and their attached attributes.
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times
                 self.service_times += service_times
@@ -263,12 +255,7 @@ class PDCTRPDataset(Dataset):
                 # step 7: set the arrival times of the advanced request customers to be 0
                 for i in range(batch_size):
                     arrival_times[i][adv_indices[i]] = 0
-                # step 8: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
+                # Keep customer indices fixed when only dynamism changes.
                 
                 # Step 9: Generate the demands for each customer
 

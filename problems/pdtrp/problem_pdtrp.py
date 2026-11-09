@@ -249,14 +249,7 @@ class PDTRPDataset(Dataset):
                     service_times.append(batch_service_times)
                     distance_matrix.append(batch_distance_matrix)
 
-                # step 3: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
-                    distance_matrix[i] = distance_matrix[i][idx][:, idx]
-
+                # Keep sampled customer indices and their attached attributes.
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times
                 self.service_times += service_times
@@ -293,12 +286,7 @@ class PDTRPDataset(Dataset):
                 # step 7: set the arrival times of the advanced request customers to be 0
                 for i in range(batch_size):
                     arrival_times[i][adv_indices[i]] = 0
-                # step 8: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
+                # Keep customer indices fixed when only dynamism changes.
                 # step 9: Prepend the depot to the customers
                 depot = self.dimension_scale / 2
                 all_nodes = [np.concatenate([np.array([[depot, depot]]), x]) for x in all_nodes]

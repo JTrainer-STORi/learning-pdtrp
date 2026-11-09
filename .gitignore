@@ -37,6 +37,7 @@ computationalGraphs/
 *.out
 *.err
 *.pdf
+hec_results/
 
 # Ignore docs for now
 docs/

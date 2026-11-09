@@ -5,7 +5,7 @@ import torch
 
 from nets.dynamic_attention_model import DynamicAttentionModel
 from nets.encoders.gnn_encoder import GNNEncoder
-from problems import PDCTRP, PDCTRPTW
+from problems import PDTRP, PDCTRP, PDTRPTW, PDCTRPTW
 
 
 def capacity_example():
@@ -115,3 +115,34 @@ def test_each_pomo_rollout_receives_its_own_arrival_history(monkeypatch, problem
     assert all(event == [[], []] for event in events[3:])
     (cost.detach() * likelihood).mean().backward()
     assert torch.isfinite(model.lstm.weight_ih_l0.grad).all()
+
+
+@pytest.mark.parametrize("problem", [PDTRP, PDCTRP, PDTRPTW, PDCTRPTW])
+@pytest.mark.parametrize("mode,remove_visited", [
+    ("masked", False), ("recursive", False), ("recursive", True),
+])
+@pytest.mark.parametrize("scale_times", [False, True])
+def test_arrival_history_is_chronological_when_customer_indices_are_not(
+    monkeypatch, problem, mode, remove_visited, scale_times
+):
+    inputs = capacity_example()
+    inputs["demand"][:, 1:] = 0.1
+    inputs["service_times"][:, 1] = 3.0
+    # Both calls happen during the first visit, in reverse node-index order.
+    inputs["arrival_times"][:, 2] = 2.5
+    inputs["arrival_times"][:, 4] = 1.5
+    model = make_model(problem, scale_times)
+    model.recursively_remove_visited_nodes = remove_visited
+    model.train(mode == "masked")
+    events = record_arrivals(monkeypatch, model)
+    monkeypatch.setattr(model, "_select_node", lambda probs, mask: (~mask).long().argmax(dim=1))
+
+    cost, likelihood, _ = model(inputs, mode=mode)
+
+    scale = 600.0 if scale_times else 1.0
+    assert events[0][0] == pytest.approx([1.5 / scale, 2.5 / scale])
+    assert all(event == [[]] for event in events[1:])
+    assert torch.isfinite(cost).all()
+    if mode == "masked":
+        (cost.detach() * likelihood).mean().backward()
+        assert torch.isfinite(model.lstm.weight_ih_l0.grad).all()

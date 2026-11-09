@@ -218,16 +218,7 @@ class PDTRPTWDataset(Dataset):
                     window_starts.append(batch_start_times)
                     window_ends.append(batch_end_times)
 
-                # step 3: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
-                    distance_matrix[i] = distance_matrix[i][idx][:, idx]
-                    window_starts[i] = window_starts[i][idx]
-                    window_ends[i] = window_ends[i][idx]
-
+                # Keep sampled customer indices and their attached attributes.
                 self.all_nodes += all_nodes
                 self.arrival_times += arrival_times
                 self.service_times += service_times
@@ -276,14 +267,7 @@ class PDTRPTWDataset(Dataset):
                     )
                     batch_start_times.append(start_times)
                     batch_end_times.append(end_times)
-                # step 10: sort the customers by arrival time
-                for i in range(batch_size):
-                    idx = np.argsort(arrival_times[i])
-                    all_nodes[i] = all_nodes[i][idx]
-                    arrival_times[i] = arrival_times[i][idx]
-                    service_times[i] = service_times[i][idx]
-                    batch_start_times[i] = batch_start_times[i][idx]
-                    batch_end_times[i] = batch_end_times[i][idx]
+                # Retain sampled indices for coordinates, calls and windows.
                 # step 11: Prepend the depot to the customers
                 all_nodes = [np.concatenate([depot_location[None, :], x]) for x in all_nodes]
                 arrival_times = [np.concatenate((np.zeros(1), x)) for x in arrival_times]

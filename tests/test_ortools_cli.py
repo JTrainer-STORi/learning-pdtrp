@@ -11,6 +11,7 @@ import evaluate_msa_ortools
 import evaluate_ortools_baselines
 import evaluate_online_ortools
 import evaluate_clairvoyant_ortools
+from utils.ortools_reloads import DEPOT_RETURN_POLICY
 
 
 def test_evaluation_writes_oracle_stopping_configuration_and_results(tmp_path, monkeypatch):
@@ -79,6 +80,8 @@ def test_separate_ortools_cli_evaluates_only_its_method_at_global_offset(tmp_pat
     with (output / "samples.csv").open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert summary["method"] == method
+    assert summary["depot_return_policy"] == "not_applicable"
+    assert summary["initial_route_policy"] == "customer_order"
     assert summary["offset"] == 1
     assert summary[f"{prefix}_time_ms"] is None
     assert summary[f"{prefix}_no_improvement_ms"] == 20
@@ -147,6 +150,36 @@ def test_parallel_msa_cli_records_uncapped_search_and_elapsed_time(tmp_path):
         assert sample["runtime"] == sample["wall_time_seconds"]
         assert sample["wall_time_seconds"] >= sample["solver_wall_time_seconds"] > 0
         assert sample["scenario_count"] == 4
+
+
+@pytest.mark.parametrize(("module", "prefix"), [
+    (evaluate_clairvoyant_ortools, "static"),
+    (evaluate_online_ortools, "online"),
+    (evaluate_msa_ortools, "solver"),
+])
+@pytest.mark.parametrize("problem", ["pdctrp", "pdctrptw"])
+def test_capacity_results_record_depot_return_policy(tmp_path, module, prefix, problem):
+    dataset = tmp_path / "capacity.txt"
+    windows = "window_starts 0 0 0 window_ends 0 1000 1000 " if problem == "pdctrptw" else ""
+    dataset.write_text(
+        "0 0 1 0 0 1 arrival_times 0 0 0 service_times 0 0 0 "
+        f"{windows}"
+        "demands 0 0.4 0.4 tour 1 2 3 1 visit_times 0 15 36.2132 51.2132\n"
+    )
+    output = tmp_path / ("msa.json" if prefix == "solver" else "results")
+    argv = ["--problem", problem, "--dataset", str(dataset), "--output", str(output),
+            "--num-samples", "1", f"--{prefix}-time-ms", "10",
+            f"--{prefix}-no-improvement-ms", "5"]
+    if prefix == "solver":
+        argv += ["--dod", "0.5", "--scenarios", "1", "--workers", "1"]
+    module.main(argv)
+
+    result = json.loads((output if prefix == "solver" else output / "summary.json").read_text())
+    assert result["depot_return_policy"] == DEPOT_RETURN_POLICY
+    assert result["initial_route_policy"] == (
+        "best_of_demand_packing_and_earliest_deadline"
+        if problem == "pdctrptw" else "demand_packing"
+    )
 
 
 @pytest.mark.parametrize("total_limit", [None, "1000"])

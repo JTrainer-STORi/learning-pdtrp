@@ -7,7 +7,7 @@ from problems.time_window_events import (
 
 class StatePDTRPTW(NamedTuple):
     # Fixed input
-    coords: torch.Tensor # Depot + static_loc + dynamic_loc
+    coords: torch.Tensor # Depot followed by customers in their saved order
     service_times: torch.Tensor
     arrival_times: torch.Tensor
     speed: float
