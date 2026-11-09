@@ -16,6 +16,7 @@ from torch.nn import DataParallel
 from utils.log_utils import log_values, update_anim
 from utils.data_utils import BatchedRandomSampler, dataset_to_input
 from utils import move_to, count_trailing_zeros
+from utils.training_data import training_dataset_options
 
 
 def get_inner_model(model):
@@ -184,15 +185,17 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     start_time = time.time()
 
     if not opts.no_tensorboard:
-        tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
+        tb_logger.add_scalar('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
     if not opts.no_wandb:
         wandb_run.log({'learnrate_pg0': optimizer.param_groups[0]['lr']}, step=step)
 
     # Generate new training data for each epoch
     train_dataset = baseline.wrap_dataset(
         problem.make_dataset(
-            min_total=opts.min_total, max_total=opts.max_total, min_dod=opts.min_dod, max_dod=opts.max_dod, speed=opts.speed, batch_size=opts.batch_size, n_subregions=opts.n_subregions, num_samples=opts.epoch_size, time_horizon=opts.time_horizon, service_times_mean = opts.stmean, service_times_var = opts.stvar, neighbors=opts.neighbors, knn_strat=opts.knn_strat, arrival_weights = opts.arrival_weights, arrival_skews=opts.arrival_skews, min_time_window=opts.min_time_window, max_time_window=opts.max_time_window, gamma = opts.gamma, theta=opts.theta, latest_end=opts.latest_end, reaction_time=opts.reaction_time, vehicle_capacity=opts.vehicle_capacity, min_trips_required_lb=opts.min_trips_required_lb, min_trips_required_ub=opts.min_trips_required_ub, use_ortec = opts.use_ortec, dimension_scale=opts.dimension_scale
-        ))
+            batch_size=opts.batch_size, num_samples=opts.epoch_size,
+            **training_dataset_options(opts),
+        )
+    )
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
 
@@ -249,13 +252,14 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     epoch_duration = time.time() - start_time
     print("Finished epoch {}, took {} s".format(epoch, time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
 
-    if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.n_epochs - 1:
+    if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.epoch_start + opts.n_epochs - 1:
         print('Saving model and state...')
         torch.save(
             {
                 'model': get_inner_model(model).state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'rng_state': torch.get_rng_state(),
+                'numpy_rng_state': np.random.get_state(),
                 'cuda_rng_state': torch.cuda.get_rng_state_all(),
                 'baseline': baseline.state_dict()
             },
@@ -271,9 +275,9 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     for val_idx, val_dataset in enumerate(val_datasets if should_validate else []):
         avg_reward, avg_opt_gap, avg_gt_cost, model_worst, model_best = validate(model, val_dataset, problem, opts)
         if not opts.no_tensorboard:
-            tb_logger.log_value('val{}/avg_reward'.format(val_idx+1), avg_reward, step)
-            tb_logger.log_value('val{}/opt_gap'.format(val_idx+1), avg_opt_gap, step)
-            tb_logger.log_value('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
+            tb_logger.add_scalar('val{}/avg_reward'.format(val_idx+1), avg_reward, step)
+            tb_logger.add_scalar('val{}/opt_gap'.format(val_idx+1), avg_opt_gap, step)
+            tb_logger.add_scalar('val{}/avg_gt_cost'.format(val_idx+1), avg_gt_cost, step)
         if not opts.no_wandb:
             # do a single rollout with the model to get a tour
             if not opts.no_videos and 'tour_nodes' in val_dataset[0]:

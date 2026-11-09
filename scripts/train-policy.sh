@@ -11,6 +11,9 @@ Environment variables:
   DEVICE=auto|cpu|GPU_INDEX  Execution device (default: auto)
   MIN_CUSTOMERS=20           Minimum N, excluding the depot
   MIN_DOD=0.2 / MAX_DOD=0.8  Training degree-of-dynamism range
+  HOURS_PER_CUSTOMER=0.2     Call horizon T=N/5 hours (explicit time flags override)
+  ARRIVAL_LSTM=auto|on|off   Auto enables it for TW variants, matching earlier runs
+  VALIDATION_SEED=12345      Common generated held-out data across training seeds
   N_EPOCHS=100               Training epochs
   EPOCH_SIZE=12800           Instances generated per epoch
   BATCH_SIZE=256             Training batch size
@@ -56,6 +59,17 @@ OUTPUT_DIR=${OUTPUT_DIR:-artifacts/models}
 LOG_DIR=${LOG_DIR:-artifacts/logs}
 DEVICE=${DEVICE:-auto}
 ENABLE_WANDB=${ENABLE_WANDB:-0}
+HOURS_PER_CUSTOMER=${HOURS_PER_CUSTOMER:-0.2}
+ARRIVAL_LSTM=${ARRIVAL_LSTM:-auto}
+VALIDATION_SEED=${VALIDATION_SEED:-12345}
+
+HORIZON_ARGS=(--time-horizon-per-customer "$HOURS_PER_CUSTOMER")
+# An explicit CLI horizon selects either fixed or scaled generation.
+for ARGUMENT in "$@"; do
+    case "$ARGUMENT" in
+        --time-horizon*|--time_horizon*) HORIZON_ARGS=(); break ;;
+    esac
+done
 
 DEVICE_ARGS=()
 if [[ "$DEVICE" == "cpu" ]]; then
@@ -69,8 +83,16 @@ LOGGING_ARGS=(--no_tensorboard --no_videos)
 
 PROBLEM_ARGS=()
 if [[ "$PROBLEM" == pdtrptw || "$PROBLEM" == pdctrptw ]]; then
-    PROBLEM_ARGS+=(--use_time_feature --scale_times --use_arrival_times --use_arrival_lstm --gamma 1 --theta 1)
+    PROBLEM_ARGS+=(--use_time_feature --scale_times --use_arrival_times --gamma 1 --theta 1)
 fi
+case "$ARRIVAL_LSTM" in
+    on) PROBLEM_ARGS+=(--use_arrival_lstm) ;;
+    off) ;;
+    auto)
+        if [[ "$PROBLEM" == *tw ]]; then PROBLEM_ARGS+=(--use_arrival_lstm); fi
+        ;;
+    *) echo "ARRIVAL_LSTM must be auto, on or off" >&2; exit 2 ;;
+esac
 if [[ "$PROBLEM" == pdctrp || "$PROBLEM" == pdctrptw ]]; then
     PROBLEM_ARGS+=(--vehicle_capacity 1 --min_trips_required_lb 3 --min_trips_required_ub 9)
 fi
@@ -84,6 +106,8 @@ python -u run.py \
     --max-customers "$MAX_CUSTOMERS" \
     --min_dod "$MIN_DOD" \
     --max_dod "$MAX_DOD" \
+    "${HORIZON_ARGS[@]}" \
+    --validation-seed "$VALIDATION_SEED" \
     --neighbors 0.2 \
     --knn_strat percentage \
     --n_subregions 1 \

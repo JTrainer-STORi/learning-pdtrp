@@ -3,6 +3,7 @@ from itertools import islice
 from torch.utils.data import Dataset
 import torch
 from problems.size_conventions import resolve_node_bounds
+from problems.time_horizon import horizon_minutes, validate_hours_per_customer
 from tqdm import tqdm
 import numpy as np
 
@@ -134,7 +135,7 @@ class PDTRP(object):
     #def generate_scenarios(existing_input, num_scenarios):
     
 class PDTRPDataset(Dataset):
-    def __init__(self, min_total=None, max_total=None, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, use_ortec=None, dimension_scale=1.0, min_customers=None, max_customers=None):
+    def __init__(self, min_total=None, max_total=None, min_dod=0.2, max_dod=0.8, speed=4, time_horizon=8, service_times_mean=3, service_times_var=5, n_subregions=9, arrival_weights=None, arrival_skews=None, min_time_window=None, max_time_window=None, batch_size=128, num_samples=12800, neighbors=20, knn_strat='percentage', filename=None, offset=0, gamma=None, theta=None, latest_end=2, reaction_time=60, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, use_ortec=None, dimension_scale=1.0, min_customers=None, max_customers=None, time_horizon_per_customer=None):
         """
         Use this function for either loading a dataset from a file or generating a new dataset.
 
@@ -178,6 +179,7 @@ class PDTRPDataset(Dataset):
         self.n_subregions = n_subregions
         self.dimension_scale = dimension_scale
         self.time_horizon = time_horizon * 60 # Convert time horizon to minutes
+        self.time_horizon_per_customer = validate_hours_per_customer(time_horizon_per_customer)
         self.service_times_mean = service_times_mean
         self.service_times_std = np.sqrt(service_times_var)
         self.neighbors = neighbors
@@ -235,6 +237,9 @@ class PDTRPDataset(Dataset):
             for _ in tqdm(range(num_samples//batch_size), ascii=True):
                 # Step 1: Generate the total number of customers
                 n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int)
+                batch_horizon = horizon_minutes(
+                    n_total - 1, self.time_horizon, self.time_horizon_per_customer
+                )
                 # Step 2: Generate the locations and arrival times of the customers by subsampling ortec instances
                 all_nodes = []
                 arrival_times = []
@@ -243,7 +248,7 @@ class PDTRPDataset(Dataset):
                 for _ in range(batch_size):
                     # sample the number of immediate customers for this instance
                     n_imm = np.random.randint(int(self.min_dod * (n_total - 1)), int(self.max_dod * (n_total - 1)) + 1, dtype=int)
-                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _, _ = subsample_ortec(instance_file=self.use_ortec, problem='pdtrp', n_total=n_total, time_horizon=self.time_horizon, speed=self.speed, n_imm=n_imm, reaction_time=self.reaction_time, latest_end=self.latest_end)
+                    batch_nodes, batch_service_times, batch_arrival_times, batch_distance_matrix, _, _, _ = subsample_ortec(instance_file=self.use_ortec, problem='pdtrp', n_total=n_total, time_horizon=batch_horizon, speed=self.speed, n_imm=n_imm, reaction_time=self.reaction_time, latest_end=self.latest_end)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                     service_times.append(batch_service_times)
@@ -269,11 +274,14 @@ class PDTRPDataset(Dataset):
 
                 # Step 1: Generate the total number of customers
                 n_total = np.random.randint(self.min_total, self.max_total + 1, dtype=int) - 1 # -1 to account for the depot
+                batch_horizon = horizon_minutes(
+                    n_total, self.time_horizon, self.time_horizon_per_customer
+                )
                 # Step 2: Generate the locations and arrival times of the customers
                 all_nodes = []
                 arrival_times = []
                 for _ in range(batch_size):
-                    batch_nodes, batch_arrival_times = time_and_subregion_generation(n_total=n_total, n_subregions=self.n_subregions, arrival_weights=self.arrival_weights, arrival_skews=self.arrival_skews, time_horizon=self.time_horizon, dimension_scale=self.dimension_scale)
+                    batch_nodes, batch_arrival_times = time_and_subregion_generation(n_total=n_total, n_subregions=self.n_subregions, arrival_weights=self.arrival_weights, arrival_skews=self.arrival_skews, time_horizon=batch_horizon, dimension_scale=self.dimension_scale)
                     all_nodes.append(batch_nodes)
                     arrival_times.append(batch_arrival_times)
                 # step 4: Generate customer service times
@@ -323,7 +331,9 @@ class PDTRPDataset(Dataset):
             'service_times': torch.FloatTensor(service_times),
             'graph': ~torch.BoolTensor(nn_graph),
             'speed': torch.FloatTensor([self.speed]),
-            'time_horizon': torch.FloatTensor([self.time_horizon]),
+            'time_horizon': torch.FloatTensor([
+                horizon_minutes(len(all_nodes) - 1, self.time_horizon, self.time_horizon_per_customer)
+            ]),
             'distance_matrix': torch.FloatTensor(distance_matrix),
             'latest_end': torch.FloatTensor([self.latest_end]),
             'service_times_mean': torch.FloatTensor([self.service_times_mean]),

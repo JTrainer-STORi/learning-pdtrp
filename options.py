@@ -2,9 +2,11 @@ import os
 import time
 import argparse
 import json
+import math
 import torch
 from problems.size_conventions import CUSTOMER_SIZE_CONVENTION, resolve_node_bounds
 from problems.time_windows import add_time_window_arguments, validate_time_window_arguments
+from problems.time_horizon import validate_hours_per_customer
 
 # Note on the store_true and store_false arguments in argparse:
 # The store_true action is used to create a boolean flag that is set to True if the option is provided, and False otherwise.
@@ -41,11 +43,11 @@ def get_options(args=None):
                         help='The skews for the arrival times distribution in each subregion. An "early" skew means that arrival times for that subregion are generated using a beta(2,5) distribution, a "late" skew means beta(5,2), and a "uniform" skew means uniform distribution. If None, all subregions are sampled uniformly. Pass as a space-separated list, e.g. "early late uniform"')
     parser.add_argument('--neighbors', type=float, default=20, 
                         help="The k-nearest neighbors for graph sparsification, if the knn_strat is 'percentage', this is the percentage of total nodes to connect to each node otherwise is the fixed number of neighbors to connect to each node")
-    parser.add_argument('--knn_strat', type=str, default=None, 
-                        help="Strategy for k-nearest neighbors (None/'percentage')")
+    parser.add_argument('--knn_strat', type=str, choices=('fixed', 'percentage'), default='fixed',
+                        help="Strategy for k-nearest neighbors (default: fixed)")
     parser.add_argument('--n_epochs', type=int, default=100, 
                         help='The number of epochs to train')
-    parser.add_argument('--epoch_size', type=int, default=1000000, 
+    parser.add_argument('--epoch_size', type=int, default=12800,
                         help='Number of instances per epoch during training')
     parser.add_argument('--batch_size', type=int, default=128, 
                         help='Number of instances per batch during training')
@@ -53,20 +55,25 @@ def get_options(args=None):
                         help='Gradient accumulation step during training (effective batch_size = batch_size * accumulation_steps)')
     parser.add_argument('--val_datasets', type=str, nargs='+', default=None, 
                         help='Paths to dataset files to use for validation')
-    parser.add_argument('--val_batch_size', type=int, default=128,
+    parser.add_argument('--validation-seed', '--validation_seed', type=int, default=None,
+                        help='Seed for generated held-out validation data, independent of training seed (default: 12345)')
+    parser.add_argument('--val_batch_size', type=int, default=1,
                         help='Number of instances per batch during validation')
-    parser.add_argument('--val_size', type=int, default=1000, 
+    parser.add_argument('--val_size', type=int, default=128,
                         help='Number of instances used for reporting validation performance')
     parser.add_argument('--val_every', type=int, default=1,
                         help='Run validation every n epochs (and always on the final epoch)')
     parser.add_argument('--rollout_batch_size', type=int, default=128,
                         help='Number of instances per batch during rollout baseline evaluation')
-    parser.add_argument('--rollout_size', type=int, default=10000, 
+    parser.add_argument('--rollout_size', type=int, default=1280,
                         help='Number of instances used for updating rollout baseline')
     parser.add_argument('--baseline_update_every', type=int, default=1,
                         help='Challenge and potentially update the rollout baseline every n epochs (and always on the final epoch)')
-    parser.add_argument('--time_horizon', type=int, default=8,
-                        help='Time horizon for dynamic node arrivals in hours, default is 8 hours')
+    horizon_options = parser.add_mutually_exclusive_group()
+    horizon_options.add_argument('--time-horizon', '--time_horizon', type=float, default=None,
+                                 help='Fixed call horizon in hours (default: 8 when scaling is unset)')
+    horizon_options.add_argument('--time-horizon-per-customer', '--time_horizon_per_customer', type=float,
+                                 help='Set T=N times this many hours, excluding the depot; use 0.2 for T=N/5')
     parser.add_argument('--stmean', type=float, default=3.0,
                         help='mean of service times, in minutes')
     parser.add_argument('--stvar', type=float, default=5.0,
@@ -84,8 +91,8 @@ def get_options(args=None):
                         help='Vehicle capacity, default is 1.0 (1 unit of demand)')
     parser.add_argument('--min_trips_required_lb', type=int, default=3,
                         help='lower bound on the minimum number of trips required to service all customers, default is 3')
-    parser.add_argument('--min_trips_required_ub', type=int, default=5, 
-                        help='upper bound on the minimum number of trips required to service all customers, default is 5')
+    parser.add_argument('--min_trips_required_ub', type=int, default=9,
+                        help='upper bound on the minimum number of trips required to service all customers, default is 9')
     parser.add_argument('--use_ortec', type=str, default=None,
                         help='filename of ortec instance to subsample from when generating customer ugations. If None, no subsampling is done.')
 
@@ -200,15 +207,34 @@ def get_options(args=None):
     opts = parser.parse_args(args)
     validate_time_window_arguments(parser, opts)
 
+    saved = {}
+    if opts.resume:
+        saved_args = os.path.join(os.path.dirname(opts.resume), 'args.json')
+        if os.path.isfile(saved_args):
+            with open(saved_args) as handle:
+                saved = json.load(handle)
+    if opts.time_horizon is None and opts.time_horizon_per_customer is None:
+        opts.time_horizon = saved.get('time_horizon', 8.0)
+        opts.time_horizon_per_customer = saved.get('time_horizon_per_customer')
+    if opts.time_horizon is None:
+        opts.time_horizon = 8.0  # Legacy fallback; per-customer scaling overrides it.
+    try:
+        validate_hours_per_customer(opts.time_horizon_per_customer)
+        if not math.isfinite(opts.time_horizon) or opts.time_horizon <= 0:
+            raise ValueError('time_horizon must be finite and positive')
+    except ValueError as error:
+        parser.error(str(error))
+    if opts.validation_seed is None:
+        opts.validation_seed = saved.get('validation_seed', 12345)
+    if not 0 <= opts.validation_seed < 2**32:
+        parser.error('--validation-seed must be between 0 and 2**32 - 1')
+
     # Resuming without size overrides inherits the saved bounds, including the
     # old total-node convention used by checkpoints without size metadata.
     if opts.resume and all(value is None for value in (
         opts.min_total, opts.max_total, opts.min_customers, opts.max_customers
     )):
-        saved_args = os.path.join(os.path.dirname(opts.resume), 'args.json')
-        if os.path.isfile(saved_args):
-            with open(saved_args) as handle:
-                saved = json.load(handle)
+        if saved:
             if 'min_customers' in saved and 'max_customers' in saved:
                 opts.min_customers, opts.max_customers = saved['min_customers'], saved['max_customers']
             else:
@@ -222,6 +248,14 @@ def get_options(args=None):
         parser.error(str(error))
     opts.min_customers, opts.max_customers = opts.min_total - 1, opts.max_total - 1
     opts.size_convention = CUSTOMER_SIZE_CONVENTION
+
+    for size, batch in ((opts.epoch_size, opts.batch_size),
+                        (opts.rollout_size, opts.rollout_batch_size),
+                        (opts.val_size, opts.val_batch_size)):
+        if size < 1 or batch < 1 or size % batch:
+            parser.error('Training, rollout and validation sizes must be divisible by their positive batch sizes')
+    if opts.baseline == 'rollout' and opts.min_total != opts.max_total and opts.batch_size % opts.rollout_batch_size:
+        parser.error('--rollout_batch_size must divide --batch_size for variable-size training; otherwise baseline batches mix graph sizes')
 
     if opts.accumulation_steps < 1:
         parser.error("--accumulation_steps must be at least 1")

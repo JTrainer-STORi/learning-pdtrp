@@ -72,7 +72,7 @@ def sample_ortec_customer_indices(window_starts, n_customers, *, fully_dynamic=F
 def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_horizon, speed, latest_end=None, vehicle_capacity=None, min_trips_required_lb=None, min_trips_required_ub=None, n_imm=None, reaction_time=None):
 
     # choose n_locations - 1 random indices (always retain depot)
-    scaled_windows = rl_instance['time_windows'] * (480 + latest_end) / np.max(rl_instance['time_windows'][1:])
+    scaled_windows = rl_instance['time_windows'] * (time_horizon + latest_end) / np.max(rl_instance['time_windows'][1:])
     indices = sample_ortec_customer_indices(
         scaled_windows[:, 0], n_locations - 1,
         fully_dynamic=n_imm == n_locations - 1, reaction_time=reaction_time,
@@ -82,7 +82,6 @@ def transform_and_subsample_rl_instance(rl_instance, problem, n_locations, time_
     indices_plus_depot = np.concatenate(([0], indices))  # +1 because depot is at index 0
 
     speed = 4.0 / 60.0
-    time_horizon = 8 * 60
     # scale distance matrix to be in minutes at the given speed, then normalize to [0, 1]
     unscaled_distance_matrix = rl_instance['duration_matrix']* speed / 60.0
     scaled_distance_matrix = unscaled_distance_matrix / np.max(unscaled_distance_matrix)

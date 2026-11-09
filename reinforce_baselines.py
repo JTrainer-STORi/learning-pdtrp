@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from scipy.stats import ttest_rel
 import copy
 from train import rollout, rollout_baseline, get_inner_model, should_run_periodic
+from utils.training_data import training_dataset_options
 
 
 class Baseline(object):
@@ -154,22 +155,12 @@ class RolloutBaseline(Baseline):
     def _update_model(self, model, epoch, dataset=None):
         self.model = copy.deepcopy(model)
         
-        # Always generate baseline dataset when updating model to prevent overfitting to the baseline dataset
-        self.dataset = self.problem.make_dataset(
-            min_total=self.opts.min_total, max_total=self.opts.max_total, min_dod=self.opts.min_dod, max_dod=self.opts.max_dod, speed=self.opts.speed, batch_size=self.opts.rollout_batch_size, n_subregions=self.opts.n_subregions, num_samples=self.opts.rollout_size, time_horizon=self.opts.time_horizon, service_times_mean = self.opts.stmean, service_times_var = self.opts.stvar, neighbors=self.opts.neighbors, knn_strat=self.opts.knn_strat, arrival_weights=self.opts.arrival_weights, arrival_skews=self.opts.arrival_skews,
-            min_time_window=self.opts.min_time_window,
-            max_time_window=self.opts.max_time_window,
-            gamma=self.opts.gamma,
-            theta=self.opts.theta,
-            latest_end=self.opts.latest_end,
-            reaction_time=self.opts.reaction_time,
-            vehicle_capacity=self.opts.vehicle_capacity,
-            min_trips_required_lb=self.opts.min_trips_required_lb,
-            min_trips_required_ub=self.opts.min_trips_required_ub,
-            use_ortec=self.opts.use_ortec,
-            dimension_scale=self.opts.dimension_scale
+        # Fresh data for baseline updates; retain the saved challenge set on resume.
+        self.dataset = dataset if dataset is not None else self.problem.make_dataset(
+            batch_size=self.opts.rollout_batch_size, num_samples=self.opts.rollout_size,
+            **training_dataset_options(self.opts),
         )
-        
+
         print("\nEvaluating Rollout baseline model on evaluation dataset")
         if self.opts.rollout_batch_size == 1:
             self.bl_vals, _ = rollout_baseline(self.model, self.dataset, self.opts, mode='recursive')

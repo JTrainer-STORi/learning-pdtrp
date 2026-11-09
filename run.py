@@ -12,7 +12,6 @@ import wandb
 from options import get_options
 from train import train_epoch, get_inner_model
 
-from tensorboard_logger import Logger as TbLogger
 from nets.dynamic_attention_model import DynamicAttentionModel
 from nets.encoders.gnn_encoder import GNNEncoder
 from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
@@ -21,6 +20,7 @@ from nets.critic_network import CriticNetwork
 from reinforce_baselines import ExponentialBaseline, CriticBaseline, RolloutBaseline, NoBaseline, WarmupBaseline
 
 from utils import load_problem, torch_load_cpu
+from utils.training_data import make_validation_datasets
 
 def run_rl(opts) -> None:
     """
@@ -38,7 +38,8 @@ def run_rl(opts) -> None:
     # Configure logging options
     tb_logger = None
     if not opts.no_tensorboard:
-        tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_customers, opts.max_customers, opts.min_dod, opts.max_dod), opts.run_name))
+        from torch.utils.tensorboard import SummaryWriter
+        tb_logger = SummaryWriter(os.path.join(opts.log_dir, "{}_{}-{}-{}-{}".format(opts.problem, opts.min_customers, opts.max_customers, opts.min_dod, opts.max_dod), opts.run_name))
     if not opts.no_wandb:
         wandb_run = wandb.init(
             project="dynamic VRP",
@@ -163,49 +164,15 @@ def run_rl(opts) -> None:
     # Initialize learning rate scheduler, decay by lr_decay once per epoch!
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: opts.lr_decay ** epoch)
 
-    # Load fixed validation datasets when supplied. Otherwise generate three
-    # deterministic-size validation sets in memory so a fresh checkout can be
-    # trained without bundled research data.
-    val_datasets = []
-    validation_sources = opts.val_datasets or (0.2, 0.5, 0.8)
-    for source in validation_sources:
-        generated = not isinstance(source, str)
-        val_datasets.append(
-            problem.make_dataset(
-                filename=None if generated else source,
-                min_total=opts.max_total,
-                max_total=opts.max_total,
-                min_dod=source if generated else opts.min_dod,
-                max_dod=source if generated else opts.max_dod,
-                batch_size=opts.val_batch_size,
-                num_samples=opts.val_size,
-                n_subregions=opts.n_subregions,
-                arrival_weights=opts.arrival_weights,
-                arrival_skews=opts.arrival_skews,
-                neighbors=opts.neighbors,
-                knn_strat=opts.knn_strat,
-                speed=opts.speed,
-                time_horizon=opts.time_horizon,
-                service_times_mean=opts.stmean,
-                service_times_var=opts.stvar,
-                min_time_window=opts.min_time_window,
-                max_time_window=opts.max_time_window,
-                gamma=opts.gamma,
-                theta=opts.theta,
-                latest_end=opts.latest_end,
-                reaction_time=opts.reaction_time,
-                vehicle_capacity=opts.vehicle_capacity,
-                min_trips_required_lb=opts.min_trips_required_lb,
-                min_trips_required_ub=opts.min_trips_required_ub,
-                use_ortec=opts.use_ortec,
-                dimension_scale=opts.dimension_scale,
-            )
-        )
+    # Shared held-out data uses a seed independent of initialization/training.
+    val_datasets = make_validation_datasets(problem, opts)
 
     if opts.resume:
         epoch_resume = int(os.path.splitext(os.path.split(opts.resume)[-1])[0].split("-")[1])
 
         torch.set_rng_state(load_data['rng_state'])
+        if 'numpy_rng_state' in load_data:
+            np.random.set_state(load_data['numpy_rng_state'])
         if opts.use_cuda:
             torch.cuda.set_rng_state_all(load_data['cuda_rng_state'])
         # Set the random states
@@ -228,6 +195,9 @@ def run_rl(opts) -> None:
             wandb_run,
             opts
         )
+
+    if tb_logger is not None:
+        tb_logger.close()
 
     # finish wandb run
     if not opts.no_wandb:

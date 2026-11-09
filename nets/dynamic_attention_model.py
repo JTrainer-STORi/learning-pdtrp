@@ -575,8 +575,13 @@ class DynamicAttentionModel(nn.Module):
         nn_graph, distance_matrix = nearest_neighbor_graph(
             locs_on_cpu, self.neighbors, self.knn_strat, distance_matrix=source_distances
         )
-        masked_input['graph'] = ~torch.BoolTensor(nn_graph).to(masked_input['all_nodes'].device)
-        masked_input['distance_matrix'] = torch.FloatTensor(distance_matrix).to(masked_input['all_nodes'].device)
+        masked_input['graph'] = (~torch.as_tensor(
+            nn_graph, dtype=torch.bool, device=input['all_nodes'].device
+        )).unsqueeze(0)
+        masked_input['distance_matrix'] = torch.as_tensor(
+            distance_matrix, dtype=input['distance_matrix'].dtype,
+            device=input['all_nodes'].device,
+        ).unsqueeze(0)
         masked_input['time_horizon'] = input['time_horizon']
         masked_input['speed'] = input['speed']
 
