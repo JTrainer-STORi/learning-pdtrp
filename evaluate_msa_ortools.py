@@ -221,9 +221,10 @@ def initial_route_policy(problem_name):
 def _deadline_ordered_route(customers, first_nodes, windows, demands, capacity, reload_nodes):
     """Visit earliest deadlines first, reloading before capacity is exceeded.
 
-    MSA must start with an executable observed customer, even when a sampled
-    future customer has an earlier deadline. Demand units match the integer
-    capacity model, including any capacity already used at the current node.
+    When first-stage customer choices are supplied, start with an eligible
+    observed customer, even if a sampled future request has an earlier deadline.
+    Reload-first candidates call this helper with the load already reset.
+    Demand units match the integer capacity model.
     """
     ordered = sorted(customers, key=lambda node: (int(windows[node, 1]), node))
     if first_nodes:
@@ -252,6 +253,37 @@ def _deadline_ordered_route(customers, first_nodes, windows, demands, capacity, 
             used = 0
         route.append(node)
         used += demand
+    return route
+
+
+def _demand_packing_route(customers, demands, capacity, reload_nodes, *, first=None):
+    """Build the capacity-feasible seed, optionally fixing its first customer."""
+    bins = [[]]
+    bin_loads = [int(demands[0])]
+    if first is not None:
+        bins[0].append(first)
+        bin_loads[0] += int(demands[first])
+    remaining = sorted((node for node in customers if node != first),
+                       key=lambda node: int(demands[node]), reverse=True)
+    for node in remaining:
+        node_demand = int(demands[node])
+        for index, load in enumerate(bin_loads):
+            if load + node_demand <= capacity:
+                bins[index].append(node)
+                bin_loads[index] += node_demand
+                break
+        else:
+            bins.append([node])
+            bin_loads.append(node_demand)
+    route = []
+    reloads = iter(sorted(reload_nodes))
+    for index, group in enumerate(bins):
+        if index:
+            try:
+                route.append(next(reloads))
+            except StopIteration as error:
+                raise RuntimeError("Not enough reload nodes to construct a feasible route") from error
+        route.extend(group)
     return route
 
 
@@ -408,72 +440,61 @@ def solve_scenario(
         for node in range(1, size)
         if node not in data["reload_nodes"]
     ]
-    if first_nodes:
+    first_customers = [node for node in first_nodes if node not in data["reload_nodes"]]
+    first_reload = next((node for node in first_nodes if node in data["reload_nodes"]), None)
+    first = None
+    if first_customers:
         if problem_name in CAPACITY_PROBLEMS:
             first = next(
                 (
                     node
-                    for node in first_nodes
+                    for node in first_customers
                     if scaled_demands[0] + scaled_demands[node] <= capacity
                 ),
                 None,
             )
         else:
-            first = first_nodes[0]
+            first = first_customers[0]
         if first is None:
             raise RuntimeError(
                 "No first-stage customer fits the current vehicle capacity: "
                 f"used={float(data['demand'][0]):.6f}, "
-                f"first_demands={[round(float(data['demand'][node]), 6) for node in first_nodes]}"
+                f"first_demands={[round(float(data['demand'][node]), 6) for node in first_customers]}"
             )
         customers = [first, *[node for node in customers if node != first]]
     initial_route = []
     if problem_name in CAPACITY_PROBLEMS:
-        bins = [[]]
-        bin_loads = [int(scaled_demands[0])]
-        remaining = customers
-        if first_nodes:
-            bins[0].append(customers[0])
-            bin_loads[0] += int(scaled_demands[customers[0]])
-            remaining = customers[1:]
-        remaining = sorted(
-            remaining,
-            key=lambda node: float(data["demand"][node]),
-            reverse=True,
+        initial_route = _demand_packing_route(
+            customers, scaled_demands, capacity, data["reload_nodes"], first=first,
         )
-        for node in remaining:
-            node_demand = int(scaled_demands[node])
-            for index, load in enumerate(bin_loads):
-                if load + node_demand <= capacity:
-                    bins[index].append(node)
-                    bin_loads[index] += node_demand
-                    break
-            else:
-                bins.append([node])
-                bin_loads.append(node_demand)
-        reloads = iter(sorted(data["reload_nodes"]))
-        for index, group in enumerate(bins):
-            if index:
-                try:
-                    initial_route.append(next(reloads))
-                except StopIteration as error:
-                    raise RuntimeError(
-                        "Not enough reload nodes to construct a feasible route"
-                    ) from error
-            initial_route.extend(group)
     else:
         initial_route = customers
 
     initial_routes = [
         ("demand_packing" if problem_name in CAPACITY_PROBLEMS else "customer_order",
          initial_route)
-    ]
-    if problem_name == "pdctrptw":
+    ] if not first_nodes or first is not None else []
+    if problem_name == "pdctrptw" and initial_routes:
         deadline_route = _deadline_ordered_route(
-            customers, first_nodes, windows, scaled_demands, capacity, data["reload_nodes"]
+            customers, first_customers, windows, scaled_demands, capacity, data["reload_nodes"]
         )
         if deadline_route is not None and deadline_route != initial_route:
             initial_routes.append(("earliest_deadline", deadline_route))
+
+    if first_reload is not None:
+        # Returning now is a real first-stage action, even if another customer
+        # fits. After this return the load is zero, not used_capacity-capacity.
+        reset_demands = scaled_demands.copy()
+        reset_demands[0] = 0
+        remaining_reloads = data["reload_nodes"] - {first_reload}
+        packed = _demand_packing_route(customers, reset_demands, capacity, remaining_reloads)
+        initial_routes.append(("demand_packing_after_reload", [first_reload, *packed]))
+        if problem_name == "pdctrptw":
+            deadline = _deadline_ordered_route(
+                customers, [], windows, reset_demands, capacity, remaining_reloads,
+            )
+            if deadline is not None and deadline != packed:
+                initial_routes.append(("earliest_deadline_after_reload", [first_reload, *deadline]))
 
     # Reading a seed implicitly closes the model. Preserve guided local search
     # when closing it, but do not apply the improvement-search deadline to seed
@@ -723,6 +744,11 @@ def make_scenario(
         else:
             windows.append((0.0, 10**6))
 
+    if reload_nodes and actual_feasible[0].item():
+        # One representative is sufficient: all optional reloads are the same
+        # physical depot. Never force a customer visit before a useful return.
+        first_nodes.append(reload_nodes[0])
+
     for node in future_ids:
         coords.append(sampled["all_nodes"][node])
         service.append(torch.tensor(next(customer_service), dtype=torch.float))
@@ -852,8 +878,9 @@ def _evaluate_instance(args, problem, item, ortec, executor, workers):
     termination_counts = Counter()
     while not state.all_finished():
         feasible = ~state.get_mask()[0, 0]
-        feasible[0] = False
-        if not feasible.any():
+        feasible_customers = feasible.clone()
+        feasible_customers[0] = False
+        if not feasible_customers.any():
             selected = torch.tensor([0])
         else:
             # Sample in the parent and finish the entire batch before solving.
@@ -900,7 +927,6 @@ def _evaluate_instance(args, problem, item, ortec, executor, workers):
                 action = scenario["mapping"][route[0]]
                 if (
                     action is None
-                    or action == 0
                     or not feasible[action].item()
                 ):
                     raise RuntimeError(
@@ -939,6 +965,7 @@ def _evaluate_instance(args, problem, item, ortec, executor, workers):
         "solver_no_improvement_ms": no_improvement_ms,
         "solver_time_ms": time_limit_ms,
         "service_time_model": "sampled",
+        "action_policy": "vote_over_feasible_customers_and_depot",
         "service_times_mean": service_mean,
         "service_times_var": service_std ** 2,
     }
@@ -1118,6 +1145,7 @@ def run_evaluation(args):
             DEPOT_RETURN_POLICY if args.problem in CAPACITY_PROBLEMS else "not_applicable"
         ),
         "initial_route_policy": initial_route_policy(args.problem),
+        "action_policy": "vote_over_feasible_customers_and_depot",
         "seed": args.seed,
         "distribution": (
             "ortec-locations-uniform"

@@ -81,14 +81,14 @@ def evaluate_online(args, problem, actual, *, return_details=False):
                 (
                     scenario["mapping"][node]
                     for node in route
-                    if scenario["mapping"][node] not in (None, 0)
+                    if scenario["mapping"][node] is not None
                     and feasible[scenario["mapping"][node]].item()
                 ),
                 None,
             )
             if selected is None:
                 raise RuntimeError(
-                    "Online OR-Tools solve returned no feasible customer action"
+                    "Online OR-Tools solve returned no feasible action"
                 )
         state = state.update(torch.tensor([selected], dtype=torch.long))
         if not hasattr(state, "last_action_executed") or state.last_action_executed.item():
@@ -97,6 +97,7 @@ def evaluate_online(args, problem, actual, *, return_details=False):
     visit_times = torch.tensor(state.get_visit_times()) if hasattr(state, "get_visit_times") else None
     result = (score(problem, args.problem, actual, tour_tensor, visit_times), runtime, tour)
     details = {
+        "action_policy": "execute_first_feasible_planned_action",
         "solve_count": solve_count,
         "termination_reasons": dict(termination_reasons),
         "improvement_count": improvement_count,

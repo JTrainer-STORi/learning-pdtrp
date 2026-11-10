@@ -284,6 +284,7 @@ def run_evaluation(args, *, online_evaluator=None, static_evaluator=None):
         summary["solve_seconds"] = args.solve_budget_seconds
     if run_online:
         summary.update({
+            "online_action_policy": online_details.get("action_policy", "not_recorded"),
             "online_service_time_model": "expected",
             "service_times_mean": args.service_times_mean,
             "service_times_var": args.service_times_var,
