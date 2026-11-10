@@ -1,6 +1,7 @@
 """Scaled training workloads retain batching and reach every data source."""
 
 import importlib
+import csv
 import json
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from reinforce_baselines import RolloutBaseline
 from run import run_rl
 from utils import load_model, torch_load_cpu
 from utils.data_utils import dataset_to_input
-from utils.training_data import make_validation_datasets
+from utils.training_data import make_training_dataset, make_validation_datasets, training_epoch_seed
 
 
 PROBLEMS = (PDTRP, PDCTRP, PDTRPTW, PDCTRPTW)
@@ -149,11 +150,12 @@ def test_training_rejects_competing_horizons_and_incompatible_baseline_batches()
 def test_resume_inherits_scaling_and_validation_seed_unless_overridden(tmp_path):
     (tmp_path / "args.json").write_text(json.dumps({
         "min_customers": 20, "max_customers": 100, "time_horizon": 8,
-        "time_horizon_per_customer": .2, "validation_seed": 777,
+        "time_horizon_per_customer": .2, "validation_seed": 777, "training_data_seed": 18,
     }))
     path = str(tmp_path / "epoch-0.pt")
     opts = get_options(["--resume", path])
     assert opts.time_horizon_per_customer == .2 and opts.validation_seed == 777
+    assert opts.training_data_seed == 18
     fixed = get_options(["--resume", path, "--time_horizon", "7.5"])
     assert fixed.time_horizon == 7.5 and fixed.time_horizon_per_customer is None
 
@@ -182,10 +184,19 @@ def test_scaled_training_checkpoint_and_recursive_evaluation(tmp_path, problem, 
             argv += ["--use_time_feature", "--scale_times", "--use_arrival_times"]
         if lstm:
             argv += ["--use_arrival_lstm"]
+        if problem is PDCTRPTW and edge_features == "adjacency":
+            argv += ["--training-data-seed", "17"]
         opts = get_options(argv)
         run_rl(opts)
         checkpoint = Path(opts.save_dir) / "epoch-1.pt"
         saved = torch_load_cpu(checkpoint)
+        with (Path(opts.save_dir) / "history.csv").open() as handle:
+            history = list(csv.DictReader(handle))
+        assert [int(row["epoch"]) for row in history] == [0, 1]
+        assert all(float(row["val1_objective"]) > 0 for row in history)
+        assert all(float(row["epoch_seconds"]) >= float(row["train_seconds"]) > 0 for row in history)
+        if opts.training_data_seed is not None:
+            assert [int(row["epoch_data_seed"]) for row in history] == [training_epoch_seed(opts, i) for i in range(2)]
         assert "numpy_rng_state" in saved
         assert all(torch.isfinite(value).all() for value in saved["model"].values())
         assert any(state["exp_avg"].abs().sum() > 0 for state in saved["optimizer"]["state"].values())
@@ -231,3 +242,30 @@ def test_native_ortec_windows_honor_the_requested_horizon():
     assert sample[5].max() == 360  # T + latest_end, rather than the old 480 + latest_end.
     np.testing.assert_allclose(sample[2][1:], sample[4][1:] - 60)
     np.testing.assert_array_equal(sample[1], [0, 3, 3])
+
+
+@pytest.mark.parametrize("problem", PROBLEMS)
+def test_ablation_training_data_is_matched_despite_baseline_rng_consumption(problem):
+    opts = get_options(["--problem", problem.NAME, "--min-customers", "20", "--max-customers", "30",
+                        "--batch_size", "2", "--epoch_size", "4", "--rollout_batch_size", "2",
+                        "--time-horizon-per-customer", ".2", "--training-data-seed", "31"])
+    np.random.seed(50)
+    expected = np.random.random()
+    np.random.seed(50)
+    without = make_training_dataset(problem, opts, 0)
+    assert np.random.random() == expected
+    np.random.random(1000)  # A model-dependent baseline update consumed these.
+    opts.use_arrival_lstm = True
+    with_lstm = make_training_dataset(problem, opts, 0)
+    for i in range(len(without)):
+        for key in without[i]:
+            torch.testing.assert_close(without[i][key], with_lstm[i][key], rtol=0, atol=0)
+    assert training_epoch_seed(opts, 0) != training_epoch_seed(opts, 1)
+    next_epoch = make_training_dataset(problem, opts, 1)
+    assert not np.array_equal(without.all_nodes[0], next_epoch.all_nodes[0])
+
+
+@pytest.mark.parametrize("seed", ["-1", "4294967296"])
+def test_training_data_seed_must_fit_numpy_seed_range(seed):
+    with pytest.raises(SystemExit):
+        get_options(["--training-data-seed", seed])

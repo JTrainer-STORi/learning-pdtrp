@@ -57,6 +57,8 @@ def get_options(args=None):
                         help='Paths to dataset files to use for validation')
     parser.add_argument('--validation-seed', '--validation_seed', type=int, default=None,
                         help='Seed for generated held-out validation data, independent of training seed (default: 12345)')
+    parser.add_argument('--training-data-seed', '--training_data_seed', type=int, default=None,
+                        help='Optional independent per-epoch data seed for matched ablations; unset retains the training RNG stream')
     parser.add_argument('--val_batch_size', type=int, default=1,
                         help='Number of instances per batch during validation')
     parser.add_argument('--val_size', type=int, default=128,
@@ -228,6 +230,10 @@ def get_options(args=None):
         opts.validation_seed = saved.get('validation_seed', 12345)
     if not 0 <= opts.validation_seed < 2**32:
         parser.error('--validation-seed must be between 0 and 2**32 - 1')
+    if opts.training_data_seed is None:
+        opts.training_data_seed = saved.get('training_data_seed')
+    if opts.training_data_seed is not None and not 0 <= opts.training_data_seed < 2**32:
+        parser.error('--training-data-seed must be between 0 and 2**32 - 1')
 
     # Resuming without size overrides inherits the saved bounds, including the
     # old total-node convention used by checkpoints without size metadata.

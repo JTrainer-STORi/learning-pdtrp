@@ -42,3 +42,25 @@ def make_validation_datasets(problem, opts):
     finally:
         np.random.set_state(random_state)
     return datasets
+
+
+def training_epoch_seed(opts, epoch):
+    """Keep epoch samples independent of model-dependent baseline updates."""
+    seed = getattr(opts, "training_data_seed", None)
+    if seed is None:
+        return None
+    return int(np.random.SeedSequence([seed, epoch]).generate_state(1)[0])
+
+
+def make_training_dataset(problem, opts, epoch):
+    options = dict(batch_size=opts.batch_size, num_samples=opts.epoch_size,
+                   **training_dataset_options(opts))
+    seed = training_epoch_seed(opts, epoch)
+    if seed is None:
+        return problem.make_dataset(**options)
+    random_state = np.random.get_state()
+    try:
+        np.random.seed(seed)
+        return problem.make_dataset(**options)
+    finally:
+        np.random.set_state(random_state)

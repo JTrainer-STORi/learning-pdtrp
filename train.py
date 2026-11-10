@@ -1,4 +1,5 @@
 import os
+import csv
 import time
 from tqdm import tqdm
 import torch
@@ -16,7 +17,7 @@ from torch.nn import DataParallel
 from utils.log_utils import log_values, update_anim
 from utils.data_utils import BatchedRandomSampler, dataset_to_input
 from utils import move_to, count_trailing_zeros
-from utils.training_data import training_dataset_options
+from utils.training_data import make_training_dataset, training_epoch_seed
 
 
 def get_inner_model(model):
@@ -183,6 +184,9 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     print("\nStart train epoch {}, lr={} for run {}".format(epoch, optimizer.param_groups[0]['lr'], opts.run_name))
     step = epoch * (opts.epoch_size // opts.batch_size)
     start_time = time.time()
+    if opts.use_cuda:
+        torch.cuda.synchronize(opts.device)
+        torch.cuda.reset_peak_memory_stats(opts.device)
 
     if not opts.no_tensorboard:
         tb_logger.add_scalar('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
@@ -190,12 +194,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         wandb_run.log({'learnrate_pg0': optimizer.param_groups[0]['lr']}, step=step)
 
     # Generate new training data for each epoch
-    train_dataset = baseline.wrap_dataset(
-        problem.make_dataset(
-            batch_size=opts.batch_size, num_samples=opts.epoch_size,
-            **training_dataset_options(opts),
-        )
-    )
+    train_dataset = baseline.wrap_dataset(make_training_dataset(problem, opts, epoch))
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
 
@@ -249,6 +248,8 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     
     lr_scheduler.step()
 
+    if opts.use_cuda:
+        torch.cuda.synchronize(opts.device)
     epoch_duration = time.time() - start_time
     print("Finished epoch {}, took {} s".format(epoch, time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
 
@@ -272,8 +273,16 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     if not should_validate:
         print("Skipping validation at epoch {} (validation interval: {})".format(epoch, opts.val_every))
 
+    metrics = {
+        'epoch': epoch,
+        'training_instances': opts.epoch_size,
+        'epoch_data_seed': training_epoch_seed(opts, epoch),
+        'train_seconds': epoch_duration,
+    }
+    metrics.update({f'val{index + 1}_objective': None for index in range(len(val_datasets))})
     for val_idx, val_dataset in enumerate(val_datasets if should_validate else []):
         avg_reward, avg_opt_gap, avg_gt_cost, model_worst, model_best = validate(model, val_dataset, problem, opts)
+        metrics[f'val{val_idx + 1}_objective'] = float(avg_reward)
         if not opts.no_tensorboard:
             tb_logger.add_scalar('val{}/avg_reward'.format(val_idx+1), avg_reward, step)
             tb_logger.add_scalar('val{}/opt_gap'.format(val_idx+1), avg_opt_gap, step)
@@ -326,6 +335,19 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             }, step=step)
                 
     baseline.epoch_callback(model, epoch)
+    if opts.use_cuda:
+        torch.cuda.synchronize(opts.device)
+    metrics['epoch_seconds'] = time.time() - start_time
+    metrics['peak_gpu_allocated_bytes'] = (
+        torch.cuda.max_memory_allocated(opts.device) if opts.use_cuda else 0
+    )
+    history_path = os.path.join(opts.save_dir, 'history.csv')
+    write_header = not os.path.exists(history_path)
+    with open(history_path, 'a', newline='') as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(metrics))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(metrics)
 
 
 def train_batch(model, optimizer, baseline, epoch, 
