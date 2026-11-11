@@ -240,12 +240,15 @@ def test_deadline_seed_adds_returns_to_serve_urgent_customers_first(initial_rout
     assert details["solver_objective"] == pytest.approx(value)
 
 
+@pytest.mark.parametrize(("problem", "base_method"), [
+    (PDTRPTW, "customer_order"), (PDCTRPTW, "demand_packing"),
+])
 @pytest.mark.parametrize(("gamma", "theta", "method", "tour", "value"), [
     (2.0, 1.0, "earliest_deadline", [0, 2, 1], 4.0),
-    (0.5, 2.0, "demand_packing", [0, 1, 2], 6.5),
+    (0.5, 2.0, "base_order", [0, 1, 2], 6.5),
 ])
 def test_initial_route_selection_uses_full_weighted_objective(
-    initial_route_only, gamma, theta, method, tour, value,
+    initial_route_only, problem, base_method, gamma, theta, method, tour, value,
 ):
     actual = actual_input()
     actual["arrival_times"] = torch.tensor([[0.0, 100.0, 0.0]])
@@ -254,55 +257,79 @@ def test_initial_route_selection_uses_full_weighted_objective(
     actual["gamma"] = torch.tensor([gamma])
     actual["theta"] = torch.tensor([theta])
 
-    score, selected_tour, details = solve_actual(PDCTRPTW, actual)
+    score, selected_tour, details = solve_actual(problem, actual)
 
     assert selected_tour == tour
     assert score == pytest.approx(value)
-    assert details["initial_route_method"] == method
+    assert details["initial_route_method"] == (base_method if method == "base_order" else method)
     assert details["initial_solver_objective"] == pytest.approx(value)
     assert details["solver_objective"] == pytest.approx(value)
     # In the second case the preferred assignment must survive restoring the
     # worse deadline route into OR-Tools' reused assignment storage.
     for candidate, candidate_tour in (
-        ("demand_packing", [0, 1, 2]), ("earliest_deadline", [0, 2, 1]),
+        (base_method, [0, 1, 2]), ("earliest_deadline", [0, 2, 1]),
     ):
-        expected = baselines.score(PDCTRPTW, "pdctrptw", actual, torch.tensor([candidate_tour]))
+        expected = baselines.score(problem, problem.NAME, actual, torch.tensor([candidate_tour]))
         assert details["initial_route_objectives"][candidate] == pytest.approx(expected)
 
 
-@pytest.mark.parametrize("rejected", ["demand_packing", "earliest_deadline", "both"])
-def test_initial_route_selection_keeps_any_valid_candidate(monkeypatch, initial_route_only, rejected):
+@pytest.mark.parametrize(("problem", "base_method"), [
+    (PDTRPTW, "customer_order"), (PDCTRPTW, "demand_packing"),
+])
+@pytest.mark.parametrize("rejected", ["base_order", "earliest_deadline", "both"])
+def test_initial_route_selection_keeps_any_valid_candidate(
+    monkeypatch, initial_route_only, problem, base_method, rejected,
+):
     from ortools.constraint_solver import pywrapcp
 
     actual = actual_input()
     actual["window_ends"] = torch.tensor([[0.0, 100.0, 50.0]])
-    scenario = baselines.scenario_from_nodes("pdctrptw", actual, 0, [1, 2], 0.0, 9)
+    scenario = baselines.scenario_from_nodes(problem.NAME, actual, 0, [1, 2], 0.0, 9)
     original_read = pywrapcp.RoutingModel.ReadAssignmentFromRoutes
     attempts = []
+    rejected = base_method if rejected == "base_order" else rejected
 
     def reject_candidate(routing, routes, ignore_inactive):
-        method = "demand_packing" if not attempts else "earliest_deadline"
+        method = base_method if not attempts else "earliest_deadline"
         attempts.append(method)
         if rejected in (method, "both"):
             return None
         return original_read(routing, routes, ignore_inactive)
 
     monkeypatch.setattr(pywrapcp.RoutingModel, "ReadAssignmentFromRoutes", reject_candidate)
-    details = msa.solve_scenario(scenario, "pdctrptw", 1, return_details=True)
+    details = msa.solve_scenario(scenario, problem.NAME, 1, return_details=True)
 
-    assert attempts == ["demand_packing", "earliest_deadline"]
+    assert attempts == [base_method, "earliest_deadline"]
     if rejected == "both":
         assert details["route"] == []
         assert details["termination_reason"] == "no_feasible_solution"
         assert details["initial_route_method"] is None
         assert details["initial_solver_objective"] is None
     else:
-        expected = "earliest_deadline" if rejected == "demand_packing" else "demand_packing"
+        expected = "earliest_deadline" if rejected == base_method else base_method
         assert details["initial_route_method"] == expected
         tour = [0, *[scenario["mapping"][node] for node in details["route"]]]
-        score = baselines.score(PDCTRPTW, "pdctrptw", actual, torch.tensor([tour]))
+        score = baselines.score(problem, problem.NAME, actual, torch.tensor([tour]))
         assert details["solver_objective"] == pytest.approx(score)
         assert details["initial_route_objectives"][rejected] is None
+
+
+def test_uncapacitated_deadline_seed_starts_with_an_observed_customer(initial_route_only):
+    actual = actual_input((np.ones((4, 4)) - np.eye(4)).tolist())
+    actual["arrival_times"] = torch.tensor([[0.0, 0.0, 0.0, 10.0]])
+    actual["window_starts"] = torch.tensor([[0.0, 100.0, 0.0, 10.0]])
+    actual["window_ends"] = torch.tensor([[0.0, 101.0, 50.0, 11.0]])
+    scenario = baselines.scenario_from_nodes("pdtrptw", actual, 0, [1, 2, 3], 0.0, 9)
+    # Customer 3 is a sampled future request with the earliest deadline. The
+    # first action must instead be one of the observed customers 1 and 2.
+    scenario["first_nodes"] = [1, 2]
+    scenario["mapping"][3] = None
+
+    details = msa.solve_scenario(scenario, "pdtrptw", 1, return_details=True)
+
+    assert details["initial_route_method"] == "earliest_deadline"
+    assert details["route"] == [2, 3, 1]
+    assert details["solver_objective"] == pytest.approx(4.0)
 
 
 def test_deadline_seed_respects_first_stage_eligibility_and_used_capacity(initial_route_only):

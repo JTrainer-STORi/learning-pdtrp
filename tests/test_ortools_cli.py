@@ -81,7 +81,7 @@ def test_separate_ortools_cli_evaluates_only_its_method_at_global_offset(tmp_pat
         rows = list(csv.DictReader(handle))
     assert summary["method"] == method
     assert summary["depot_return_policy"] == "not_applicable"
-    assert summary["initial_route_policy"] == "customer_order"
+    assert summary["initial_route_policy"] == "best_of_customer_order_and_earliest_deadline"
     assert summary["offset"] == 1
     assert summary[f"{prefix}_time_ms"] is None
     assert summary[f"{prefix}_no_improvement_ms"] == 20
@@ -157,14 +157,15 @@ def test_parallel_msa_cli_records_uncapped_search_and_elapsed_time(tmp_path):
     (evaluate_online_ortools, "online"),
     (evaluate_msa_ortools, "solver"),
 ])
-@pytest.mark.parametrize("problem", ["pdctrp", "pdctrptw"])
-def test_capacity_results_record_depot_return_policy(tmp_path, module, prefix, problem):
-    dataset = tmp_path / "capacity.txt"
-    windows = "window_starts 0 0 0 window_ends 0 1000 1000 " if problem == "pdctrptw" else ""
+@pytest.mark.parametrize("problem", ["pdctrp", "pdctrptw", "pdtrptw"])
+def test_results_record_depot_return_and_initial_route_policies(tmp_path, module, prefix, problem):
+    dataset = tmp_path / "tiny.txt"
+    windows = "window_starts 0 0 0 window_ends 0 1000 1000 " if problem.endswith("tw") else ""
+    demands = "" if problem == "pdtrptw" else "demands 0 0.4 0.4 "
     dataset.write_text(
         "0 0 1 0 0 1 arrival_times 0 0 0 service_times 0 0 0 "
-        f"{windows}"
-        "demands 0 0.4 0.4 tour 1 2 3 1 visit_times 0 15 36.2132 51.2132\n"
+        f"{windows}{demands}"
+        "tour 1 2 3 1 visit_times 0 15 36.2132 51.2132\n"
     )
     output = tmp_path / ("msa.json" if prefix == "solver" else "results")
     argv = ["--problem", problem, "--dataset", str(dataset), "--output", str(output),
@@ -175,11 +176,14 @@ def test_capacity_results_record_depot_return_policy(tmp_path, module, prefix, p
     module.main(argv)
 
     result = json.loads((output if prefix == "solver" else output / "summary.json").read_text())
-    assert result["depot_return_policy"] == DEPOT_RETURN_POLICY
-    assert result["initial_route_policy"] == (
-        "best_of_demand_packing_and_earliest_deadline"
-        if problem == "pdctrptw" else "demand_packing"
+    assert result["depot_return_policy"] == (
+        "not_applicable" if problem == "pdtrptw" else DEPOT_RETURN_POLICY
     )
+    assert result["initial_route_policy"] == {
+        "pdctrp": "demand_packing",
+        "pdctrptw": "best_of_demand_packing_and_earliest_deadline",
+        "pdtrptw": "best_of_customer_order_and_earliest_deadline",
+    }[problem]
 
 
 @pytest.mark.parametrize("total_limit", [None, "1000"])

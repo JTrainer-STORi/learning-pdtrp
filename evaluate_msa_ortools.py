@@ -215,28 +215,37 @@ class NoImprovementTracker:
 def initial_route_policy(problem_name):
     if problem_name == "pdctrptw":
         return "best_of_demand_packing_and_earliest_deadline"
+    if problem_name == "pdtrptw":
+        return "best_of_customer_order_and_earliest_deadline"
     return "demand_packing" if problem_name in CAPACITY_PROBLEMS else "customer_order"
 
 
-def _deadline_ordered_route(customers, first_nodes, windows, demands, capacity, reload_nodes):
+def _deadline_ordered_route(
+    customers, first_nodes, windows, demands=None, capacity=None, reload_nodes=(),
+):
     """Visit earliest deadlines first, reloading before capacity is exceeded.
 
     When first-stage customer choices are supplied, start with an eligible
     observed customer, even if a sampled future request has an earlier deadline.
     Reload-first candidates call this helper with the load already reset.
-    Demand units match the integer capacity model.
+    Demand units match the integer capacity model. Omit demands for an
+    uncapacitated route with no reloads.
     """
     ordered = sorted(customers, key=lambda node: (int(windows[node, 1]), node))
     if first_nodes:
         allowed = set(first_nodes)
         first = next(
             (node for node in ordered
-             if node in allowed and demands[0] + demands[node] <= capacity),
+             if node in allowed
+             and (demands is None or demands[0] + demands[node] <= capacity)),
             None,
         )
         if first is None:
             return None
         ordered = [first, *[node for node in ordered if node != first]]
+
+    if demands is None:
+        return ordered
 
     route = []
     used = int(demands[0])
@@ -434,7 +443,8 @@ def solve_scenario(
 
     # Give OR-Tools an explicit feasible incumbent. First-solution heuristics
     # are unreliable with optional negative-demand reload nodes, even when the
-    # capacity model is feasible.
+    # capacity model is feasible. Both TW variants also compare deadline order
+    # so short searches need not repair an arbitrary customer order from scratch.
     customers = [
         node
         for node in range(1, size)
@@ -474,9 +484,12 @@ def solve_scenario(
         ("demand_packing" if problem_name in CAPACITY_PROBLEMS else "customer_order",
          initial_route)
     ] if not first_nodes or first is not None else []
-    if problem_name == "pdctrptw" and initial_routes:
+    if problem_name in TW_PROBLEMS and initial_routes:
         deadline_route = _deadline_ordered_route(
-            customers, first_customers, windows, scaled_demands, capacity, data["reload_nodes"]
+            customers, first_customers, windows,
+            scaled_demands if problem_name in CAPACITY_PROBLEMS else None,
+            capacity if problem_name in CAPACITY_PROBLEMS else None,
+            data["reload_nodes"],
         )
         if deadline_route is not None and deadline_route != initial_route:
             initial_routes.append(("earliest_deadline", deadline_route))
