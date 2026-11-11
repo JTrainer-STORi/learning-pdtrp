@@ -81,8 +81,16 @@ def compare_runs(without_lstm, with_lstm, output):
     for root, history in zip(roots, histories):
         profile_path = root / "profile.json"
         profile = json.loads(profile_path.read_text()) if profile_path.is_file() else {}
+        # Older histories contain only total epoch times. Preserve compatibility
+        # while exposing measured phase totals for the optimized training runs.
+        phase_times = {}
+        for name in ("data_generation_seconds", "baseline_precompute_seconds", "optimization_seconds",
+                     "checkpoint_seconds", "validation_seconds", "baseline_update_seconds"):
+            if all(row.get(name) not in (None, "") for row in history):
+                phase_times[f"recorded_{name}"] = sum(float(row[name]) for row in history)
         profiles.append({**profile, "recorded_epoch_seconds": sum(float(r["epoch_seconds"]) for r in history),
-                         "peak_gpu_allocated_bytes": max(int(r["peak_gpu_allocated_bytes"]) for r in history)})
+                         "peak_gpu_allocated_bytes": max(int(r["peak_gpu_allocated_bytes"]) for r in history),
+                         **phase_times})
     result = dict(problem=args[0]["problem"], training_seed=args[0]["seed"],
                   training_data_seed=args[0]["training_data_seed"], epochs=len(histories[0]),
                   max_customers=args[0]["max_customers"], profiles=dict(without=profiles[0], with_lstm=profiles[1]),

@@ -78,3 +78,20 @@ def test_comparison_rejects_a_checkpoint_from_an_earlier_epoch(pair, tmp_path):
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="final checkpoint"):
         compare_runs(*pair, tmp_path / "comparison")
+
+
+def test_comparison_supports_sparse_validation_and_reports_phase_timings(pair, tmp_path):
+    for root in pair:
+        write_csv(root / "training-history.csv", [dict(
+            epoch=i, epoch_data_seed=123+i, epoch_seconds=2, peak_gpu_allocated_bytes=100,
+            val1_objective=None if i == 0 else 10,
+            data_generation_seconds=.1, baseline_precompute_seconds=.2, optimization_seconds=1,
+            checkpoint_seconds=.1, validation_seconds=0 if i == 0 else .3,
+            baseline_update_seconds=.2,
+        ) for i in range(2)])
+    summary = compare_runs(*pair, tmp_path / "comparison")
+    for profile in summary["profiles"].values():
+        assert profile["recorded_data_generation_seconds"] == pytest.approx(.2)
+        assert profile["recorded_optimization_seconds"] == pytest.approx(2)
+        assert profile["recorded_validation_seconds"] == pytest.approx(.3)
+        assert profile["recorded_baseline_update_seconds"] == pytest.approx(.4)

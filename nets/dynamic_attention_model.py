@@ -302,6 +302,11 @@ class DynamicAttentionModel(nn.Module):
         if self.use_arrival_lstm:
             rollout_batch_size = input['all_nodes'].size(0)
             self.lstm_hidden = (torch.zeros((self.lstm.num_layers, rollout_batch_size, self.lstm.hidden_size), device=input['all_nodes'].device),torch.zeros((self.lstm.num_layers, rollout_batch_size, self.lstm.hidden_size), device=input['all_nodes'].device))
+            arrival_order = torch.argsort(input['arrival_times'], dim=1, stable=True)
+            arrival_horizon = (
+                input['time_horizon'][0] + input['latest_end'][0]
+                if self.scale_times else None
+            )
 
         while not state.all_finished():
 
@@ -351,23 +356,10 @@ class DynamicAttentionModel(nn.Module):
             # if we're using the decoder LSTM, we need to input any arrivals that occurred to it
             if self.use_arrival_lstm:
                 newly_revealed = previously_pending & ~state.not_arrived_
-                arrival_sequences = []
-                for i in range(input['all_nodes'].size(0)):
-                    arrival_indices = self._arrival_indices_by_time(
-                        input['arrival_times'][i], newly_revealed[i, 0]
-                    )
-                    if arrival_indices.numel() > 0:
-                        if self.scale_times:
-                            arrival_times = scale_time(input['arrival_times'][i, arrival_indices][:, None], (input['time_horizon'][0]+input['latest_end'][0]))
-                        else:
-                            arrival_times = input['arrival_times'][i, arrival_indices][:, None]
-                        if self.functional_time_encoding:
-                            arrival_times = self.time_encoding(arrival_times)
-                        arrival_features = torch.cat([torch.gather(embeddings[i, :, :], 0, arrival_indices[:, None].expand(-1, embeddings.size(-1))), arrival_times], dim=-1)
-                    else: 
-                        arrival_features = embeddings.new_empty((0, self.lstm.input_size))
-                    arrival_sequences.append(arrival_features)
-
+                arrival_sequences = self._batched_arrival_sequences(
+                    embeddings, input['arrival_times'], newly_revealed[:, 0],
+                    arrival_order, arrival_horizon,
+                )
                 self.update_lstm_with_arrivals_packed(arrival_sequences)
 
             outputs.append(log_p[:, 0, :])
@@ -821,6 +813,30 @@ class DynamicAttentionModel(nn.Module):
         order = torch.argsort(arrival_times[indices], stable=True)
         return indices[order]
 
+    def _batched_arrival_sequences(
+        self, embeddings, arrival_times, newly_revealed, arrival_order, horizon,
+    ):
+        """Gather chronological arrivals with batch-wide GPU operations.
+
+        The caller caches the stable time ordering for the rollout. Only the
+        sequence lengths move to the CPU for splitting/packing; gathering each
+        row separately would synchronize the GPU once per batch member.
+        """
+        lengths = newly_revealed.sum(dim=1).tolist()
+        if not any(lengths):
+            empty = embeddings.new_empty((0, self.lstm.input_size))
+            return [empty] * len(lengths)
+        ordered_mask = newly_revealed.gather(1, arrival_order)
+        rows, positions = torch.nonzero(ordered_mask, as_tuple=True)
+        nodes = arrival_order[rows, positions]
+        times = arrival_times[rows, nodes, None]
+        if self.scale_times:
+            times = scale_time(times, horizon)
+        if self.functional_time_encoding:
+            times = self.time_encoding(times)
+        features = torch.cat((embeddings[rows, nodes], times), dim=-1)
+        return features.split(lengths)
+
     def update_lstm_with_arrivals_packed(self, arrival_sequences):
         """
         arrival_sequences: list of length batch_size
@@ -843,22 +859,20 @@ class DynamicAttentionModel(nn.Module):
         
         sorted_sequences = [nonempty_sequences[i] for i in sorted_idx]
         sorted_indices_in_batch = [nonempty_indices[i] for i in sorted_idx]
-        sorted_lengths = [lengths[i] for i in sorted_idx]
+        batch_indices = torch.tensor(sorted_indices_in_batch, device=h.device)
 
         # Pack into [seq_total_len, input_dim] → PackedSequence
         packed = pack_sequence(sorted_sequences, enforce_sorted=True)
 
         # Extract initial states for only those envs with arrivals, sorted
-        h_init = h[:, sorted_indices_in_batch, :]  # [num_layers, sub_batch, hidden_dim]
-        c_init = c[:, sorted_indices_in_batch, :]
+        h_init = h.index_select(1, batch_indices)
+        c_init = c.index_select(1, batch_indices)
 
         # Step 2: Run the LSTM
         _, (h_out, c_out) = self.lstm(packed, (h_init, c_init))
 
         # Step 3: Put updated states back into the full batch
-        h_new, c_new = h.clone(), c.clone()
-        for pos, env_idx in enumerate(sorted_indices_in_batch):
-            h_new[:, env_idx:env_idx+1, :] = h_out[:, pos:pos+1, :]
-            c_new[:, env_idx:env_idx+1, :] = c_out[:, pos:pos+1, :]
-
-        self.lstm_hidden = (h_new, c_new)
+        self.lstm_hidden = (
+            h.index_copy(1, batch_indices, h_out),
+            c.index_copy(1, batch_indices, c_out),
+        )

@@ -194,7 +194,15 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         wandb_run.log({'learnrate_pg0': optimizer.param_groups[0]['lr']}, step=step)
 
     # Generate new training data for each epoch
-    train_dataset = baseline.wrap_dataset(make_training_dataset(problem, opts, epoch))
+    phase_started = time.time()
+    train_dataset = make_training_dataset(problem, opts, epoch)
+    data_generation_seconds = time.time() - phase_started
+    phase_started = time.time()
+    train_dataset = baseline.wrap_dataset(train_dataset)
+    if opts.use_cuda:
+        torch.cuda.synchronize(opts.device)
+    baseline_precompute_seconds = time.time() - phase_started
+    phase_started = time.time()
     train_dataloader = DataLoader(
         train_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=opts.num_workers)
 
@@ -250,9 +258,11 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
 
     if opts.use_cuda:
         torch.cuda.synchronize(opts.device)
+    optimization_seconds = time.time() - phase_started
     epoch_duration = time.time() - start_time
     print("Finished epoch {}, took {} s".format(epoch, time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
 
+    phase_started = time.time()
     if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.epoch_start + opts.n_epochs - 1:
         print('Saving model and state...')
         torch.save(
@@ -266,6 +276,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
             },
             os.path.join(opts.save_dir, 'epoch-{}.pt'.format(epoch))
         )
+    checkpoint_seconds = time.time() - phase_started
 
     should_validate = should_run_periodic(
         epoch, opts.val_every, opts.epoch_start, opts.n_epochs
@@ -278,8 +289,13 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         'training_instances': opts.epoch_size,
         'epoch_data_seed': training_epoch_seed(opts, epoch),
         'train_seconds': epoch_duration,
+        'data_generation_seconds': data_generation_seconds,
+        'baseline_precompute_seconds': baseline_precompute_seconds,
+        'optimization_seconds': optimization_seconds,
+        'checkpoint_seconds': checkpoint_seconds,
     }
     metrics.update({f'val{index + 1}_objective': None for index in range(len(val_datasets))})
+    phase_started = time.time()
     for val_idx, val_dataset in enumerate(val_datasets if should_validate else []):
         avg_reward, avg_opt_gap, avg_gt_cost, model_worst, model_best = validate(model, val_dataset, problem, opts)
         metrics[f'val{val_idx + 1}_objective'] = float(avg_reward)
@@ -334,9 +350,14 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
                 'val{}/avg_gt_cost'.format(val_idx+1): avg_gt_cost
             }, step=step)
                 
+    if opts.use_cuda:
+        torch.cuda.synchronize(opts.device)
+    metrics['validation_seconds'] = time.time() - phase_started
+    phase_started = time.time()
     baseline.epoch_callback(model, epoch)
     if opts.use_cuda:
         torch.cuda.synchronize(opts.device)
+    metrics['baseline_update_seconds'] = time.time() - phase_started
     metrics['epoch_seconds'] = time.time() - start_time
     metrics['peak_gpu_allocated_bytes'] = (
         torch.cuda.max_memory_allocated(opts.device) if opts.use_cuda else 0
