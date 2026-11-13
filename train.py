@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import time
 from tqdm import tqdm
 import torch
@@ -34,6 +35,40 @@ def should_run_periodic(epoch, every, epoch_start, n_epochs):
     """Return whether periodic work is due, always including the final epoch."""
     is_final_epoch = epoch == epoch_start + n_epochs - 1
     return (epoch + 1) % every == 0 or is_final_epoch
+
+
+def save_best_validation(model, epoch, metrics, opts):
+    """Save inference weights for the lowest equally weighted validation mean.
+
+    Keep this separate from the periodic, resumable epoch checkpoints. The
+    .pth extension also keeps directory-based loading's latest-epoch behavior.
+    """
+    values = {key: value for key, value in metrics.items()
+              if key.startswith('val') and key.endswith('_objective')}
+    if not values or any(value is None or not math.isfinite(value) for value in values.values()):
+        return False
+    score = math.fsum(values.values()) / len(values)
+    metadata_path = os.path.join(opts.save_dir, 'best-validation.json')
+    if os.path.isfile(metadata_path):
+        with open(metadata_path) as handle:
+            previous = json.load(handle)
+        if score >= previous['mean_validation_objective']:
+            return False
+    selection = {
+        'epoch': epoch,
+        'mean_validation_objective': score,
+        'validation_objectives': values,
+        'validation_seed': opts.validation_seed,
+        'rule': 'minimum_unweighted_mean_validation_objective',
+        'checkpoint': 'best-validation.pth',
+    }
+    torch.save({'model': get_inner_model(model).state_dict(), 'epoch': epoch,
+                'validation': selection}, os.path.join(opts.save_dir, selection['checkpoint']))
+    with open(metadata_path, 'w') as handle:
+        json.dump(selection, handle, indent=2)
+        handle.write('\n')
+    print('Saved best validation model at epoch {}: {:.6f}'.format(epoch, score))
+    return True
 
 
 def validate(model, dataset, problem, opts):
@@ -353,6 +388,10 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     if opts.use_cuda:
         torch.cuda.synchronize(opts.device)
     metrics['validation_seconds'] = time.time() - phase_started
+    if getattr(opts, 'save_best_validation', False) and should_validate:
+        phase_started = time.time()
+        save_best_validation(model, epoch, metrics, opts)
+        metrics['checkpoint_seconds'] += time.time() - phase_started
     phase_started = time.time()
     baseline.epoch_callback(model, epoch)
     if opts.use_cuda:

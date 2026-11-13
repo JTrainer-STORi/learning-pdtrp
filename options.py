@@ -186,6 +186,8 @@ def get_options(args=None):
                         help='Start at epoch # (relevant for learning rate decay)')
     parser.add_argument('--checkpoint_epochs', type=int, default=1,
                         help='Save checkpoint every n epochs (default 1), 0 to save no checkpoints')
+    parser.add_argument('--save-best-validation', action='store_true',
+                        help='Also save best-validation.pth for evaluation, selected by mean validation objective; resume from epoch checkpoints')
     parser.add_argument('--load_path', 
                         help='Path to load model parameters and optimizer state from')
     parser.add_argument('--resume', 
