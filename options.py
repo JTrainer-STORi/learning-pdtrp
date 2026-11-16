@@ -53,8 +53,11 @@ def get_options(args=None):
                         help='Number of instances per batch during training')
     parser.add_argument('--accumulation_steps', type=int, default=1, 
                         help='Gradient accumulation step during training (effective batch_size = batch_size * accumulation_steps)')
-    parser.add_argument('--val_datasets', type=str, nargs='+', default=None, 
-                        help='Paths to dataset files to use for validation')
+    validation_sources = parser.add_mutually_exclusive_group()
+    validation_sources.add_argument('--val_datasets', type=str, nargs='+', default=None,
+                                    help='Paths to dataset files to use for validation')
+    validation_sources.add_argument('--validation-dods', '--validation_dods', type=float, nargs='+', default=None,
+                                    help='DoDs for generated validation sets (default: 0.2 0.5 0.8); use one for fixed-DoD training')
     parser.add_argument('--validation-seed', '--validation_seed', type=int, default=None,
                         help='Seed for generated held-out validation data, independent of training seed (default: 12345)')
     parser.add_argument('--training-data-seed', '--training_data_seed', type=int, default=None,
@@ -236,6 +239,12 @@ def get_options(args=None):
         opts.training_data_seed = saved.get('training_data_seed')
     if opts.training_data_seed is not None and not 0 <= opts.training_data_seed < 2**32:
         parser.error('--training-data-seed must be between 0 and 2**32 - 1')
+    if opts.validation_dods is None and opts.val_datasets is None:
+        opts.validation_dods = saved.get('validation_dods')
+    if opts.validation_dods is not None and any(
+        not math.isfinite(dod) or not 0 <= dod <= 1 for dod in opts.validation_dods
+    ):
+        parser.error('--validation-dods values must be finite and between 0 and 1')
 
     # Resuming without size overrides inherits the saved bounds, including the
     # old total-node convention used by checkpoints without size metadata.

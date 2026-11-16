@@ -28,7 +28,8 @@ def make_validation_datasets(problem, opts):
     datasets = []
     try:
         np.random.seed(opts.validation_seed)
-        for source in opts.val_datasets or (0.2, 0.5, 0.8):
+        sources = opts.val_datasets or getattr(opts, 'validation_dods', None) or (0.2, 0.5, 0.8)
+        for source in sources:
             generated = not isinstance(source, str)
             options = training_dataset_options(opts)
             options.update(
