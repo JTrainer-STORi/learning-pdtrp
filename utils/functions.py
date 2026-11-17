@@ -63,6 +63,12 @@ def _load_model_file(load_path, model):
 def load_args(filename):
     with open(filename, 'r') as f:
         args = json.load(f)
+    args.setdefault('use_time_window_slack', False)
+    args.setdefault('encoder', 'gnn')
+    args.setdefault('transformer_heads', 2)
+    args.setdefault('transformer_resblocks_before', 2)
+    args.setdefault('transformer_resblocks_after', 2)
+    args.setdefault('transformer_resblock_hidden', 128)
 
     if 'knn_strat' not in args:
         args['knn_strat'] = None
@@ -76,7 +82,7 @@ def load_args(filename):
 
 def load_model(path, epoch=None, extra_logging=False, route_id=None):
     from nets.dynamic_attention_model import DynamicAttentionModel
-    from nets.encoders.gnn_encoder import GNNEncoder
+    from nets.encoders.factory import get_encoder_class
     
     if os.path.isfile(path):
         model_filename = path
@@ -103,7 +109,7 @@ def load_model(path, epoch=None, extra_logging=False, route_id=None):
     model = DynamicAttentionModel(
         problem=problem,
         embedding_dim=args['embedding_dim'],
-        encoder_class=GNNEncoder,
+        encoder_class=get_encoder_class(args['encoder'], args.get('use_incremental_encoder', False)),
         n_encode_layers=args['n_encode_layers'],
         aggregation=args['aggregation'],
         aggregation_graph=args['aggregation_graph'],
@@ -126,6 +132,11 @@ def load_model(path, epoch=None, extra_logging=False, route_id=None):
         scale_times=args['scale_times'],
         use_arrival_lstm=args['use_arrival_lstm'],
         use_arrival_times=args['use_arrival_times'],
+        use_time_window_slack=args['use_time_window_slack'],
+        transformer_heads=args['transformer_heads'],
+        transformer_resblocks_before=args['transformer_resblocks_before'],
+        transformer_resblocks_after=args['transformer_resblocks_after'],
+        transformer_resblock_hidden=args['transformer_resblock_hidden'],
         recursively_remove_visited_nodes=args['recursively_remove_visited_nodes'],
         extra_logging=extra_logging,
     )    

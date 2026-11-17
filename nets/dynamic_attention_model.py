@@ -19,6 +19,7 @@ from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
 from nets.encoders.gnn_encoder import TimeEncoding
 from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
+from utils.time_window_features import service_start_slack
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -69,8 +70,13 @@ class DynamicAttentionModel(nn.Module):
                  use_arrival_lstm=False,
                  use_arrival_times=False,
                  recursively_remove_visited_nodes=False,
+                 use_time_window_slack=False,
+                 transformer_heads=2,
+                 transformer_resblocks_before=2,
+                 transformer_resblocks_after=2,
+                 transformer_resblock_hidden=128,
                  *args, **kwargs):
-        """This module is a GNN based Encoder, Attention Based Decoder Neural Network.
+        """A node encoder followed by an autoregressive attention decoder.
 
         During training, the model encodes the entire graph of the partially dynamic routing problem
         and nodes which have been visited or have not yet arrived are masked. The decoder then decodes 
@@ -95,13 +101,14 @@ class DynamicAttentionModel(nn.Module):
             mask_inner: Whether to mask nodes in the inner attention layer of the decoder
             mask_logits: Whether to mask logits in the final decoder step
             mask_graph: whether to mask logits based on graph structure (for problems in which this is a factor)
-            edge_features: Whether to use edge distances as edge features in the encoder or adjacency matrix
+            edge_features: GNN edge distances or adjacency; unused by the transformer
         """
         super(DynamicAttentionModel, self).__init__()
         
         self.problem = problem
         self.embedding_dim = embedding_dim
         self.encoder = encoder_class
+        self.uses_edge_features = getattr(encoder_class, 'uses_edge_features', True)
         self.n_encoder_layers = n_encode_layers
         self.aggregation = aggregation
         self.aggregation_graph = aggregation_graph
@@ -126,6 +133,9 @@ class DynamicAttentionModel(nn.Module):
         self.is_pdctrptw = problem.NAME == 'pdctrptw'
         self.use_arrival_lstm = use_arrival_lstm
         self.use_arrival_times = use_arrival_times
+        self.use_time_window_slack = use_time_window_slack
+        if self.use_time_window_slack and not (self.is_pdtrptw or self.is_pdctrptw):
+            raise ValueError('Time-window slack requires PDTRPTW or PDCTRPTW')
         self.recursively_remove_visited_nodes = recursively_remove_visited_nodes
 
         self.decode_type = None
@@ -177,9 +187,9 @@ class DynamicAttentionModel(nn.Module):
         # Node Embedding Layer
         self.node_embed = nn.Linear(node_dim, embedding_dim, bias=True)
 
-        if self.edge_feature_type == 'adjacency':
+        if self.uses_edge_features and self.edge_feature_type == 'adjacency':
             self.edge_embed = nn.Embedding(2, embedding_dim)
-        elif self.edge_feature_type == 'distance':
+        elif self.uses_edge_features and self.edge_feature_type == 'distance':
             self.edge_embed = nn.Linear(1, embedding_dim, bias=True)
 
         # Encoder model
@@ -190,7 +200,11 @@ class DynamicAttentionModel(nn.Module):
                                      norm=normalization,
                                      learn_norm=learn_norm,
                                      track_norm=track_norm,
-                                     gated=gated,)
+                                     gated=gated,
+                                     transformer_heads=transformer_heads,
+                                     transformer_resblocks_before=transformer_resblocks_before,
+                                     transformer_resblocks_after=transformer_resblocks_after,
+                                     transformer_resblock_hidden=transformer_resblock_hidden)
         
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embedding_dim
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
@@ -200,6 +214,10 @@ class DynamicAttentionModel(nn.Module):
         assert embedding_dim % n_heads == 0
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
         self.project_out = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        if self.use_time_window_slack:
+            # Recompute a small per-customer projection at each decision while
+            # retaining the cached encoder and its original training gradients.
+            self.project_time_window_slack = nn.Linear(1, 3 * embedding_dim, bias=False)
 
     def set_decode_type(self, decode_type, temp=None):
         self.decode_type = decode_type
@@ -229,7 +247,9 @@ class DynamicAttentionModel(nn.Module):
         if self.mode == 'recursive_plus_removal':
             self.recursively_remove_visited_nodes = True
 
-        if self.edge_feature_type == 'adjacency':
+        if not self.uses_edge_features:
+            self.edge_features = None
+        elif self.edge_feature_type == 'adjacency':
             self.edge_features = input['graph'].long() # just a placeholder for now, will eventually need to change for Real World Instances
         elif self.edge_feature_type == 'distance':
             self.edge_features = input['distance_matrix'].unsqueeze(-1)  # (batch_size, num_nodes, num_nodes, 1)
@@ -244,7 +264,7 @@ class DynamicAttentionModel(nn.Module):
 
         elif self.mode == 'masked':
             
-            embeddings = self.embedder(self._init_embed(input), self.edge_embed(self.edge_features), input['graph'])
+            embeddings = self._encode(input)
 
             log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
 
@@ -275,6 +295,17 @@ class DynamicAttentionModel(nn.Module):
         else:
             return cost, ll, info
         
+    def _encode(self, input):
+        """Embed edges only for encoders that consume them."""
+        edge_embeddings = None
+        if self.uses_edge_features:
+            if self.edge_feature_type == 'adjacency':
+                edge_features = input['graph'].long()
+            else:
+                edge_features = input['distance_matrix'].unsqueeze(-1)
+            edge_embeddings = self.edge_embed(edge_features)
+        return self.embedder(self._init_embed(input), edge_embeddings, input['graph'])
+
     def _calc_log_likelihood(self, log_p, mask):
 
         # Optional: mask out actions irrelevant to objective so they do not get reinforced
@@ -394,13 +425,7 @@ class DynamicAttentionModel(nn.Module):
             arrival_mask = ~state.not_arrived_[:,0,:]
 
         masked_input = self._mask_input(input, arrival_mask)
-
-        if self.edge_feature_type == 'adjacency':
-            edge_features = masked_input['graph'].long()
-        elif self.edge_feature_type == 'distance':
-            edge_features = masked_input['distance_matrix'].unsqueeze(-1)
-
-        embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
+        embeddings = self._encode(masked_input)
 
         decoder_input = self._precompute(embeddings)
 
@@ -426,7 +451,11 @@ class DynamicAttentionModel(nn.Module):
                 start_time = time.perf_counter()
 
             # get log probabilities of next action
-            log_p, mask = self._get_log_p(decoder_input, state, mask, prev_selected=prev_selected)
+            known_indices = torch.nonzero(arrival_mask[0], as_tuple=False).flatten()
+            log_p, mask = self._get_log_p(
+                decoder_input, state, mask, prev_selected=prev_selected,
+                candidate_indices=known_indices,
+            )
 
             if print_query_times:
                 end_time = time.perf_counter()
@@ -450,22 +479,14 @@ class DynamicAttentionModel(nn.Module):
                 arrival_mask[0, 0] = True  # Ensure the depot is always included
                 arrival_mask = arrival_mask.unsqueeze(0)
                 masked_input = self._mask_input(input, arrival_mask[:,0,:])
-                if self.edge_feature_type == 'adjacency':
-                    edge_features = masked_input['graph'].long()
-                elif self.edge_feature_type == 'distance':
-                    edge_features = masked_input['distance_matrix'].unsqueeze(-1)
                 if not hasattr(state, 'last_action_executed') or state.last_action_executed.item():
                     prev_selected = embeddings[0, selected].unsqueeze(0)
-                embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
+                embeddings = self._encode(masked_input)
                 decoder_input = self._precompute(embeddings)
             elif state.arrival_occured:
                 arrival_mask = ~state.not_arrived_[:,0,:]
                 masked_input = self._mask_input(input, ~state.not_arrived_[:,0,:])
-                if self.edge_feature_type == 'adjacency':
-                    edge_features = masked_input['graph'].long()
-                elif self.edge_feature_type == 'distance':
-                    edge_features = masked_input['distance_matrix'].unsqueeze(-1)
-                embeddings = self.embedder(self._init_embed(masked_input), self.edge_embed(edge_features), masked_input['graph'])
+                embeddings = self._encode(masked_input)
                 decoder_input = self._precompute(embeddings, num_steps=1)
             if self.use_arrival_lstm and state.arrival_occured:
                 arrival_sequences = []
@@ -516,12 +537,7 @@ class DynamicAttentionModel(nn.Module):
 
             scenario_actions = []
             for scenario in scenarios:
-                if self.edge_feature_type == 'adjacency':
-                    edge_features = scenario['graph'].long()
-                elif self.edge_feature_type == 'distance':
-                    edge_features = scenario['distance_matrix'].unsqueeze(-1)
-
-                embeddings = self.embedder(self._init_embed(scenario), self.edge_embed(edge_features), scenario['graph'])
+                embeddings = self._encode(scenario)
                 decoder_input = self._precompute(embeddings)
 
                 mask = state.get_mask()
@@ -606,7 +622,7 @@ class DynamicAttentionModel(nn.Module):
         
         return selected
 
-    def _get_log_p(self, fixed, state, mask=None, normalize=True, prev_selected=None):
+    def _get_log_p(self, fixed, state, mask=None, normalize=True, prev_selected=None, candidate_indices=None):
         # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
         query = fixed.context_node_projected + \
                 self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state, prev_selected=prev_selected))
@@ -614,6 +630,14 @@ class DynamicAttentionModel(nn.Module):
 
         # Compute keys and values for the nodes
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
+        if self.use_time_window_slack:
+            if mask is None:
+                mask = state.get_mask()
+            features = self._get_time_window_slack(state, mask, candidate_indices)
+            slack_K, slack_V, slack_logit = self.project_time_window_slack(features).chunk(3, dim=-1)
+            glimpse_K = glimpse_K + self._make_heads(slack_K)
+            glimpse_V = glimpse_V + self._make_heads(slack_V)
+            logit_K = logit_K + slack_logit
         
         graph_mask = None
         if self.mask_graph:
@@ -631,6 +655,21 @@ class DynamicAttentionModel(nn.Module):
         assert not torch.isnan(log_p).any()
 
         return log_p, mask
+
+    def _get_time_window_slack(self, state, mask, candidate_indices=None):
+        """Align per-state slack with full or compact decoder candidate indices."""
+        slack = service_start_slack(state, normalize=self.scale_times).unsqueeze(1)
+        if candidate_indices is None:
+            candidate_indices = torch.arange(slack.size(-1), device=slack.device)
+        else:
+            candidate_indices = candidate_indices.to(device=slack.device, dtype=torch.long)
+            slack = slack.index_select(-1, candidate_indices)
+        if slack.shape != mask.shape:
+            raise ValueError('Slack features must match decoder candidates; provide their original node indices')
+        # Zero input gives zero projection (no bias), including depot padding.
+        # Late requests retain negative slack and remain legal soft-TW actions.
+        unavailable = mask.bool() | (candidate_indices == 0)[None, None, :]
+        return slack.masked_fill(unavailable, 0).unsqueeze(-1)
 
     def _precompute(self, embeddings, num_steps=1):
         # The fixed context projection of the graph embedding is calculated only once for efficiency

@@ -104,19 +104,27 @@ def get_options(args=None):
     # Model/GNN Encoder
     parser.add_argument('--model', default='attention', 
                         help="Model: 'attention'/'nar'")
-    parser.add_argument('--encoder', default='gnn', 
-                        help="Graph encoder: 'gat'/'gnn'/'mlp'")
+    parser.add_argument('--encoder', choices=['gnn', 'transformer'], default=None,
+                        help='Node encoder (default: gnn; inherited from checkpoint)')
     parser.add_argument('--embedding_dim', type=int, default=128, 
                         help='Dimension of input embedding')
     parser.add_argument('--hidden_dim', type=int, default=128, 
                         help='Dimension of hidden layers in Enc/Dec')
-    parser.add_argument('--n_encode_layers', type=int, default=3, 
+    parser.add_argument('--n_encode_layers', type=int, default=None,
                         help='Number of layers in the encoder/critic network')
+    parser.add_argument('--transformer-heads', type=int, default=None,
+                        help='Encoder attention heads, separate from decoder --n_heads (default: 2)')
+    parser.add_argument('--transformer-resblocks-before', type=int, default=None,
+                        help='Residual token MLP blocks before attention (default: 2)')
+    parser.add_argument('--transformer-resblocks-after', type=int, default=None,
+                        help='Residual token MLP blocks after attention (default: 2)')
+    parser.add_argument('--transformer-resblock-hidden', type=int, default=None,
+                        help='Hidden width of transformer residual MLPs (default: 128)')
     parser.add_argument('--aggregation', default='max', 
                         help="Neighborhood aggregation function: 'sum'/'mean'/'max'")
     parser.add_argument('--aggregation_graph', default='mean', 
                         help="Graph embedding aggregation function: 'sum'/'mean'/'max'")
-    parser.add_argument('--normalization', default='layer', 
+    parser.add_argument('--normalization', default=None,
                         help="Normalization type: 'batch'/'layer'/None")
     parser.add_argument('--learn_norm', action='store_true', 
                         help="Enable learnable affine transformation during normalization")
@@ -125,7 +133,7 @@ def get_options(args=None):
     parser.add_argument('--gated', action='store_true', 
                         help="Enable edge gating during neighborhood aggregation")
     parser.add_argument('--n_heads', type=int, default=8, 
-                        help="Number of attention heads")
+                        help='Decoder attention heads (transformer encoder uses --transformer-heads)')
     parser.add_argument('--tanh_clipping', type=float, default=10., 
                         help='Clip the parameters to within +- this value using tanh. Set to 0 to not do clipping.')
     parser.add_argument('--edge_features', type=str, default='distance',
@@ -136,6 +144,8 @@ def get_options(args=None):
                         help='Whether to pass any time features in the model through thte functional time encoding from TGAT paper')
     parser.add_argument('--scale_times', action='store_true',
     help='scale time features to an approximate [0,1] range by dividing by the time horizon')
+    parser.add_argument('--use-time-window-slack', '--use_time_window_slack', action='store_true', default=None,
+                        help='Add signed deadline slack to TW decoder keys/values at each decision (default: off; inherited on resume)')
     parser.add_argument('--use_arrival_lstm', action='store_true',
                         help='Use an LSTM hidden state as part of the decoder context')
     parser.add_argument('--use_arrival_times', action='store_true',
@@ -220,6 +230,34 @@ def get_options(args=None):
         if os.path.isfile(saved_args):
             with open(saved_args) as handle:
                 saved = json.load(handle)
+    feature_args = saved
+    if opts.load_path:
+        feature_path = os.path.join(os.path.dirname(opts.load_path), 'args.json')
+        if os.path.isfile(feature_path):
+            with open(feature_path) as handle:
+                feature_args = json.load(handle)
+    for name, default in (
+        ('encoder', 'gnn'), ('n_encode_layers', 3), ('normalization', 'layer'),
+        ('transformer_heads', 2), ('transformer_resblocks_before', 2),
+        ('transformer_resblocks_after', 2), ('transformer_resblock_hidden', 128),
+    ):
+        if getattr(opts, name) is None:
+            setattr(opts, name, feature_args.get(name, default))
+    if opts.encoder == 'transformer':
+        if opts.use_incremental_encoder:
+            parser.error('--encoder transformer is incompatible with --use_incremental_encoder')
+        if opts.normalization != 'layer':
+            parser.error('--encoder transformer requires --normalization layer')
+        if opts.transformer_heads <= 0 or opts.embedding_dim % opts.transformer_heads:
+            parser.error('--transformer-heads must be positive and divide --embedding_dim')
+        if opts.n_encode_layers < 1 or opts.transformer_resblock_hidden <= 0:
+            parser.error('Transformer layer count and residual hidden dimension must be positive')
+        if min(opts.transformer_resblocks_before, opts.transformer_resblocks_after) < 0:
+            parser.error('Transformer residual block counts must be nonnegative')
+    if opts.use_time_window_slack is None:
+        opts.use_time_window_slack = feature_args.get('use_time_window_slack', False)
+    if opts.use_time_window_slack and opts.problem not in ('pdtrptw', 'pdctrptw'):
+        parser.error('--use-time-window-slack requires --problem pdtrptw or pdctrptw')
     if opts.time_horizon is None and opts.time_horizon_per_customer is None:
         opts.time_horizon = saved.get('time_horizon', 8.0)
         opts.time_horizon_per_customer = saved.get('time_horizon_per_customer')

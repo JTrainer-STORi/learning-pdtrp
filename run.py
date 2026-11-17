@@ -13,8 +13,7 @@ from options import get_options
 from train import train_epoch, get_inner_model
 
 from nets.dynamic_attention_model import DynamicAttentionModel
-from nets.encoders.gnn_encoder import GNNEncoder
-from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
+from nets.encoders.factory import get_encoder_class
 from nets.critic_network import CriticNetwork
 
 from reinforce_baselines import ExponentialBaseline, CriticBaseline, RolloutBaseline, NoBaseline, WarmupBaseline
@@ -70,15 +69,12 @@ def run_rl(opts) -> None:
         print('\nLoading data from {}'.format(load_path))
         load_data = torch_load_cpu(load_path)
 
-    if opts.use_incremental_encoder:
-        encoder_class = IncrementalUpdateEncoder
-    else:
-        encoder_class = GNNEncoder
+    encoder_class = get_encoder_class(opts.encoder, opts.use_incremental_encoder)
 
     model = DynamicAttentionModel(
         problem=problem,
         embedding_dim=opts.embedding_dim,
-        encoder_class=encoder_class, # change this at some point if we only go with this encoder 
+        encoder_class=encoder_class,
         n_encode_layers=opts.n_encode_layers, 
         aggregation=opts.aggregation,
         aggregation_graph=opts.aggregation_graph,
@@ -100,6 +96,11 @@ def run_rl(opts) -> None:
         scale_times=opts.scale_times,
         use_arrival_lstm=opts.use_arrival_lstm,
         use_arrival_times=opts.use_arrival_times,
+        use_time_window_slack=opts.use_time_window_slack,
+        transformer_heads=opts.transformer_heads,
+        transformer_resblocks_before=opts.transformer_resblocks_before,
+        transformer_resblocks_after=opts.transformer_resblocks_after,
+        transformer_resblock_hidden=opts.transformer_resblock_hidden,
         recursively_remove_visited_nodes=opts.recursively_remove_visited_nodes,
         eval_mode=opts.eval_mode,
     ).to(opts.device)

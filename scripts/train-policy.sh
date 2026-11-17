@@ -13,6 +13,11 @@ Environment variables:
   MIN_DOD=0.2 / MAX_DOD=0.8  Training degree-of-dynamism range
   HOURS_PER_CUSTOMER=0.2     Call horizon T=N/5 hours (explicit time flags override)
   ARRIVAL_LSTM=auto|on|off   Auto enables it for TW variants, matching earlier runs
+  TIME_WINDOW_SLACK=off|on   Dynamic per-customer decoder slack (default: off)
+  ENCODER=gnn|transformer    Node encoder (default: gnn)
+  NORMALIZATION=batch|layer Defaults to batch for GNN, layer for transformer
+  NEIGHBORS=0.2             Neighbor fraction, or count with KNN_STRAT=fixed
+  KNN_STRAT=percentage      Use fixed with NEIGHBORS=-1 for full connectivity
   VALIDATION_SEED=12345      Common generated held-out data across training seeds
   N_EPOCHS=100               Training epochs
   EPOCH_SIZE=12800           Instances generated per epoch
@@ -61,6 +66,15 @@ DEVICE=${DEVICE:-auto}
 ENABLE_WANDB=${ENABLE_WANDB:-0}
 HOURS_PER_CUSTOMER=${HOURS_PER_CUSTOMER:-0.2}
 ARRIVAL_LSTM=${ARRIVAL_LSTM:-auto}
+TIME_WINDOW_SLACK=${TIME_WINDOW_SLACK:-off}
+ENCODER=${ENCODER:-gnn}
+case "$ENCODER" in
+    gnn) NORMALIZATION=${NORMALIZATION:-batch} ;;
+    transformer) NORMALIZATION=${NORMALIZATION:-layer} ;;
+    *) echo "ENCODER must be gnn or transformer" >&2; exit 2 ;;
+esac
+NEIGHBORS=${NEIGHBORS:-0.2}
+KNN_STRAT=${KNN_STRAT:-percentage}
 VALIDATION_SEED=${VALIDATION_SEED:-12345}
 
 HORIZON_ARGS=(--time-horizon-per-customer "$HOURS_PER_CUSTOMER")
@@ -93,6 +107,11 @@ case "$ARRIVAL_LSTM" in
         ;;
     *) echo "ARRIVAL_LSTM must be auto, on or off" >&2; exit 2 ;;
 esac
+case "$TIME_WINDOW_SLACK" in
+    on) PROBLEM_ARGS+=(--use-time-window-slack) ;;
+    off) ;;
+    *) echo "TIME_WINDOW_SLACK must be on or off" >&2; exit 2 ;;
+esac
 if [[ "$PROBLEM" == pdctrp || "$PROBLEM" == pdctrptw ]]; then
     PROBLEM_ARGS+=(--vehicle_capacity 1 --min_trips_required_lb 3 --min_trips_required_ub 9)
 fi
@@ -100,7 +119,7 @@ fi
 python -u run.py \
     --problem "$PROBLEM" \
     --model dattention \
-    --encoder gnn \
+    --encoder "$ENCODER" \
     --baseline rollout \
     --min-customers "$MIN_CUSTOMERS" \
     --max-customers "$MAX_CUSTOMERS" \
@@ -108,8 +127,8 @@ python -u run.py \
     --max_dod "$MAX_DOD" \
     "${HORIZON_ARGS[@]}" \
     --validation-seed "$VALIDATION_SEED" \
-    --neighbors 0.2 \
-    --knn_strat percentage \
+    --neighbors "$NEIGHBORS" \
+    --knn_strat "$KNN_STRAT" \
     --n_subregions 1 \
     --n_epochs "$N_EPOCHS" \
     --epoch_size "$EPOCH_SIZE" \
@@ -121,7 +140,7 @@ python -u run.py \
     --num_workers "$NUM_WORKERS" \
     --aggregation max \
     --aggregation_graph mean \
-    --normalization batch \
+    --normalization "$NORMALIZATION" \
     --learn_norm \
     --gated \
     --embedding_dim 128 \
