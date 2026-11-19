@@ -26,6 +26,9 @@ def run_rl(opts) -> None:
     Top Level Function for running RL experiments
     """
 
+    if opts.training_algorithm == 'ppo' and opts.use_cuda and torch.cuda.device_count() > 1:
+        raise ValueError('Select a single GPU for PPO, for example with CUDA_VISIBLE_DEVICES')
+
     # pretty print the run args
     pp.pprint(vars(opts))
 

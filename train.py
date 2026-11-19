@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import time
+from itertools import islice
 from tqdm import tqdm
 import torch
 import math
@@ -246,7 +247,10 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
     optimizer.zero_grad()
     set_decode_type(model, "sampling") # This differs from the sampling decoding in the actual paper.
 
-    if opts.profiler:
+    ppo_metrics = {}
+    if getattr(opts, 'training_algorithm', 'reinforce') == 'ppo':
+        ppo_metrics = train_ppo_epoch(model, optimizer, baseline, train_dataloader, opts)
+    elif opts.profiler:
         with torch.profiler.profile(
             schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
             on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs/profile'),
@@ -329,6 +333,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         'optimization_seconds': optimization_seconds,
         'checkpoint_seconds': checkpoint_seconds,
     }
+    metrics.update(ppo_metrics)
     metrics.update({f'val{index + 1}_objective': None for index in range(len(val_datasets))})
     phase_started = time.time()
     for val_idx, val_dataset in enumerate(val_datasets if should_validate else []):
@@ -408,6 +413,75 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_datasets, p
         if write_header:
             writer.writeheader()
         writer.writerow(metrics)
+
+
+def ppo_policy_loss(new_log_p, old_log_p, advantage, active, clip):
+    """Use per-action ratios and the same per-route weighting as REINFORCE."""
+    log_ratio = (new_log_p - old_log_p).masked_fill(~active, 0)
+    ratio = log_ratio.exp()
+    clipped = ratio.clamp(1 - clip, 1 + clip)
+    advantage = advantage[:, None]
+    surrogate = torch.minimum(ratio * advantage, clipped * advantage)
+    loss = -surrogate.masked_fill(~active, 0).sum(dim=1).mean()
+    with torch.no_grad():
+        approx_kl = ((ratio - 1) - log_ratio).sum()
+        clipped_count = ((ratio != clipped) & active).sum()
+    return loss, torch.stack((approx_kl, clipped_count, active.sum()))
+
+
+def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
+    batches = iter(tqdm(dataloader, disable=opts.no_progress_bar, ascii=True))
+    collection_seconds = 0.0
+    update_seconds = 0.0
+    optimizer_updates = 0
+    diagnostics = torch.zeros(3, device=opts.device)
+
+    for group_start in range(0, len(dataloader), opts.ppo_rollout_batches):
+        started = time.perf_counter()
+        rollout_group = []
+        # Keep the behavior weights fixed for the whole rollout group.
+        with torch.no_grad():
+            for batch in islice(batches, opts.ppo_rollout_batches):
+                data, baseline_cost = baseline.unwrap_batch(batch)
+                inputs = dataset_to_input(data, opts.problem, opts.device)
+                cost, old_log_p, trace = model(inputs, record_decisions=True)
+                if baseline_cost is None:
+                    baseline_cost, _ = baseline.eval(inputs, cost)
+                else:
+                    baseline_cost = move_to(baseline_cost, opts.device)
+                rollout_group.append((inputs, old_log_p, baseline_cost - cost, trace))
+        if opts.use_cuda:
+            torch.cuda.synchronize(opts.device)
+        collection_seconds += time.perf_counter() - started
+
+        started = time.perf_counter()
+        for _ in range(opts.ppo_update_epochs):
+            # Shuffle complete batches. Variable sizes and normalization make
+            # the original batch grouping part of the policy evaluation.
+            for index in torch.randperm(len(rollout_group)).tolist():
+                inputs, old_log_p, advantage, trace = rollout_group[index]
+                new_log_p = model.score_decisions(inputs, trace)
+                loss, stats = ppo_policy_loss(new_log_p, old_log_p, advantage, trace.active, opts.ppo_clip)
+                optimizer.zero_grad()
+                loss.backward()
+                clip_grad_norms(optimizer.param_groups, opts.max_grad_norm)
+                optimizer.step()
+                diagnostics += stats
+                optimizer_updates += 1
+        if opts.use_cuda:
+            torch.cuda.synchronize(opts.device)
+        update_seconds += time.perf_counter() - started
+
+    approx_kl, clipped_count, decisions = diagnostics.tolist()
+    metrics = {
+        'optimizer_updates': optimizer_updates,
+        'ppo_collection_seconds': collection_seconds,
+        'ppo_update_seconds': update_seconds,
+        'ppo_approx_kl': approx_kl / decisions,
+        'ppo_clip_fraction': clipped_count / decisions,
+    }
+    print('PPO epoch statistics:', metrics)
+    return metrics
 
 
 def train_batch(model, optimizer, baseline, epoch, 

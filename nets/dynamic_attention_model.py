@@ -42,6 +42,16 @@ class AttentionModelFixed(NamedTuple):
             logit_key=self.logit_key[key]
         )
     
+class DecisionTrace(NamedTuple):
+    actions: torch.Tensor
+    active: torch.Tensor
+    mask: torch.Tensor
+    current_node: torch.Tensor
+    time: torch.Tensor | None
+    capacity: torch.Tensor | None
+    slack: torch.Tensor | None
+
+
 class DynamicAttentionModel(nn.Module):
 
 
@@ -224,7 +234,8 @@ class DynamicAttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1, print_query_times=False, num_scenarios=10):
+    def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1,
+                print_query_times=False, num_scenarios=10, record_decisions=False):
         """
             Args:
                 input: Dictionary containing input data
@@ -243,6 +254,12 @@ class DynamicAttentionModel(nn.Module):
                 )
 
         self.mode = mode
+        decisions = None
+        if record_decisions:
+            if (mode != 'masked' or pomo_batch_size != 1 or self.use_arrival_lstm or self.mask_graph
+                    or isinstance(self.embedder, IncrementalUpdateEncoder)):
+                raise ValueError('Decision recording requires masked decoding without POMO, LSTM, incremental encoding or graph masking')
+            decisions = []
 
         if self.mode == 'recursive_plus_removal':
             self.recursively_remove_visited_nodes = True
@@ -266,7 +283,8 @@ class DynamicAttentionModel(nn.Module):
             
             embeddings = self._encode(input)
 
-            log_p, pi, visit_times = self._inner(input, embeddings, pomo_batch_size, print_query_times=print_query_times)
+            log_p, pi, visit_times = self._inner(
+                input, embeddings, pomo_batch_size, print_query_times=print_query_times, decisions=decisions)
 
         elif self.mode == 'recursive' or self.mode == 'recursive_plus_removal':
 
@@ -281,6 +299,10 @@ class DynamicAttentionModel(nn.Module):
         else:
             cost, info = self.problem.get_costs(input, move_to(pi_w_depot, device=input['all_nodes'].device))
 
+        if record_decisions:
+            trace = DecisionTrace(*(torch.cat(steps, dim=1) if steps[0] is not None else None
+                                    for steps in zip(*decisions)))
+            return cost, log_p, trace
         if self.training:
             ll = self._calc_log_likelihood(log_p, mask=None)
         elif self.eval:
@@ -317,7 +339,7 @@ class DynamicAttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, input, embeddings, pomo_batch_size=1, print_query_times=False):
+    def _inner(self, input, embeddings, pomo_batch_size=1, print_query_times=False, decisions=None):
         # create lists to track the log probabilities and the selected nodes
         outputs = []
         sequences = []
@@ -367,7 +389,15 @@ class DynamicAttentionModel(nn.Module):
                     start_time = time.time()
 
                 # get log probabilities of next action
-                log_p, mask = self._get_log_p(fixed, state, mask)
+                if decisions is None:
+                    log_p, mask = self._get_log_p(fixed, state, mask)
+                else:
+                    current_node = state.get_current_node()
+                    current_time = state.get_timestep(normalize=self.scale_times) if self.use_time_feature else None
+                    capacity = state.get_remaining_capacity() if self.is_pdctrp or self.is_pdctrptw else None
+                    slack = self._get_time_window_slack(state, mask) if self.use_time_window_slack else None
+                    context = self._step_context(fixed.node_embeddings, current_node, current_time, capacity)
+                    log_p = self._decode_log_p(fixed, context, mask, slack)
 
                 if print_query_times:
                     end_time = time.time()
@@ -377,6 +407,12 @@ class DynamicAttentionModel(nn.Module):
                 selected = self._select_node(
                     log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
                 
+            if decisions is not None:
+                # A choice interrupted during waiting still counts. Depot
+                # padding after finishing a batch row does not.
+                decisions.append(DecisionTrace(selected[:, None], ~state.visited_.all(dim=-1),
+                                               mask, current_node, current_time, capacity, slack))
+
             # Track request revelation independently of action feasibility/capacity.
             if self.use_arrival_lstm:
                 previously_pending = state.not_arrived_.clone()
@@ -404,6 +440,22 @@ class DynamicAttentionModel(nn.Module):
         all_sequences = state.construct_solutions(all_sequences)
         visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
         return all_outputs, all_sequences, visit_times
+
+    def score_decisions(self, input, trace):
+        """Score recorded actions with current weights and no simulator steps."""
+        fixed = self._precompute(self._encode(input))
+        scores = []
+        # Chunking bounds the size of the per-step attention tensors.
+        for start in range(0, trace.actions.size(1), 8):
+            chunk = DecisionTrace(*(value[:, start:start + 8] if value is not None else None
+                                    for value in trace))
+            scores.append(checkpoint(self._score_decision_chunk, fixed, chunk, use_reentrant=False))
+        return torch.cat(scores, dim=1)
+
+    def _score_decision_chunk(self, fixed, trace):
+        context = self._step_context(fixed.node_embeddings, trace.current_node, trace.time, trace.capacity)
+        log_p = self._decode_log_p(fixed, context, trace.mask, trace.slack)
+        return log_p.gather(2, trace.actions.unsqueeze(-1)).squeeze(-1)
     
     def _inner_recursive(self, input, print_query_times=False):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
@@ -623,38 +675,29 @@ class DynamicAttentionModel(nn.Module):
         return selected
 
     def _get_log_p(self, fixed, state, mask=None, normalize=True, prev_selected=None, candidate_indices=None):
-        # Compute query = context node embedding, as far as I can tell this is not concatenation as described in the paper. Maybe it is equivalent though. 
-        query = fixed.context_node_projected + \
-                self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state, prev_selected=prev_selected))
-
-
-        # Compute keys and values for the nodes
-        glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
+        context = self._get_parallel_step_context(fixed.node_embeddings, state, prev_selected=prev_selected)
+        slack = None
         if self.use_time_window_slack:
             if mask is None:
                 mask = state.get_mask()
-            features = self._get_time_window_slack(state, mask, candidate_indices)
-            slack_K, slack_V, slack_logit = self.project_time_window_slack(features).chunk(3, dim=-1)
+            slack = self._get_time_window_slack(state, mask, candidate_indices)
+        graph_mask = state.get_graph_mask().bool() if self.mask_graph else None
+        return self._decode_log_p(fixed, context, mask, slack, graph_mask, normalize), mask
+
+    def _decode_log_p(self, fixed, context, mask, slack=None, graph_mask=None, normalize=True):
+        query = fixed.context_node_projected + self.project_step_context(context)
+        glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
+        if slack is not None:
+            slack_K, slack_V, slack_logit = self.project_time_window_slack(slack).chunk(3, dim=-1)
             glimpse_K = glimpse_K + self._make_heads(slack_K)
             glimpse_V = glimpse_V + self._make_heads(slack_V)
             logit_K = logit_K + slack_logit
-        
-        graph_mask = None
-        if self.mask_graph:
-            # Compute the graph mask, for masking next action based on graph structure 
-            graph_mask = state.get_graph_mask()
 
-            graph_mask = graph_mask.bool()
-
-        # Compute logits (unnormalized log_p)
-        log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask, graph_mask)
-
+        log_p, _ = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask, graph_mask)
         if normalize:
             log_p = F.log_softmax(log_p / self.temp, dim=-1)
-
         assert not torch.isnan(log_p).any()
-
-        return log_p, mask
+        return log_p
 
     def _get_time_window_slack(self, state, mask, candidate_indices=None):
         """Align per-state slack with full or compact decoder candidate indices."""
@@ -698,51 +741,29 @@ class DynamicAttentionModel(nn.Module):
         return AttentionModelFixed(embeddings, fixed_context, *fixed_attention_node_data)
     
     def _get_parallel_step_context(self, embeddings, state, prev_selected=None):
-        if prev_selected is None:
-            current_node = state.get_current_node()
-            batch_size, num_steps = current_node.size()
-            context = torch.gather(
-                embeddings,
-                1,
-                current_node.contiguous().view(batch_size, num_steps, 1)
-                .expand(batch_size, num_steps, embeddings.size(-1))
-            ).view(batch_size, num_steps, embeddings.size(-1))
+        current_node = state.get_current_node() if prev_selected is None else None
+        current_time = state.get_timestep(normalize=self.scale_times) if self.use_time_feature else None
+        capacity = state.get_remaining_capacity() if self.is_pdctrp or self.is_pdctrptw else None
+        context = self._step_context(embeddings, current_node, current_time, capacity, prev_selected)
+        if self.use_arrival_lstm:
+            h, _ = self.lstm_hidden
+            context = torch.cat((context, h[-1].unsqueeze(1)), dim=-1)
+        return context
 
+    def _step_context(self, embeddings, current_node, current_time, capacity, prev_selected=None):
+        if prev_selected is None:
+            indices = current_node.unsqueeze(-1).expand(-1, -1, embeddings.size(-1))
+            context = embeddings.gather(1, indices)
         else:
             context = prev_selected
 
-        if self.use_time_feature:
+        if current_time is not None:
+            time_feature = current_time[:, :, None]
             if self.functional_time_encoding:
-                context = torch.cat(
-                    (
-                        context,
-                        self.time_encoding(state.get_timestep(normalize=self.scale_times)[:,:, None])
-                    ),
-                    -1
-                )
-            else:
-                context = torch.cat((context, state.get_timestep(normalize=self.scale_times)[:,:, None]), -1)
-        
-        if self.is_pdctrp or self.is_pdctrptw:
-            context = torch.cat(
-                (
-                    context,
-                    state.get_remaining_capacity()[:, :, None]
-                ),
-                -1
-            )
-
-        if self.use_arrival_lstm: 
-            h, _ = self.lstm_hidden
-            h = h[-1].unsqueeze(1) # Get the last layer of the LSTM hidden state and unsqueeze to match context shape
-            context = torch.cat(
-                (
-                    context,
-                    h
-                ),
-                -1
-            )
-
+                time_feature = self.time_encoding(time_feature)
+            context = torch.cat((context, time_feature), dim=-1)
+        if capacity is not None:
+            context = torch.cat((context, capacity[:, :, None]), dim=-1)
         return context
 
     def _one_to_many_logits(self, query, glimpse_K, glimpse_V, logit_K, mask, graph_mask=None):

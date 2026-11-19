@@ -155,6 +155,14 @@ def get_options(args=None):
     parser.add_argument('--eval_mode', type=str, default='recursive', choices=['recursive', 'MSA'])
 
     # Training
+    parser.add_argument('--training-algorithm', choices=['reinforce', 'ppo'], default=None,
+                        help='Policy optimizer (default: reinforce, inherited on resume)')
+    parser.add_argument('--ppo-update-epochs', type=int, default=None,
+                        help='Optimization passes over each collected PPO rollout group (default: 2)')
+    parser.add_argument('--ppo-rollout-batches', type=int, default=None,
+                        help='Training batches collected with fixed weights per PPO rollout group (default: 4)')
+    parser.add_argument('--ppo-clip', type=float, default=None,
+                        help='PPO probability ratio clipping threshold (default: 0.2)')
     parser.add_argument('--pomo_batch_size', type=int, default=1,
                         help='Batch size for POMO training, i.e. number of start points per instance')
     parser.add_argument('--lr_model', type=float, default=1e-4, 
@@ -318,6 +326,20 @@ def get_options(args=None):
         parser.error("--val_every must be at least 1")
     if opts.baseline_update_every < 1:
         parser.error("--baseline_update_every must be at least 1")
+
+    for name, default in (('training_algorithm', 'reinforce'), ('ppo_update_epochs', 2),
+                          ('ppo_rollout_batches', 4), ('ppo_clip', 0.2)):
+        if getattr(opts, name) is None:
+            setattr(opts, name, saved.get(name, default))
+    if opts.training_algorithm == 'ppo':
+        if opts.ppo_update_epochs < 1 or opts.ppo_rollout_batches < 1 or not 0 < opts.ppo_clip < 1:
+            parser.error('PPO requires positive update epochs and rollout batches, and 0 < --ppo-clip < 1')
+        if opts.pomo_batch_size != 1 or opts.baseline == 'pomo' or opts.use_arrival_lstm or opts.use_incremental_encoder:
+            parser.error('PPO supports masked decoding without POMO, arrival LSTM or incremental encoding')
+        if opts.encoder == 'gnn' and opts.normalization == 'batch' and opts.track_norm:
+            parser.error('PPO requires batch normalization without running-stat tracking')
+        if opts.profiler or opts.accumulation_steps != 1:
+            parser.error('PPO requires --accumulation_steps 1 and does not support --profiler')
 
     opts.use_cuda = torch.cuda.is_available() and not opts.no_cuda
     opts.run_name = "{}_{}".format(opts.run_name, time.strftime("%Y%m%dT%H%M%S"))
