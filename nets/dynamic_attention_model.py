@@ -235,7 +235,8 @@ class DynamicAttentionModel(nn.Module):
             self.temp = temp
 
     def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1,
-                print_query_times=False, num_scenarios=10, record_decisions=False):
+                print_query_times=False, num_scenarios=10, record_decisions=False,
+                return_baseline_features=False):
         """
             Args:
                 input: Dictionary containing input data
@@ -254,6 +255,9 @@ class DynamicAttentionModel(nn.Module):
                 )
 
         self.mode = mode
+        if return_baseline_features and (mode != 'masked' or isinstance(self.embedder, IncrementalUpdateEncoder)):
+            raise ValueError('Baseline features require a cached masked encoding')
+        baseline_output = ()
         decisions = None
         if record_decisions:
             if (mode != 'masked' or pomo_batch_size != 1 or self.use_arrival_lstm or self.mask_graph
@@ -282,6 +286,8 @@ class DynamicAttentionModel(nn.Module):
         elif self.mode == 'masked':
             
             embeddings = self._encode(input)
+            if return_baseline_features:
+                baseline_output = (embeddings.detach().mean(dim=1),)
 
             log_p, pi, visit_times = self._inner(
                 input, embeddings, pomo_batch_size, print_query_times=print_query_times, decisions=decisions)
@@ -302,20 +308,18 @@ class DynamicAttentionModel(nn.Module):
         if record_decisions:
             trace = DecisionTrace(*(torch.cat(steps, dim=1) if steps[0] is not None else None
                                     for steps in zip(*decisions)))
-            return cost, log_p, trace
+            return (cost, log_p, trace) + baseline_output
         if self.training:
             ll = self._calc_log_likelihood(log_p, mask=None)
         elif self.eval:
             ll = None
 
-        if return_pi and return_times:
-            return cost, ll, info, pi_w_depot, visit_times
-        elif return_pi:
-            return cost, ll, info, pi_w_depot
-        elif return_times:
-            return cost, ll, info, visit_times
-        else:
-            return cost, ll, info
+        output = (cost, ll, info)
+        if return_pi:
+            output += (pi_w_depot,)
+        if return_times:
+            output += (visit_times,)
+        return output + baseline_output
         
     def _encode(self, input):
         """Embed edges only for encoders that consume them."""
@@ -441,7 +445,7 @@ class DynamicAttentionModel(nn.Module):
         visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
         return all_outputs, all_sequences, visit_times
 
-    def score_decisions(self, input, trace):
+    def score_decisions(self, input, trace, return_baseline_features=False):
         """Score recorded actions with current weights and no simulator steps."""
         fixed = self._precompute(self._encode(input))
         scores = []
@@ -450,7 +454,10 @@ class DynamicAttentionModel(nn.Module):
             chunk = DecisionTrace(*(value[:, start:start + 8] if value is not None else None
                                     for value in trace))
             scores.append(checkpoint(self._score_decision_chunk, fixed, chunk, use_reentrant=False))
-        return torch.cat(scores, dim=1)
+        log_p = torch.cat(scores, dim=1)
+        if return_baseline_features:
+            return log_p, fixed.node_embeddings.detach().mean(dim=1)
+        return log_p
 
     def _score_decision_chunk(self, fixed, trace):
         context = self._step_context(fixed.node_embeddings, trace.current_node, trace.time, trace.capacity)

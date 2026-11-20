@@ -120,7 +120,6 @@ python -u run.py \
     --problem "$PROBLEM" \
     --model dattention \
     --encoder "$ENCODER" \
-    --baseline rollout \
     --min-customers "$MIN_CUSTOMERS" \
     --max-customers "$MAX_CUSTOMERS" \
     --min_dod "$MIN_DOD" \

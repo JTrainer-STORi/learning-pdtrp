@@ -175,13 +175,12 @@ def get_options(args=None):
                         help='Maximum L2 norm for gradient clipping (0 to disable clipping)')
     parser.add_argument('--exp_beta', type=float, default=0.8,
                         help='Exponential moving average baseline decay')
-    parser.add_argument('--baseline', default='rollout',
-                        help="Baseline to use: 'rollout', 'pomo' or 'exponential'.")
+    parser.add_argument('--baseline', choices=['rollout', 'learned', 'pomo', 'exponential'], default=None,
+                        help='Cost baseline (default: rollout, inherited on resume)')
     parser.add_argument('--bl_alpha', type=float, default=0.05,
                         help='Significance in the t-test for updating rollout baseline')
     parser.add_argument('--bl_warmup_epochs', type=int, default=None,
-                        help='Number of epochs to warmup the baseline, default None means 1 for rollout (exponential '
-                             'used for warmup phase), 0 otherwise. Can only be used with rollout baseline.')
+                        help='Epochs of moving-average warmup (default: 1 for rollout and learned, 0 otherwise)')
     parser.add_argument('--checkpoint_encoder', action='store_true',
                         help='Set to decrease memory usage by checkpointing encoder')
     parser.add_argument('--shrink_size', type=int, default=None,
@@ -238,6 +237,14 @@ def get_options(args=None):
         if os.path.isfile(saved_args):
             with open(saved_args) as handle:
                 saved = json.load(handle)
+    if opts.baseline is None:
+        opts.baseline = saved.get('baseline', 'rollout')
+    if opts.bl_warmup_epochs is None:
+        opts.bl_warmup_epochs = saved.get('bl_warmup_epochs', int(opts.baseline in ('rollout', 'learned')))
+    if opts.bl_warmup_epochs < 0 or (opts.bl_warmup_epochs and opts.baseline not in ('rollout', 'learned')):
+        parser.error('Positive --bl_warmup_epochs requires the rollout or learned baseline')
+    if opts.baseline == 'learned' and (opts.pomo_batch_size != 1 or opts.use_incremental_encoder):
+        parser.error('The learned baseline requires masked encoding without POMO or incremental encoding')
     feature_args = saved
     if opts.load_path:
         feature_path = os.path.join(os.path.dirname(opts.load_path), 'args.json')
@@ -348,8 +355,4 @@ def get_options(args=None):
         "{}_{}-{}-{}-{}".format(opts.problem, opts.min_customers, opts.max_customers, opts.min_dod, opts.max_dod),
         opts.run_name
     )
-    if opts.bl_warmup_epochs is None:
-        opts.bl_warmup_epochs = 1 if opts.baseline == 'rollout' else 0
-    assert (opts.bl_warmup_epochs == 0) or (opts.baseline == 'rollout')
-    
     return opts

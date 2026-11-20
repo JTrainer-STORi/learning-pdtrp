@@ -112,6 +112,51 @@ class ExponentialBaseline(Baseline):
         self.v = state_dict['v']
 
 
+class LearnedBaseline(Baseline):
+    """Predict one total cost per instance from the actor's cached encoding."""
+
+    def __init__(self, embedding_dim, device, warmup_epochs, exp_beta, epoch=0):
+        # Initializing the predictor must not consume the actor's random stream.
+        with torch.random.fork_rng(devices=[]):
+            self.predictor = torch.nn.Sequential(
+                torch.nn.Linear(embedding_dim, embedding_dim),
+                torch.nn.ReLU(),
+                torch.nn.Linear(embedding_dim, 1),
+            ).to(device)
+        self.device = device
+        self.warmup = ExponentialBaseline(exp_beta)
+        self.warmup_epochs = warmup_epochs
+        self.epoch = epoch
+
+    def _prediction_and_loss(self, features, cost, customer_count):
+        per_customer = self.predictor(features.detach()).squeeze(-1)
+        return per_customer * customer_count, F.mse_loss(per_customer, cost.detach() / customer_count)
+
+    def eval(self, features, c, customer_count):
+        prediction, loss = self._prediction_and_loss(features, c, customer_count)
+        if self.epoch < self.warmup_epochs:
+            prediction, _ = self.warmup.eval(None, c)
+        return prediction.detach(), loss
+
+    def loss(self, features, cost, customer_count):
+        return self._prediction_and_loss(features, cost, customer_count)[1]
+
+    def get_learnable_parameters(self):
+        return list(self.predictor.parameters())
+
+    def epoch_callback(self, model, epoch):
+        self.epoch = epoch + 1
+
+    def state_dict(self):
+        return {'predictor': self.predictor.state_dict(), 'warmup': self.warmup.state_dict()}
+
+    def load_state_dict(self, state_dict):
+        self.predictor.load_state_dict(state_dict['predictor'])
+        self.warmup.load_state_dict(state_dict['warmup'])
+        if self.warmup.v is not None:
+            self.warmup.v = self.warmup.v.to(self.device)
+
+
 class CriticBaseline(Baseline):
 
     def __init__(self, critic):

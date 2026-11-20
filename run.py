@@ -16,7 +16,7 @@ from nets.dynamic_attention_model import DynamicAttentionModel
 from nets.encoders.factory import get_encoder_class
 from nets.critic_network import CriticNetwork
 
-from reinforce_baselines import ExponentialBaseline, CriticBaseline, RolloutBaseline, NoBaseline, WarmupBaseline
+from reinforce_baselines import ExponentialBaseline, LearnedBaseline, RolloutBaseline, NoBaseline, WarmupBaseline
 
 from utils import load_problem, torch_load_cpu
 from utils.training_data import make_validation_datasets
@@ -132,6 +132,9 @@ def run_rl(opts) -> None:
         
     elif opts.baseline == 'rollout':
         baseline = RolloutBaseline(model, problem, opts)
+    elif opts.baseline == 'learned':
+        baseline = LearnedBaseline(opts.embedding_dim, opts.device, opts.bl_warmup_epochs,
+                                   opts.exp_beta, epoch=opts.epoch_start)
     
     elif opts.baseline == 'pomo':
         # pomo baseline is handled in the model itself
@@ -140,7 +143,7 @@ def run_rl(opts) -> None:
         assert opts.baseline is None, "Unknown baseline: {}".format(opts.baseline)
         baseline = NoBaseline()
 
-    if opts.bl_warmup_epochs > 0:
+    if opts.baseline == 'rollout' and opts.bl_warmup_epochs > 0:
         baseline = WarmupBaseline(baseline, opts.bl_warmup_epochs, warmup_exp_beta=opts.exp_beta)
 
     # Load baseline from data, make sure script is called with same type of baseline

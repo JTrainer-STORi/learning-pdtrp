@@ -435,6 +435,8 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
     update_seconds = 0.0
     optimizer_updates = 0
     diagnostics = torch.zeros(3, device=opts.device)
+    learned = opts.baseline == 'learned'
+    baseline_losses = torch.zeros((), device=opts.device)
 
     for group_start in range(0, len(dataloader), opts.ppo_rollout_batches):
         started = time.perf_counter()
@@ -444,12 +446,15 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
             for batch in islice(batches, opts.ppo_rollout_batches):
                 data, baseline_cost = baseline.unwrap_batch(batch)
                 inputs = dataset_to_input(data, opts.problem, opts.device)
-                cost, old_log_p, trace = model(inputs, record_decisions=True)
-                if baseline_cost is None:
+                rollout = model(inputs, record_decisions=True, return_baseline_features=learned)
+                cost, old_log_p, trace = rollout[:3]
+                if learned:
+                    baseline_cost, _ = baseline.eval(rollout[3], cost, inputs['all_nodes'].size(1) - 1)
+                elif baseline_cost is None:
                     baseline_cost, _ = baseline.eval(inputs, cost)
                 else:
                     baseline_cost = move_to(baseline_cost, opts.device)
-                rollout_group.append((inputs, old_log_p, baseline_cost - cost, trace))
+                rollout_group.append((inputs, old_log_p, baseline_cost - cost, trace, cost))
         if opts.use_cuda:
             torch.cuda.synchronize(opts.device)
         collection_seconds += time.perf_counter() - started
@@ -459,9 +464,14 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
             # Shuffle complete batches. Variable sizes and normalization make
             # the original batch grouping part of the policy evaluation.
             for index in torch.randperm(len(rollout_group)).tolist():
-                inputs, old_log_p, advantage, trace = rollout_group[index]
-                new_log_p = model.score_decisions(inputs, trace)
+                inputs, old_log_p, advantage, trace, cost = rollout_group[index]
+                replay = model.score_decisions(inputs, trace, return_baseline_features=learned)
+                new_log_p, features = replay if learned else (replay, None)
                 loss, stats = ppo_policy_loss(new_log_p, old_log_p, advantage, trace.active, opts.ppo_clip)
+                if learned:
+                    baseline_loss = baseline.loss(features, cost, inputs['all_nodes'].size(1) - 1)
+                    baseline_losses += baseline_loss.detach()
+                    loss = loss + baseline_loss
                 optimizer.zero_grad()
                 loss.backward()
                 clip_grad_norms(optimizer.param_groups, opts.max_grad_norm)
@@ -480,6 +490,8 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
         'ppo_approx_kl': approx_kl / decisions,
         'ppo_clip_fraction': clipped_count / decisions,
     }
+    if learned:
+        metrics['learned_baseline_loss'] = baseline_losses.item() / optimizer_updates
     print('PPO epoch statistics:', metrics)
     return metrics
 
@@ -501,7 +513,11 @@ def train_batch(model, optimizer, baseline, epoch,
     input = dataset_to_input(bat, opts.problem, opts.device, opts.pomo_batch_size)
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood, info = model(input, pomo_batch_size=opts.pomo_batch_size, print_query_times=opts.print_query_times)
+    learned = getattr(opts, 'baseline', None) == 'learned'
+    baseline_args = {'return_baseline_features': True} if learned else {}
+    rollout = model(input, pomo_batch_size=opts.pomo_batch_size,
+                    print_query_times=opts.print_query_times, **baseline_args)
+    cost, log_likelihood, info = rollout[:3]
 
     # Evaluate baseline, get baseline loss if any (only for critic)
     if use_pomo:
@@ -509,6 +525,8 @@ def train_batch(model, optimizer, baseline, epoch,
         baseline_per_batch = cost_grouped.mean(dim=1, keepdim=True)
         bl_val = baseline_per_batch.expand(-1, opts.pomo_batch_size).reshape(-1)
         bl_loss = 0
+    elif learned:
+        bl_val, bl_loss = baseline.eval(rollout[3], cost, input['all_nodes'].size(1) - 1)
     else:
         bl_val, bl_loss = baseline.eval(input, cost) if bl_val is None else (bl_val, 0)
 

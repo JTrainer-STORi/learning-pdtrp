@@ -17,6 +17,8 @@ def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood,
     print('actor_loss: {}, nll: {}'.format(reinforce_loss.item(), -log_likelihood.mean().item()))
 
     print('grad_norm: {}, clipped: {}'.format(grad_norms[0], grad_norms_clipped[0]))
+    if opts.baseline == 'learned':
+        print('learned_baseline_loss: {}'.format(bl_loss.item()))
 
     # Log values to tensorboard
     if not opts.no_tensorboard:
@@ -31,7 +33,7 @@ def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood,
         for key, value in info.items():
             tb_logger.add_scalar(key, value.mean().item(), step)
 
-        if opts.baseline == 'critic':
+        if opts.baseline in ('critic', 'learned'):
             tb_logger.add_scalar('critic_loss', bl_loss.item(), step)
             tb_logger.add_scalar('critic_grad_norm', grad_norms[1], step)
             tb_logger.add_scalar('critic_grad_norm_clipped', grad_norms_clipped[1], step)
@@ -48,7 +50,7 @@ def log_values(cost, grad_norms, epoch, batch_id, step, log_likelihood,
         for key, value in info.items():
             wandb_run.log({key: value.mean().item()}, step=step)
 
-        if opts.baseline == 'critic':
+        if opts.baseline in ('critic', 'learned'):
             wandb_run.log({
                 'critic/critic_loss': bl_loss.item(),
                 'critic/critic_grad_norm': grad_norms[1],
