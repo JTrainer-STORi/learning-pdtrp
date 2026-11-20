@@ -2,7 +2,7 @@ from typing import NamedTuple
 import torch
 from utils import scale_time
 from problems.time_window_events import (
-    reveal_and_wait_if_idle, slice_records, solution_tensors, update_time_window_state,
+    reveal_and_wait_if_idle, route_list, solution_tensors, update_time_window_state, visit_time_list,
 )
 
 class StatePDTRPTW(NamedTuple):
@@ -26,10 +26,11 @@ class StatePDTRPTW(NamedTuple):
     cur_coords: torch.Tensor
     lengths: torch.Tensor
     visited_: torch.Tensor # Tracks which nodes have been visited
-    visit_times: list # Tracks the time at which each node was visited
+    service_start_times: torch.Tensor
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
     arrival_occured: torch.Tensor # Tracks if a new arrival has occurred in the last step
-    routes: list
+    route_nodes: torch.Tensor
+    visit_counts: torch.Tensor
     last_action_executed: torch.Tensor
     i: torch.Tensor # Current timestep
 
@@ -38,8 +39,10 @@ class StatePDTRPTW(NamedTuple):
 
         return self._replace(
             ids = self.ids[key],
-            visit_times=slice_records(self.visit_times, key),
-            routes=slice_records(self.routes, key),
+            service_start_times=self.service_start_times[key],
+            route_nodes=self.route_nodes[key],
+            visit_counts=self.visit_counts[key],
+            arrival_occured=self.arrival_occured[key],
             last_action_executed=self.last_action_executed[key],
             prev_a = self.prev_a[key],
             cur_times = self.cur_times[key],
@@ -85,8 +88,9 @@ class StatePDTRPTW(NamedTuple):
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             visited_= visited,
-            visit_times=[[0.0] for _ in range(batch_size)],
-            routes=[[0] for _ in range(batch_size)],
+            service_start_times=loc.new_zeros((batch_size, 1)),
+            route_nodes=torch.zeros_like(ids),
+            visit_counts=torch.zeros_like(ids),
             last_action_executed=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             arrival_occured=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
@@ -125,11 +129,22 @@ class StatePDTRPTW(NamedTuple):
     def arrival_at_last_timestep(self):
         return self.arrival_occured
 
+    @property
+    def routes(self):
+        return route_list(self)
+
+    @property
+    def visit_times(self):
+        return visit_time_list(self)
+
+    def get_solution(self, actions):
+        return solution_tensors(self)
+
     def construct_solutions(self, actions):
         return solution_tensors(self)[0]
 
     def get_visit_times(self):
-        return solution_tensors(self)[1]
+        return solution_tensors(self)[1].tolist()
 
     def get_timestep(self, normalize=True):
         if normalize:

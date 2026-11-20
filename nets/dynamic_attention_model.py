@@ -296,7 +296,7 @@ class DynamicAttentionModel(nn.Module):
 
             pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times)
 
-        visit_times = torch.tensor(visit_times, dtype=torch.float32, device=input['all_nodes'].device)
+        visit_times = visit_times.detach().to(dtype=torch.float32)
 
         pi_w_depot = torch.cat((torch.zeros(pi.size(0), 1, dtype=torch.int64, device=pi.device), pi), dim=1)
 
@@ -441,8 +441,7 @@ class DynamicAttentionModel(nn.Module):
 
         # Waiting choices contribute to policy gradients, but only executed
         # visits belong in the scored tour and its service-start timestamps.
-        all_sequences = state.construct_solutions(all_sequences)
-        visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
+        all_sequences, visit_times = state.get_solution(all_sequences)
         return all_outputs, all_sequences, visit_times
 
     def score_decisions(self, input, trace, return_baseline_features=False):
@@ -571,8 +570,7 @@ class DynamicAttentionModel(nn.Module):
 
         all_sequences = torch.stack(sequences, 1)
 
-        all_sequences = state.construct_solutions(all_sequences)
-        visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
+        all_sequences, visit_times = state.get_solution(all_sequences)
         return all_sequences, visit_times
     
     def _inner_msa(self, input, print_query_times=False, num_scenarios=10):
@@ -619,8 +617,7 @@ class DynamicAttentionModel(nn.Module):
 
         all_sequences = torch.stack(sequences, 1)
 
-        all_sequences = state.construct_solutions(all_sequences)
-        visit_times = state.get_visit_times() if hasattr(state, 'get_visit_times') else state.visit_times
+        all_sequences, visit_times = state.get_solution(all_sequences)
         return all_sequences, visit_times
 
 

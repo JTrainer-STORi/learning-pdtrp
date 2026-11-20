@@ -2,7 +2,7 @@ from typing import NamedTuple
 import torch
 from utils import scale_time
 from problems.time_window_events import (
-    reveal_and_wait_if_idle, slice_records, solution_tensors, update_time_window_state,
+    reveal_and_wait_if_idle, route_list, solution_tensors, update_time_window_state, visit_time_list,
 )
 
 class StatePDCTRPTW(NamedTuple):
@@ -32,10 +32,11 @@ class StatePDCTRPTW(NamedTuple):
     lengths: torch.Tensor
     used_cap: torch.Tensor
     visited_: torch.Tensor
-    visit_times: list # Tracks the time at which each node was visited
+    service_start_times: torch.Tensor
     not_arrived_: torch.Tensor
     arrival_occured: torch.Tensor # Tracks if a new arrival has occurred in the last step
-    routes: list
+    route_nodes: torch.Tensor
+    visit_counts: torch.Tensor
     last_action_executed: torch.Tensor
     i: torch.Tensor # current timestep
 
@@ -44,8 +45,10 @@ class StatePDCTRPTW(NamedTuple):
 
         return self._replace(
             ids = self.ids[key],
-            visit_times=slice_records(self.visit_times, key),
-            routes=slice_records(self.routes, key),
+            service_start_times=self.service_start_times[key],
+            route_nodes=self.route_nodes[key],
+            visit_counts=self.visit_counts[key],
+            arrival_occured=self.arrival_occured[key],
             last_action_executed=self.last_action_executed[key],
             prev_a = self.prev_a[key],
             cur_times = self.cur_times[key],
@@ -76,6 +79,7 @@ class StatePDCTRPTW(NamedTuple):
         visited = torch.zeros((batch_size, 1, n_loc), dtype=torch.bool, device=loc.device)
         visited[:, :, 0] = True  # depot starts visited
         
+        ids = torch.arange(batch_size, device=loc.device)[:, None]
         state = StatePDCTRPTW(
             coords=loc,
             arrival_times=arrival_times,
@@ -89,14 +93,15 @@ class StatePDCTRPTW(NamedTuple):
             vehicle_capacity=vehicle_capacity,
             distance_matrix=distance_matrix,
             graph=graph,
-            ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],
+            ids=ids,
             prev_a= torch.zeros((batch_size, 1), dtype=torch.int64, device=loc.device),
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             used_cap=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             visited_= visited,
-            visit_times=[[0.0] for _ in range(batch_size)],
-            routes=[[0] for _ in range(batch_size)],
+            service_start_times=loc.new_zeros((batch_size, 1)),
+            route_nodes=torch.zeros_like(ids),
+            visit_counts=torch.zeros_like(ids),
             last_action_executed=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
@@ -120,7 +125,7 @@ class StatePDCTRPTW(NamedTuple):
         not_arrived_loc = self.not_arrived_[:, :, 1:]
         loc_mask = torch.logical_or(visited_loc, not_arrived_loc)
         capacities = self.vehicle_capacity[self.ids]
-        exceeds_cap = self.demands[self.ids, 1:] + self.used_cap[self.ids] > capacities
+        exceeds_cap = self.demands[self.ids, 1:] + self.used_cap.unsqueeze(-1) > capacities
 
         mask_loc = torch.logical_or(loc_mask, exceeds_cap)
 
@@ -141,11 +146,22 @@ class StatePDCTRPTW(NamedTuple):
     def arrival_at_last_timestep(self):
         return self.arrival_occured
     
+    @property
+    def routes(self):
+        return route_list(self)
+
+    @property
+    def visit_times(self):
+        return visit_time_list(self)
+
+    def get_solution(self, actions):
+        return solution_tensors(self)
+
     def construct_solutions(self, actions):
         return solution_tensors(self)[0]
 
     def get_visit_times(self):
-        return solution_tensors(self)[1]
+        return solution_tensors(self)[1].tolist()
 
     def get_timestep(self, normalize=True):
         if normalize:
@@ -155,4 +171,4 @@ class StatePDCTRPTW(NamedTuple):
         
     def get_remaining_capacity(self):
         # return the remaining capacity for each environment in the batch
-        return self.vehicle_capacity - self.used_cap
+        return self.vehicle_capacity[self.ids[:, 0]] - self.used_cap

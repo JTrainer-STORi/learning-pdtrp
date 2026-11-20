@@ -130,6 +130,36 @@ def test_final_return_time_uses_supplied_distance_matrix(problem):
 
 
 @pytest.mark.parametrize("problem", PROBLEMS)
+def test_batched_history_survives_reordered_and_repeated_rows(problem):
+    actual = {
+        key: value.repeat((2,) + (1,) * (value.ndim - 1))
+        for key, value in state_input(problem).items()
+    }
+    actual["speed"] = torch.tensor([[1.0], [2.0]])
+    actual["arrival_times"][1] = torch.tensor([0.0, 2.0, 2.0, 100.0])
+    parent = problem.make_state(actual).update(torch.tensor([1, 2]))
+
+    state = parent[torch.tensor([1, 0, 1])]
+    next_actions = torch.tensor([1, 2, 1])
+    assert not state.get_mask()[torch.arange(3), 0, next_actions].any()
+    state = state.update(next_actions)
+    torch.testing.assert_close(state.cur_times, torch.full((3, 1), 100.0))
+    assert state.arrival_occured.all()
+    assert not state.not_arrived_.any()
+
+    state = state.update(torch.tensor([3, 3, 3]))
+    expected_routes = torch.tensor([[2, 1, 3], [1, 2, 3], [2, 1, 3]])
+    routes, times = state.get_solution(expected_routes)
+    torch.testing.assert_close(routes, expected_routes)
+    torch.testing.assert_close(times, torch.tensor([
+        [0.0, 2.5, 2.5, 100.5, 101.5],
+        [0.0, 1.0, 1.0, 101.0, 103.0],
+        [0.0, 2.5, 2.5, 100.5, 101.5],
+    ]))
+    assert parent.visit_times == [[0.0, 1.0], [0.0, 2.5]]
+
+
+@pytest.mark.parametrize("problem", PROBLEMS)
 def test_graph_access_and_mask_use_state_graph(problem):
     model_input = state_input(problem)
     state = problem.make_state(model_input)

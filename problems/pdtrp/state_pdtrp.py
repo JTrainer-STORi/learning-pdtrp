@@ -1,7 +1,10 @@
 from typing import NamedTuple
 import torch
 from utils import scale_time
-from problems.request_events import reveal_and_wait_if_idle
+from problems.request_events import (
+    depot_return_times, reveal_and_wait_if_idle, update_state_without_time_windows,
+    visit_times_without_time_windows,
+)
 
 class StatePDTRP(NamedTuple):
     # Fixed input
@@ -21,7 +24,7 @@ class StatePDTRP(NamedTuple):
     cur_coords: torch.Tensor
     lengths: torch.Tensor
     visited_: torch.Tensor # Tracks which nodes have been visited
-    visit_times: list # Tracks the time at which each node was visited
+    service_start_times: torch.Tensor
     not_arrived_: torch.Tensor # Tracks which nodes have not arrived yet
     arrival_occured: torch.Tensor # Tracks if a new arrival has occurred in the last step
     i: torch.Tensor # Current timestep
@@ -37,6 +40,8 @@ class StatePDTRP(NamedTuple):
             lengths = self.lengths[key],
             visited_ = self.visited_[key],
             not_arrived_ = self.not_arrived_[key],
+            service_start_times=self.service_start_times[key],
+            arrival_occured=self.arrival_occured[key],
         )
     
     @staticmethod
@@ -66,7 +71,7 @@ class StatePDTRP(NamedTuple):
             cur_times=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
             cur_coords=loc[:, 0].unsqueeze(1), # start at the depot for every env
             visited_= visited,
-            visit_times=[[0.0] for _ in range(batch_size)],
+            service_start_times=loc.new_zeros((batch_size, 1)),
             not_arrived_= (arrival_times > 0).unsqueeze(1),
             arrival_occured=torch.zeros(batch_size, dtype=torch.bool, device=loc.device),
             lengths=torch.zeros((batch_size, 1), dtype=torch.float32, device=loc.device),
@@ -76,67 +81,15 @@ class StatePDTRP(NamedTuple):
         return reveal_and_wait_if_idle(state)
 
     def update(self, selected):
+        return update_state_without_time_windows(self, selected)
 
-        batch_size, n_loc, _ = self.coords.size()
-        
-        prev_a = selected[:, None]
+    @property
+    def visit_times(self):
+        return visit_times_without_time_windows(self)
 
-        cur_coords = self.coords[self.ids, prev_a]
-        # distances_travelled = (cur_coords - self.cur_coords).norm(p=2, dim=-1)
-
-        distances_travelled = self.distance_matrix[self.ids, self.prev_a, prev_a]
-
-        service_starts = self.cur_times + torch.round((distances_travelled / self.speed), decimals=4)
-        
-        # advance the current time by the travel time and service time 
-        cur_times = service_starts + (self.service_times[self.ids, prev_a])
-
-        # record the time at which service began at the current location
-        for i in range(batch_size):
-            self.visit_times[i].append(service_starts[i, 0].item())
-
-        arrival_occured = torch.zeros(batch_size, dtype=torch.bool, device=self.coords.device)
-
-        # find out which dynamic nodes have arrived in the meantime
-        new_arrival_mask = self.not_arrived_.clone()
-        for i in range(batch_size):
-            new_arrivals = torch.nonzero(
-                self.not_arrived_[i, 0]
-                & (self.arrival_times[i] >= self.cur_times[i])
-                & (self.arrival_times[i] <= cur_times[i])
-            )
-            new_arrival_mask[i, 0, new_arrivals] = False
-            if new_arrivals.numel() > 0:
-                arrival_occured[i] = True
-        
-        visited_ = self.visited_.scatter(-1, prev_a[:, :, None], 1)
-
-        # if, for any of the environments in the batch, after checking for new arrivals, there are no available nodes to visit but still dynamic nodes that have not arrived yet, fast forward the current time to the minimum of the remaining arrival times and update the mask accordingly
-        for i in range(batch_size):            
-            if torch.logical_or(visited_[i], new_arrival_mask[i]).all():
-                if not visited_[i].all():
-                    # fast forward the current time to the minimum of the remaining arrival times ...
-                    min_arrival_times = torch.min(self.arrival_times[i][new_arrival_mask[i][0]])
-                    cur_times[i] = torch.maximum(cur_times[i], min_arrival_times)
-                    # ... and update the mask accordingly
-                    new_arrivals = torch.nonzero(
-                        new_arrival_mask[i, 0]
-                        & (self.arrival_times[i] >= self.cur_times[i])
-                        & (self.arrival_times[i] <= cur_times[i])
-                    )
-                    new_arrival_mask[i, 0, new_arrivals] = False
-                    if new_arrivals.numel() > 0:
-                        arrival_occured[i] = True       
-
-        # if all nodes are visited, calculate the distance back to the depot and what time it will be visited
-        if visited_.all():
-            distances_back_to_depot = self.distance_matrix[self.ids, prev_a, 0]
-            time_back_at_depot = cur_times + torch.round((distances_back_to_depot / self.speed), decimals=4)
-            for i in range(batch_size):
-                self.visit_times[i].append(time_back_at_depot[i, 0].item())
-            arrival_occured = torch.zeros(batch_size, dtype=torch.bool, device=self.coords.device)  # All nodes visited, so arrival has occurred
-
-        return self._replace(prev_a=prev_a, cur_coords=cur_coords, cur_times=cur_times, lengths=self.lengths + distances_travelled, visited_=visited_, not_arrived_=new_arrival_mask, i=self.i + 1, arrival_occured=arrival_occured)
+    def get_solution(self, actions):
+        times = torch.cat((self.service_start_times, depot_return_times(self)), dim=1)
+        return self.construct_solutions(actions), times
 
     def all_finished(self):
         return self.visited_.all()
