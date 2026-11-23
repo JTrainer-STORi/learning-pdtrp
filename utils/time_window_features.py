@@ -37,13 +37,14 @@ def service_start_slack(state, normalize=True):
     return slack
 
 
-def action_lookahead_features(state):
+def action_lookahead_features(state, capacity_aware=False):
     """Direct leg, onward distance and delay costs for each candidate.
 
-    The delay feature sums the additional lateness of direct visits to other
-    revealed, unserved customers after completing the candidate. It estimates
-    one next leg with the configured service-time mean and omits reloading or
-    replanning. The depot candidate has zero service duration.
+    The delay feature sums the additional lateness of visits to other
+    revealed, unserved customers after completing the candidate. Capacity-aware
+    estimates include a depot detour for customers that require a reload,
+    both before and after the candidate. A depot visit resets the load and has
+    zero service duration. Customer durations use the configured mean.
     """
     ids = state.ids[:, 0]
     distances = state.distance_matrix[ids, state.prev_a[:, 0]]
@@ -63,12 +64,35 @@ def action_lookahead_features(state):
     finish = earliest + service_mean * customers
     pairwise_distances = state.distance_matrix[ids]
     followup_times = torch.round(pairwise_distances / speed.unsqueeze(2), decimals=4)
-    late_after_visit = (finish.unsqueeze(2) + followup_times - deadlines.unsqueeze(1)).clamp_min(0)
+    followup_distances = pairwise_distances
+    followup_arrivals = finish.unsqueeze(2) + followup_times
+    reference_lateness = late_now
+    if capacity_aware:
+        demand = state.demands[ids]
+        capacity = _row_value(state.vehicle_capacity, state, distances)
+        load_after = torch.where(customers, state.used_cap + demand, 0)
+        requires_reload = load_after.unsqueeze(2) + demand.unsqueeze(1) > capacity.unsqueeze(2)
+
+        depot_departure = torch.maximum(followup_arrivals[:, :, 0], starts[:, :1])
+        arrivals_via_depot = depot_departure.unsqueeze(2) + followup_times[:, :1, :]
+        followup_arrivals = torch.where(requires_reload, arrivals_via_depot, followup_arrivals)
+        distances_via_depot = pairwise_distances[:, :, :1] + pairwise_distances[:, :1, :]
+        followup_distances = torch.where(requires_reload, distances_via_depot, pairwise_distances)
+
+        # Compare against serving the same customer now, including any reload
+        # that is already necessary with the current load.
+        depot_departure_now = torch.maximum(arrival[:, :1], starts[:, :1])
+        arrivals_via_depot_now = depot_departure_now + followup_times[:, 0, :]
+        reference_arrivals = torch.where(state.used_cap + demand > capacity, arrivals_via_depot_now, arrival)
+        reference_starts = torch.maximum(reference_arrivals, starts)
+        reference_lateness = (reference_starts - deadlines).clamp_min(0)
+
+    late_after_visit = (followup_arrivals - deadlines.unsqueeze(1)).clamp_min(0)
     known_unserved = ~(state.not_arrived_[:, 0] | state.visited_[:, 0]) & customers
     other_customers = (nodes[:, None] != nodes) & known_unserved.unsqueeze(1)
-    onward_distance = pairwise_distances.masked_fill(~other_customers, float("inf")).amin(dim=2)
+    onward_distance = followup_distances.masked_fill(~other_customers, float("inf")).amin(dim=2)
     onward_distance = torch.where(other_customers.any(dim=2), onward_distance, pairwise_distances[:, :, 0])
-    added_lateness = (late_after_visit - late_now.unsqueeze(1)).clamp_min(0)
+    added_lateness = (late_after_visit - reference_lateness.unsqueeze(1)).clamp_min(0)
     added_lateness = added_lateness.masked_fill(~other_customers, 0).sum(dim=2)
 
     scale = _row_value(state.time_horizon, state, distances) + _row_value(state.latest_end, state, distances)

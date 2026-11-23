@@ -86,7 +86,7 @@ class DynamicAttentionModel(nn.Module):
                  transformer_resblocks_before=2,
                  transformer_resblocks_after=2,
                  transformer_resblock_hidden=128,
-                 *args, use_action_lookahead=False, **kwargs):
+                 *args, use_action_lookahead=False, use_capacity_aware_lookahead=False, **kwargs):
         """A node encoder followed by an autoregressive attention decoder.
 
         During training, the model encodes the entire graph of the partially dynamic routing problem
@@ -145,11 +145,14 @@ class DynamicAttentionModel(nn.Module):
         self.use_arrival_lstm = use_arrival_lstm
         self.use_arrival_times = use_arrival_times
         self.use_time_window_slack = use_time_window_slack
-        self.use_action_lookahead = use_action_lookahead
+        self.use_capacity_aware_lookahead = use_capacity_aware_lookahead
+        self.use_action_lookahead = use_action_lookahead or self.use_capacity_aware_lookahead
         if self.use_time_window_slack and not (self.is_pdtrptw or self.is_pdctrptw):
             raise ValueError('Time-window slack requires PDTRPTW or PDCTRPTW')
         if self.use_action_lookahead and not (self.is_pdtrptw or self.is_pdctrptw):
             raise ValueError('Action lookahead requires PDTRPTW or PDCTRPTW')
+        if self.use_capacity_aware_lookahead and not self.is_pdctrptw:
+            raise ValueError('Capacity-aware lookahead requires PDCTRPTW')
         self.recursively_remove_visited_nodes = recursively_remove_visited_nodes
 
         self.decode_type = None
@@ -718,7 +721,7 @@ class DynamicAttentionModel(nn.Module):
         return log_p
 
     def _get_action_lookahead(self, state, mask, candidate_indices=None):
-        features = action_lookahead_features(state).unsqueeze(1)
+        features = action_lookahead_features(state, capacity_aware=self.use_capacity_aware_lookahead).unsqueeze(1)
         if candidate_indices is not None:
             features = features.index_select(-2, candidate_indices)
         return features.masked_fill(mask.unsqueeze(-1), 0)

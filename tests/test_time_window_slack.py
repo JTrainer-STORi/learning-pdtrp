@@ -66,8 +66,14 @@ def inputs(problem, full=False, batch_size=1):
     return data
 
 
-@pytest.mark.parametrize("problem", [PDTRPTW, PDCTRPTW])
-def test_action_lookahead_uses_only_revealed_customers_and_service_time_mean(problem):
+@pytest.mark.parametrize(("problem", "capacity_aware", "onward", "delay"), [
+    (PDTRPTW, False, 1., .5),
+    (PDCTRPTW, False, 1., .5),
+    (PDCTRPTW, True, 3., .7),
+])
+def test_action_lookahead_uses_only_revealed_customers_and_service_time_mean(
+    problem, capacity_aware, onward, delay,
+):
     data = inputs(problem)
     data["arrival_times"] = torch.tensor([[0., 0., 0., 9., 10.]])
     data["window_starts"] = torch.tensor([[0., 5., 0., 0., 0.]])
@@ -75,11 +81,11 @@ def test_action_lookahead_uses_only_revealed_customers_and_service_time_mean(pro
     data["time_horizon"] = torch.tensor([[10.]])
     data["latest_end"] = torch.tensor([[0.]])
     data["service_times_mean"] = torch.tensor([2.])
-    model = make_model(problem, use_action_lookahead=True)
+    model = make_model(problem, use_action_lookahead=True, use_capacity_aware_lookahead=capacity_aware)
     state = problem.make_state(data)
     full = model._get_action_lookahead(state, state.get_mask())
-    torch.testing.assert_close(full[0, 0, 1], torch.tensor([1., 1., .4, 0., .5]))
-    torch.testing.assert_close(full[0, 0, 2], torch.tensor([2., 1., 0., 0., 0.]))
+    torch.testing.assert_close(full[0, 0, 1], torch.tensor([1., onward, .4, 0., delay]))
+    torch.testing.assert_close(full[0, 0, 2], torch.tensor([2., onward, 0., 0., 0.]))
 
     changed = {key: value.clone() for key, value in data.items()}
     changed["distance_matrix"][:, 3:, :] += 70
@@ -90,6 +96,39 @@ def test_action_lookahead_uses_only_revealed_customers_and_service_time_mean(pro
     indices = torch.tensor([0, 1, 2])
     compact = model._get_action_lookahead(new_state, new_state.get_mask()[:, :, indices], indices)
     torch.testing.assert_close(compact, full[:, :, indices])
+
+
+def test_capacity_lookahead_accounts_for_a_reload_already_needed():
+    data = inputs(PDCTRPTW)
+    data["arrival_times"] = torch.tensor([[0., 0., 0., 0., 50.]])
+    data["window_starts"].zero_()
+    data["window_ends"] = torch.tensor([[100., 30., 10., 100., 100.]])
+    data["time_horizon"] = torch.tensor([[100.]])
+    data["latest_end"].zero_()
+    data["demand"] = torch.tensor([[0., .5, .75, .5, .25]])
+    data["service_times_mean"] = torch.tensor([2.])
+    # Use an asymmetric matrix so reversing either depot leg changes the result.
+    data["distance_matrix"][0, 3, :3] = torch.tensor([4., 2., 3.])
+    data["distance_matrix"][0, 1, 0] = 4.
+    data["distance_matrix"][0, 0, 2] = 6.
+    state = PDCTRPTW.make_state(data).update(torch.tensor([3]))
+    state = state._replace(cur_times=torch.tensor([[10.]]))
+
+    model = make_model(PDCTRPTW, use_capacity_aware_lookahead=True)
+    features = model._get_action_lookahead(state, state.get_mask())[0, 0]
+    # Customer 1 exactly fits. Customer 2 already requires a reload, so
+    # arriving at customer 2 at t=24 adds only 4 minutes relative to t=20.
+    torch.testing.assert_close(features[1], torch.tensor([2., 10., 0., 0., .04]))
+    torch.testing.assert_close(features[2], torch.zeros(5))
+    # Returning to the depot itself resets the load and incurs no extra delay.
+    torch.testing.assert_close(features[0], torch.tensor([4., 1., 0., 0., 0.]))
+
+
+def test_capacity_lookahead_requires_pdctrptw():
+    with pytest.raises(ValueError, match="Capacity-aware lookahead requires PDCTRPTW"):
+        make_model(PDTRPTW, use_capacity_aware_lookahead=True)
+    with pytest.raises(SystemExit):
+        get_options(["--problem", "pdtrptw", "--use-capacity-aware-lookahead"])
 
 
 def test_lookahead_warm_start_preserves_legacy_logits():

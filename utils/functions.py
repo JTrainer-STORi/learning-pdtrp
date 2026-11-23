@@ -134,6 +134,7 @@ def load_model(path, epoch=None, extra_logging=False, route_id=None):
         use_arrival_times=args['use_arrival_times'],
         use_time_window_slack=args['use_time_window_slack'],
         use_action_lookahead=args.get('use_action_lookahead', False),
+        use_capacity_aware_lookahead=args.get('use_capacity_aware_lookahead', False),
         transformer_heads=args['transformer_heads'],
         transformer_resblocks_before=args['transformer_resblocks_before'],
         transformer_resblocks_after=args['transformer_resblocks_after'],

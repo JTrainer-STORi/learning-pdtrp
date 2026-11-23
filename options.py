@@ -148,6 +148,8 @@ def get_options(args=None):
                         help='Add signed deadline slack to TW decoder keys/values at each decision (default: off; inherited on resume)')
     parser.add_argument('--use-action-lookahead', action='store_true', default=None,
                         help='Score predicted one-leg lateness and waiting in the time-window decoder')
+    parser.add_argument('--use-capacity-aware-lookahead', action='store_true', default=None,
+                        help='Enable action lookahead with depot detours for capacity reloads (PDCTRPTW)')
     parser.add_argument('--use_arrival_lstm', action='store_true',
                         help='Use an LSTM hidden state as part of the decoder context')
     parser.add_argument('--use_arrival_times', action='store_true',
@@ -277,6 +279,12 @@ def get_options(args=None):
         parser.error('--use-time-window-slack requires --problem pdtrptw or pdctrptw')
     if opts.use_action_lookahead is None:
         opts.use_action_lookahead = feature_args.get('use_action_lookahead', False)
+    if opts.use_capacity_aware_lookahead is None:
+        opts.use_capacity_aware_lookahead = feature_args.get('use_capacity_aware_lookahead', False)
+    if opts.use_capacity_aware_lookahead:
+        if opts.problem != 'pdctrptw':
+            parser.error('--use-capacity-aware-lookahead requires --problem pdctrptw')
+        opts.use_action_lookahead = True
     if opts.use_action_lookahead and opts.problem not in ('pdtrptw', 'pdctrptw'):
         parser.error('--use-action-lookahead requires --problem pdtrptw or pdctrptw')
     if opts.resume and opts.use_action_lookahead != saved.get('use_action_lookahead', False):

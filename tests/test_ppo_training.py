@@ -27,16 +27,19 @@ def test_ppo_clips_in_the_advantage_direction_and_ignores_padding():
     assert diagnostics[1:].tolist() == [4., 4.]
 
 
-@pytest.mark.parametrize('problem', [PDTRPTW, PDCTRPTW])
+@pytest.mark.parametrize(('problem', 'lookahead'), [
+    (PDTRPTW, 'off'), (PDTRPTW, 'direct'),
+    (PDCTRPTW, 'off'), (PDCTRPTW, 'direct'), (PDCTRPTW, 'capacity-aware'),
+])
 @pytest.mark.parametrize('encoder', [GNNEncoder, TransformerEncoder])
 @pytest.mark.parametrize('slack', [False, True])
-@pytest.mark.parametrize('lookahead', [False, True])
 def test_replaying_decisions_matches_rollout_and_reinforce_gradient(problem, encoder, slack, lookahead, monkeypatch):
     data = inputs(problem, batch_size=2)
     model = DynamicAttentionModel(
         problem, 16, encoder, 1, n_heads=2, normalization='batch' if encoder is GNNEncoder else 'layer',
         use_time_feature=True, scale_times=True, use_time_window_slack=slack,
-        use_action_lookahead=lookahead,
+        use_action_lookahead=lookahead == 'direct',
+        use_capacity_aware_lookahead=lookahead == 'capacity-aware',
     )
     model.set_decode_type('greedy')
 
@@ -69,8 +72,8 @@ def test_replaying_decisions_matches_rollout_and_reinforce_gradient(problem, enc
             torch.testing.assert_close(actual, expected, atol=2e-5, rtol=3e-4)
 
 
-@pytest.mark.parametrize('lookahead', [False, True])
-def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead):
+@pytest.mark.parametrize('lookahead_flag', [None, '--use-action-lookahead', '--use-capacity-aware-lookahead'])
+def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag):
     opts = get_options([
         '--problem', 'pdctrptw', '--encoder', 'transformer', '--use-time-window-slack',
         '--use_time_feature', '--use_arrival_times', '--scale_times',
@@ -81,7 +84,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
         '--embedding_dim', '16', '--n_encode_layers', '1', '--n_heads', '2',
         '--no_cuda', '--no_wandb', '--no_tensorboard', '--no_progress_bar', '--save-best-validation',
         '--output_dir', str(tmp_path),
-    ] + (['--use-action-lookahead'] if lookahead else []))
+    ] + ([lookahead_flag] if lookahead_flag else []))
     run_rl(opts)
     save_dir = Path(opts.save_dir)
     with (save_dir / 'history.csv').open() as handle:
@@ -95,7 +98,8 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
         assert 0 <= float(row['ppo_clip_fraction']) <= 1
     model, args = load_model(str(save_dir / 'best-validation.pth'))
     assert args['training_algorithm'] == 'ppo' and args['ppo_update_epochs'] == 2
-    assert model.use_action_lookahead is lookahead
+    assert model.use_action_lookahead == bool(lookahead_flag)
+    assert model.use_capacity_aware_lookahead == (lookahead_flag == '--use-capacity-aware-lookahead')
     model.eval()
     model.set_decode_type('greedy')
     with torch.no_grad():
@@ -104,4 +108,5 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
 
     resumed = get_options(['--resume', str(save_dir / 'epoch-1.pt'), '--problem', 'pdctrptw'])
     assert resumed.training_algorithm == 'ppo' and resumed.ppo_rollout_batches == 2
-    assert resumed.use_action_lookahead is lookahead
+    assert resumed.use_action_lookahead == model.use_action_lookahead
+    assert resumed.use_capacity_aware_lookahead == model.use_capacity_aware_lookahead
