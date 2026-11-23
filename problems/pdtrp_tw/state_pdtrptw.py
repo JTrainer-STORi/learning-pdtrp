@@ -9,6 +9,7 @@ class StatePDTRPTW(NamedTuple):
     # Fixed input
     coords: torch.Tensor # Depot followed by customers in their saved order
     service_times: torch.Tensor
+    service_times_mean: torch.Tensor | float | None
     arrival_times: torch.Tensor
     speed: float
     time_horizon: float
@@ -75,6 +76,7 @@ class StatePDTRPTW(NamedTuple):
         state = StatePDTRPTW(
             coords=loc,
             service_times=service_times,
+            service_times_mean=input.get("service_times_mean"),
             arrival_times=arrival_times,
             speed=speed,
             time_horizon=time_horizon,

@@ -100,6 +100,7 @@ def run_rl(opts) -> None:
         use_arrival_lstm=opts.use_arrival_lstm,
         use_arrival_times=opts.use_arrival_times,
         use_time_window_slack=opts.use_time_window_slack,
+        use_action_lookahead=opts.use_action_lookahead,
         transformer_heads=opts.transformer_heads,
         transformer_resblocks_before=opts.transformer_resblocks_before,
         transformer_resblocks_after=opts.transformer_resblocks_after,

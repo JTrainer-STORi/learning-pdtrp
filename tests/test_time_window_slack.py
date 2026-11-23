@@ -66,6 +66,45 @@ def inputs(problem, full=False, batch_size=1):
     return data
 
 
+@pytest.mark.parametrize("problem", [PDTRPTW, PDCTRPTW])
+def test_action_lookahead_uses_only_revealed_customers_and_service_time_mean(problem):
+    data = inputs(problem)
+    data["arrival_times"] = torch.tensor([[0., 0., 0., 9., 10.]])
+    data["window_starts"] = torch.tensor([[0., 5., 0., 0., 0.]])
+    data["window_ends"] = torch.tensor([[0., 20., 3., 20., 20.]])
+    data["time_horizon"] = torch.tensor([[10.]])
+    data["latest_end"] = torch.tensor([[0.]])
+    data["service_times_mean"] = torch.tensor([2.])
+    model = make_model(problem, use_action_lookahead=True)
+    state = problem.make_state(data)
+    full = model._get_action_lookahead(state, state.get_mask())
+    torch.testing.assert_close(full[0, 0, 1], torch.tensor([1., 1., .4, 0., .5]))
+    torch.testing.assert_close(full[0, 0, 2], torch.tensor([2., 1., 0., 0., 0.]))
+
+    changed = {key: value.clone() for key, value in data.items()}
+    changed["distance_matrix"][:, 3:, :] += 70
+    changed["distance_matrix"][:, :, 3:] += 70
+    changed["window_ends"][:, 3:] = 1
+    changed["service_times"][:] = 100
+    new_state = problem.make_state(changed)
+    indices = torch.tensor([0, 1, 2])
+    compact = model._get_action_lookahead(new_state, new_state.get_mask()[:, :, indices], indices)
+    torch.testing.assert_close(compact, full[:, :, indices])
+
+
+def test_lookahead_warm_start_preserves_legacy_logits():
+    data = inputs(PDTRPTW)
+    control = make_model().eval()
+    candidate = make_model(use_action_lookahead=True).eval()
+    candidate.load_state_dict({**candidate.state_dict(), **control.state_dict()})
+    state = PDTRPTW.make_state(data)
+    with torch.no_grad():
+        fixed = control._precompute(control._encode(data))
+        expected, _ = control._get_log_p(fixed, state, state.get_mask())
+        actual, _ = candidate._get_log_p(fixed, state, state.get_mask())
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
 def test_slack_respects_travel_waiting_negative_values_and_each_rows_units():
     state=slack_state()
     torch.testing.assert_close(service_start_slack(state,False)[:,1:],torch.tensor([[10.,20.,-15.],[5.,20.,-10.]]))

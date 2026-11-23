@@ -19,7 +19,7 @@ from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
 from nets.encoders.gnn_encoder import TimeEncoding
 from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
-from utils.time_window_features import service_start_slack
+from utils.time_window_features import action_lookahead_features, service_start_slack
 
 class AttentionModelFixed(NamedTuple):
     """
@@ -50,6 +50,7 @@ class DecisionTrace(NamedTuple):
     time: torch.Tensor | None
     capacity: torch.Tensor | None
     slack: torch.Tensor | None
+    lookahead: torch.Tensor | None = None
 
 
 class DynamicAttentionModel(nn.Module):
@@ -85,7 +86,7 @@ class DynamicAttentionModel(nn.Module):
                  transformer_resblocks_before=2,
                  transformer_resblocks_after=2,
                  transformer_resblock_hidden=128,
-                 *args, **kwargs):
+                 *args, use_action_lookahead=False, **kwargs):
         """A node encoder followed by an autoregressive attention decoder.
 
         During training, the model encodes the entire graph of the partially dynamic routing problem
@@ -144,8 +145,11 @@ class DynamicAttentionModel(nn.Module):
         self.use_arrival_lstm = use_arrival_lstm
         self.use_arrival_times = use_arrival_times
         self.use_time_window_slack = use_time_window_slack
+        self.use_action_lookahead = use_action_lookahead
         if self.use_time_window_slack and not (self.is_pdtrptw or self.is_pdctrptw):
             raise ValueError('Time-window slack requires PDTRPTW or PDCTRPTW')
+        if self.use_action_lookahead and not (self.is_pdtrptw or self.is_pdctrptw):
+            raise ValueError('Action lookahead requires PDTRPTW or PDCTRPTW')
         self.recursively_remove_visited_nodes = recursively_remove_visited_nodes
 
         self.decode_type = None
@@ -228,6 +232,11 @@ class DynamicAttentionModel(nn.Module):
             # Recompute a small per-customer projection at each decision while
             # retaining the cached encoder and its original training gradients.
             self.project_time_window_slack = nn.Linear(1, 3 * embedding_dim, bias=False)
+        if self.use_action_lookahead:
+            # A warm start keeps the original logits and sampling RNG.
+            with torch.random.fork_rng(devices=[]):
+                self.lookahead_bias = nn.Sequential(nn.Linear(5, 32), nn.Tanh(), nn.Linear(32, 1, bias=False))
+            nn.init.zeros_(self.lookahead_bias[-1].weight)
 
     def set_decode_type(self, decode_type, temp=None):
         self.decode_type = decode_type
@@ -400,8 +409,9 @@ class DynamicAttentionModel(nn.Module):
                     current_time = state.get_timestep(normalize=self.scale_times) if self.use_time_feature else None
                     capacity = state.get_remaining_capacity() if self.is_pdctrp or self.is_pdctrptw else None
                     slack = self._get_time_window_slack(state, mask) if self.use_time_window_slack else None
+                    lookahead = self._get_action_lookahead(state, mask) if self.use_action_lookahead else None
                     context = self._step_context(fixed.node_embeddings, current_node, current_time, capacity)
-                    log_p = self._decode_log_p(fixed, context, mask, slack)
+                    log_p = self._decode_log_p(fixed, context, mask, slack, lookahead=lookahead)
 
                 if print_query_times:
                     end_time = time.time()
@@ -415,7 +425,7 @@ class DynamicAttentionModel(nn.Module):
                 # A choice interrupted during waiting still counts. Depot
                 # padding after finishing a batch row does not.
                 decisions.append(DecisionTrace(selected[:, None], ~state.visited_.all(dim=-1),
-                                               mask, current_node, current_time, capacity, slack))
+                                               mask, current_node, current_time, capacity, slack, lookahead))
 
             # Track request revelation independently of action feasibility/capacity.
             if self.use_arrival_lstm:
@@ -460,7 +470,7 @@ class DynamicAttentionModel(nn.Module):
 
     def _score_decision_chunk(self, fixed, trace):
         context = self._step_context(fixed.node_embeddings, trace.current_node, trace.time, trace.capacity)
-        log_p = self._decode_log_p(fixed, context, trace.mask, trace.slack)
+        log_p = self._decode_log_p(fixed, context, trace.mask, trace.slack, lookahead=trace.lookahead)
         return log_p.gather(2, trace.actions.unsqueeze(-1)).squeeze(-1)
     
     def _inner_recursive(self, input, print_query_times=False):
@@ -681,14 +691,17 @@ class DynamicAttentionModel(nn.Module):
     def _get_log_p(self, fixed, state, mask=None, normalize=True, prev_selected=None, candidate_indices=None):
         context = self._get_parallel_step_context(fixed.node_embeddings, state, prev_selected=prev_selected)
         slack = None
+        lookahead = None
+        if mask is None and (self.use_time_window_slack or self.use_action_lookahead):
+            mask = state.get_mask()
         if self.use_time_window_slack:
-            if mask is None:
-                mask = state.get_mask()
             slack = self._get_time_window_slack(state, mask, candidate_indices)
+        if self.use_action_lookahead:
+            lookahead = self._get_action_lookahead(state, mask, candidate_indices)
         graph_mask = state.get_graph_mask().bool() if self.mask_graph else None
-        return self._decode_log_p(fixed, context, mask, slack, graph_mask, normalize), mask
+        return self._decode_log_p(fixed, context, mask, slack, graph_mask, normalize, lookahead), mask
 
-    def _decode_log_p(self, fixed, context, mask, slack=None, graph_mask=None, normalize=True):
+    def _decode_log_p(self, fixed, context, mask, slack=None, graph_mask=None, normalize=True, lookahead=None):
         query = fixed.context_node_projected + self.project_step_context(context)
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed)
         if slack is not None:
@@ -697,11 +710,18 @@ class DynamicAttentionModel(nn.Module):
             glimpse_V = glimpse_V + self._make_heads(slack_V)
             logit_K = logit_K + slack_logit
 
-        log_p, _ = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask, graph_mask)
+        bias = self.lookahead_bias(lookahead).squeeze(-1) if lookahead is not None else None
+        log_p, _ = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask, graph_mask, bias)
         if normalize:
             log_p = F.log_softmax(log_p / self.temp, dim=-1)
         assert not torch.isnan(log_p).any()
         return log_p
+
+    def _get_action_lookahead(self, state, mask, candidate_indices=None):
+        features = action_lookahead_features(state).unsqueeze(1)
+        if candidate_indices is not None:
+            features = features.index_select(-2, candidate_indices)
+        return features.masked_fill(mask.unsqueeze(-1), 0)
 
     def _get_time_window_slack(self, state, mask, candidate_indices=None):
         """Align per-state slack with full or compact decoder candidate indices."""
@@ -770,7 +790,7 @@ class DynamicAttentionModel(nn.Module):
             context = torch.cat((context, capacity[:, :, None]), dim=-1)
         return context
 
-    def _one_to_many_logits(self, query, glimpse_K, glimpse_V, logit_K, mask, graph_mask=None):
+    def _one_to_many_logits(self, query, glimpse_K, glimpse_V, logit_K, mask, graph_mask=None, bias=None):
         batch_size, num_steps, embed_dim = query.size()
         key_size = val_size = embed_dim // self.n_heads
 
@@ -798,6 +818,8 @@ class DynamicAttentionModel(nn.Module):
         # Batch matrix multiplication to compute logits (batch_size, num_steps, graph_size)
         # logits = 'compatibility'
         logits = torch.matmul(final_Q, logit_K.transpose(-2, -1)).squeeze(-2) / math.sqrt(final_Q.size(-1))
+        if bias is not None:
+            logits = logits + bias
         
         # From the logits compute the probabilities by masking the graph, clipping, and masking visited
         if self.mask_logits and self.mask_graph:

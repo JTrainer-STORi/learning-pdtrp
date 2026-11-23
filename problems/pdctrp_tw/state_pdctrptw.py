@@ -11,6 +11,7 @@ class StatePDCTRPTW(NamedTuple):
     coords: torch.Tensor # Depot followed by customers in their saved order
     arrival_times: torch.Tensor
     service_times: torch.Tensor
+    service_times_mean: torch.Tensor | float | None
     window_starts: torch.Tensor
     window_ends: torch.Tensor
     demands: torch.Tensor
@@ -84,6 +85,7 @@ class StatePDCTRPTW(NamedTuple):
             coords=loc,
             arrival_times=arrival_times,
             service_times=service_times,
+            service_times_mean=input.get("service_times_mean"),
             window_starts=window_starts,
             window_ends=window_ends,
             demands=demands,

@@ -146,6 +146,8 @@ def get_options(args=None):
     help='scale time features to an approximate [0,1] range by dividing by the time horizon')
     parser.add_argument('--use-time-window-slack', '--use_time_window_slack', action='store_true', default=None,
                         help='Add signed deadline slack to TW decoder keys/values at each decision (default: off; inherited on resume)')
+    parser.add_argument('--use-action-lookahead', action='store_true', default=None,
+                        help='Score predicted one-leg lateness and waiting in the time-window decoder')
     parser.add_argument('--use_arrival_lstm', action='store_true',
                         help='Use an LSTM hidden state as part of the decoder context')
     parser.add_argument('--use_arrival_times', action='store_true',
@@ -273,6 +275,12 @@ def get_options(args=None):
         opts.use_time_window_slack = feature_args.get('use_time_window_slack', False)
     if opts.use_time_window_slack and opts.problem not in ('pdtrptw', 'pdctrptw'):
         parser.error('--use-time-window-slack requires --problem pdtrptw or pdctrptw')
+    if opts.use_action_lookahead is None:
+        opts.use_action_lookahead = feature_args.get('use_action_lookahead', False)
+    if opts.use_action_lookahead and opts.problem not in ('pdtrptw', 'pdctrptw'):
+        parser.error('--use-action-lookahead requires --problem pdtrptw or pdctrptw')
+    if opts.resume and opts.use_action_lookahead != saved.get('use_action_lookahead', False):
+        parser.error('Use --load_path to enable action lookahead when starting from an older checkpoint')
     if opts.time_horizon is None and opts.time_horizon_per_customer is None:
         opts.time_horizon = saved.get('time_horizon', 8.0)
         opts.time_horizon_per_customer = saved.get('time_horizon_per_customer')
