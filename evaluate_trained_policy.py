@@ -18,6 +18,7 @@ from train import set_decode_type
 from utils import load_model
 from utils.data_utils import dataset_to_input
 from utils.dataset_parameters import add_dataset_time_arguments, dataset_time_options, validate_dataset_time_arguments
+from utils.service_times import add_service_time_arguments, validate_service_time_arguments
 
 
 def parse_args(argv=None):
@@ -36,17 +37,29 @@ def parse_args(argv=None):
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--evaluation-seed", type=int, default=1234)
     add_dataset_time_arguments(parser)
+    add_service_time_arguments(parser)
     parser.add_argument(
         "--use-ortec",
         help="ORTEC source instance; used when loading *_testing_ortec_* files",
     )
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+    parser.add_argument(
+        "--rollout-candidates", type=int, default=0,
+        help="Roll out this many highest-ranked feasible customers plus the legal depot action. Zero uses greedy.",
+    )
+    parser.add_argument(
+        "--record-decision-times", action="store_true",
+        help="Record time between action selections and include objective components in the samples CSV.",
+    )
     args = parser.parse_args(argv)
     validate_dataset_time_arguments(parser, args)
+    validate_service_time_arguments(parser, args)
     if args.num_samples < 1:
         parser.error("num-samples must be positive")
     if args.offset < 0:
         parser.error("offset must be nonnegative")
+    if args.rollout_candidates < 0:
+        parser.error("rollout-candidates must be nonnegative")
     return args
 
 
@@ -65,7 +78,7 @@ def problem_class(name):
         raise ValueError(f"Unsupported problem: {name}") from exc
 
 
-def evaluate_dataset(model, problem, dataset_path, device, args):
+def evaluate_dataset(model, problem, dataset_path, device, args, decision_records=None):
     is_ortec = "_testing_ortec_" in dataset_path.name
     if is_ortec and not args.use_ortec:
         raise ValueError(f"--use-ortec is required for ORTEC dataset {dataset_path}")
@@ -77,6 +90,8 @@ def evaluate_dataset(model, problem, dataset_path, device, args):
         speed=args.speed,
         time_horizon=args.time_horizon,
         latest_end=args.latest_end,
+        service_times_mean=args.service_times_mean,
+        service_times_var=args.service_times_var,
         use_ortec=args.use_ortec if is_ortec else None,
     )
     loader = DataLoader(dataset, batch_size=1, shuffle=False)
@@ -85,19 +100,29 @@ def evaluate_dataset(model, problem, dataset_path, device, args):
     with torch.inference_mode():
         for sample_index, batch in enumerate(loader):
             model_input = dataset_to_input(batch, problem.NAME, device)
+            sample = args.offset + sample_index
+            options = {"mode": "recursive"}
+            if args.rollout_candidates:
+                options["rollout_candidates"] = args.rollout_candidates
+            if decision_records is not None:
+                decision_times = []
+                options["decision_times"] = decision_times
             if device.type == "cuda":
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(device)
             started = time.perf_counter()
-            cost, _, _ = model(model_input, mode="recursive")
+            cost, _, info = model(model_input, **options)
             if device.type == "cuda":
-                torch.cuda.synchronize()
-            rows.append(
-                {
-                    "sample": args.offset + sample_index,
-                    "objective": float(cost.reshape(-1)[0].cpu()),
-                    "runtime_seconds": time.perf_counter() - started,
-                }
-            )
+                torch.cuda.synchronize(device)
+            elapsed = time.perf_counter() - started
+            row = {"sample": sample, "objective": cost.reshape(-1)[0].item(), "runtime_seconds": elapsed}
+            if decision_records is not None:
+                decision_records.extend((sample, decision, seconds) for decision, seconds in enumerate(decision_times))
+                row.update(
+                    distance_penalty=info.get("distance_penalty", cost).item(),
+                    lateness_penalty=info["lateness_penalty"].item() if "lateness_penalty" in info else 0.0,
+                    decisions=len(decision_times),
+                )
+            rows.append(row)
     return rows
 
 
@@ -137,23 +162,28 @@ def main(argv=None):
         "dataset_parameters": dataset_time_options(args),
         "ortec_source": args.use_ortec,
         "training_seed": model_args.get("seed"),
+        "rollout_candidates": args.rollout_candidates,
+        "service_times_mean": args.service_times_mean,
+        "service_times_var": args.service_times_var,
+        "record_decision_times": args.record_decision_times,
         "num_samples_requested": args.num_samples,
         "offset": args.offset,
         "datasets": [],
     }
+    if device.type == "cuda":
+        manifest["gpu"] = torch.cuda.get_device_name(device)
 
     for dataset_path in datasets:
         print(f"Evaluating {dataset_path}", file=sys.stderr, flush=True)
+        decision_records = [] if args.record_decision_times else None
         with redirect_stdout(sys.stderr):
-            rows = evaluate_dataset(model, problem, dataset_path, device, args)
+            rows = evaluate_dataset(model, problem, dataset_path, device, args, decision_records)
         stem = dataset_path.stem
         samples_path = output_dir / f"{stem}.samples.csv"
         summary_path = output_dir / f"{stem}.summary.json"
 
         with samples_path.open("w", newline="") as handle:
-            writer = csv.DictWriter(
-                handle, fieldnames=("sample", "objective", "runtime_seconds")
-            )
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
 
@@ -166,11 +196,30 @@ def main(argv=None):
             "samples": len(rows),
             "num_samples_requested": args.num_samples,
             "offset": args.offset,
+            "rollout_candidates": args.rollout_candidates,
             "mean_objective": float(objectives.mean()),
             "std_objective": float(objectives.std()),
             "mean_runtime_seconds": float(runtimes.mean()),
             "std_runtime_seconds": float(runtimes.std()),
         }
+        if decision_records is not None:
+            decisions_path = output_dir / f"{stem}.decisions.csv"
+            with decisions_path.open("w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(("sample", "decision", "runtime_seconds"))
+                writer.writerows(decision_records)
+            decision_seconds = [seconds for _, _, seconds in decision_records]
+            lateness = [row["lateness_penalty"] for row in rows]
+            summary.update(
+                decisions=len(decision_records),
+                mean_decision_seconds=float(np.mean(decision_seconds)),
+                p95_decision_seconds=float(np.quantile(decision_seconds, 0.95)),
+                mean_distance_penalty=float(np.mean([row["distance_penalty"] for row in rows])),
+                mean_lateness_penalty=float(np.mean(lateness)),
+                max_lateness_penalty=float(np.max(lateness)),
+                p95_objective=float(np.quantile(objectives, 0.95)),
+                max_objective=float(objectives.max()),
+            )
         with summary_path.open("w") as handle:
             json.dump(summary, handle, indent=2, sort_keys=True)
             handle.write("\n")

@@ -19,6 +19,7 @@ from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
 from nets.encoders.gnn_encoder import TimeEncoding
 from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
+from utils.policy_rollout import completion_costs, revealed_state
 from utils.time_window_features import action_lookahead_features, service_start_slack
 
 class AttentionModelFixed(NamedTuple):
@@ -248,7 +249,7 @@ class DynamicAttentionModel(nn.Module):
 
     def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1,
                 print_query_times=False, num_scenarios=10, record_decisions=False,
-                return_baseline_features=False):
+                return_baseline_features=False, rollout_candidates=0, decision_times=None):
         """
             Args:
                 input: Dictionary containing input data
@@ -265,6 +266,19 @@ class DynamicAttentionModel(nn.Module):
                     "per call (batch_size=1, pomo_batch_size=1). "
                     "Evaluate multiple instances sequentially."
                 )
+
+        if rollout_candidates < 0:
+            raise ValueError('rollout_candidates must be nonnegative')
+        if rollout_candidates and (
+            mode != 'recursive' or self.training or self.decode_type != 'greedy'
+            or self.use_arrival_lstm or self.recursively_remove_visited_nodes
+            or self.mask_graph or isinstance(self.embedder, IncrementalUpdateEncoder)
+        ):
+            raise ValueError('Policy rollouts require greedy recursive evaluation with cached embeddings, '
+                             'without arrival LSTM, graph masking or visited-node removal')
+        if decision_times is not None and (mode not in ('recursive', 'recursive_plus_removal')
+                                           or isinstance(self.embedder, IncrementalUpdateEncoder)):
+            raise ValueError('Decision timing requires recursive evaluation with cached embeddings')
 
         self.mode = mode
         if return_baseline_features and (mode != 'masked' or isinstance(self.embedder, IncrementalUpdateEncoder)):
@@ -306,7 +320,9 @@ class DynamicAttentionModel(nn.Module):
 
         elif self.mode == 'recursive' or self.mode == 'recursive_plus_removal':
 
-            pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times)
+            pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times,
+                                                   rollout_candidates=rollout_candidates,
+                                                   decision_times=decision_times)
 
         visit_times = visit_times.detach().to(dtype=torch.float32)
 
@@ -476,7 +492,7 @@ class DynamicAttentionModel(nn.Module):
         log_p = self._decode_log_p(fixed, context, trace.mask, trace.slack, lookahead=trace.lookahead)
         return log_p.gather(2, trace.actions.unsqueeze(-1)).squeeze(-1)
     
-    def _inner_recursive(self, input, print_query_times=False):
+    def _inner_recursive(self, input, print_query_times=False, rollout_candidates=0, decision_times=None):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
         # note that due to it being annoying to do this for anything other than a single instance, this function is designed to only work for a single instance
         assert input['all_nodes'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
@@ -487,6 +503,7 @@ class DynamicAttentionModel(nn.Module):
         outputs = []
         sequences = []
 
+        decision_started = time.perf_counter() if decision_times is not None else None
         state = self.problem.make_state(input)
 
         if self.recursively_remove_visited_nodes:
@@ -532,13 +549,19 @@ class DynamicAttentionModel(nn.Module):
                 end_time = time.perf_counter()
                 print(f"Query time: {end_time - start_time:.4f} seconds")
 
-            # we query the policy
-            selected = self._select_node(
-                log_p.exp()[:, 0, :], mask[:, 0, :])
-            
-            # Map compact encoder indices back to actual nodes in either mode.
-            known_indices = torch.nonzero(arrival_mask[0], as_tuple=False).flatten()
+            if rollout_candidates:
+                selected = self._select_rollout_action(
+                    state, masked_input, known_indices, decoder_input, log_p, mask, rollout_candidates)
+            else:
+                selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])
+
             true_selected = known_indices[selected]
+            if decision_times is not None:
+                if true_selected.is_cuda:
+                    torch.cuda.synchronize(true_selected.device)
+                now = time.perf_counter()
+                decision_times.append(now - decision_started)
+                decision_started = now
             previously_known = ~state.not_arrived_[:, 0, :]
             state = state.update(true_selected)
             outputs.append(log_p[:, 0, :])
@@ -585,6 +608,33 @@ class DynamicAttentionModel(nn.Module):
 
         all_sequences, visit_times = state.get_solution(all_sequences)
         return all_sequences, visit_times
+
+    def _select_rollout_action(self, state, revealed_input, known_nodes, fixed, log_p, mask, width):
+        """Rank complete greedy continuations, keeping the ordinary choice on a tie."""
+        scores = log_p[0, 0].masked_fill(mask[0, 0], -torch.inf)
+        greedy = scores.argmax().view(1)
+        customers = scores[1:].argsort(descending=True, stable=True)[:width] + 1
+        candidates = torch.cat((customers, greedy.new_zeros(1)))
+        candidates = candidates[~mask[0, 0, candidates] & (candidates != greedy)]
+        if candidates.numel() == 0:
+            return greedy
+        candidates = torch.cat((greedy, candidates))
+        planning = revealed_state(self.problem, state, revealed_input, known_nodes)
+        branch_fixed = fixed[torch.zeros_like(candidates)]
+
+        def choose_next(branches, finished):
+            branch_mask = branches.get_mask()
+            branch_mask[:, 0, 0] &= ~finished
+            log_probs, _ = self._get_log_p(branch_fixed, branches, branch_mask)
+            return log_probs[:, 0].masked_fill(branch_mask[:, 0], -torch.inf).argmax(dim=1)
+
+        with_windows = self.is_pdtrptw or self.is_pdctrptw
+        costs = completion_costs(
+            planning, candidates, choose_next,
+            gamma=revealed_input['gamma'] if with_windows else None,
+            theta=revealed_input['theta'] if with_windows else None,
+        )
+        return candidates[costs.argmin().view(1)]
     
     def _inner_msa(self, input, print_query_times=False, num_scenarios=10):
 
