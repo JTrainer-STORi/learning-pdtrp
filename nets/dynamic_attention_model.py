@@ -19,7 +19,7 @@ from utils import move_to, scale_time
 from problems.utils import nearest_neighbor_graph
 from nets.encoders.gnn_encoder import TimeEncoding
 from nets.encoders.tgnn_encoder import IncrementalUpdateEncoder
-from utils.policy_rollout import completion_costs, revealed_state
+from utils.policy_rollout import avoidable_wait_minutes, completion_costs, revealed_state
 from utils.time_window_features import action_lookahead_features, service_start_slack
 
 class AttentionModelFixed(NamedTuple):
@@ -249,7 +249,8 @@ class DynamicAttentionModel(nn.Module):
 
     def forward(self, input, return_pi=False, return_times=False, mode='masked', pomo_batch_size=1,
                 print_query_times=False, num_scenarios=10, record_decisions=False,
-                return_baseline_features=False, rollout_candidates=0, decision_times=None):
+                return_baseline_features=False, rollout_candidates=0, decision_times=None,
+                rollout_wait_penalty=0.0):
         """
             Args:
                 input: Dictionary containing input data
@@ -269,6 +270,10 @@ class DynamicAttentionModel(nn.Module):
 
         if rollout_candidates < 0:
             raise ValueError('rollout_candidates must be nonnegative')
+        if not math.isfinite(rollout_wait_penalty) or rollout_wait_penalty < 0:
+            raise ValueError('rollout_wait_penalty must be finite and nonnegative')
+        if rollout_wait_penalty and (not rollout_candidates or not (self.is_pdtrptw or self.is_pdctrptw)):
+            raise ValueError('The avoidable waiting penalty requires time-window policy rollouts')
         if rollout_candidates and (
             mode != 'recursive' or self.training or self.decode_type != 'greedy'
             or self.use_arrival_lstm or self.recursively_remove_visited_nodes
@@ -322,7 +327,8 @@ class DynamicAttentionModel(nn.Module):
 
             pi, visit_times = self._inner_recursive(input, print_query_times=print_query_times,
                                                    rollout_candidates=rollout_candidates,
-                                                   decision_times=decision_times)
+                                                   decision_times=decision_times,
+                                                   rollout_wait_penalty=rollout_wait_penalty)
 
         visit_times = visit_times.detach().to(dtype=torch.float32)
 
@@ -492,7 +498,8 @@ class DynamicAttentionModel(nn.Module):
         log_p = self._decode_log_p(fixed, context, trace.mask, trace.slack, lookahead=trace.lookahead)
         return log_p.gather(2, trace.actions.unsqueeze(-1)).squeeze(-1)
     
-    def _inner_recursive(self, input, print_query_times=False, rollout_candidates=0, decision_times=None):
+    def _inner_recursive(self, input, print_query_times=False, rollout_candidates=0, decision_times=None,
+                         rollout_wait_penalty=0.0):
         # If we want to run evaluations true to reality then we'll have to generate the graph and embeddings as customers arrive
         # note that due to it being annoying to do this for anything other than a single instance, this function is designed to only work for a single instance
         assert input['all_nodes'].size(0) == 1, "This forward method doesn't play nicely with batched inputs"
@@ -551,7 +558,8 @@ class DynamicAttentionModel(nn.Module):
 
             if rollout_candidates:
                 selected = self._select_rollout_action(
-                    state, masked_input, known_indices, decoder_input, log_p, mask, rollout_candidates)
+                    state, masked_input, known_indices, decoder_input, log_p, mask, rollout_candidates,
+                    wait_penalty=rollout_wait_penalty)
             else:
                 selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])
 
@@ -609,7 +617,7 @@ class DynamicAttentionModel(nn.Module):
         all_sequences, visit_times = state.get_solution(all_sequences)
         return all_sequences, visit_times
 
-    def _select_rollout_action(self, state, revealed_input, known_nodes, fixed, log_p, mask, width):
+    def _select_rollout_action(self, state, revealed_input, known_nodes, fixed, log_p, mask, width, wait_penalty=0.0):
         """Rank complete greedy continuations, keeping the ordinary choice on a tie."""
         scores = log_p[0, 0].masked_fill(mask[0, 0], -torch.inf)
         greedy = scores.argmax().view(1)
@@ -634,6 +642,8 @@ class DynamicAttentionModel(nn.Module):
             gamma=revealed_input['gamma'] if with_windows else None,
             theta=revealed_input['theta'] if with_windows else None,
         )
+        if wait_penalty:
+            costs = costs + wait_penalty * avoidable_wait_minutes(planning, candidates)
         return candidates[costs.argmin().view(1)]
     
     def _inner_msa(self, input, print_query_times=False, num_scenarios=10):

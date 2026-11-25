@@ -9,7 +9,7 @@ import evaluate_trained_policy
 from nets.dynamic_attention_model import DynamicAttentionModel
 from nets.encoders.gnn_encoder import GNNEncoder
 from problems import PDCTRP, PDCTRPTW, PDTRP, PDTRPTW
-from utils.policy_rollout import completion_costs, revealed_state
+from utils.policy_rollout import avoidable_wait_minutes, completion_costs, revealed_state
 
 
 def input_data():
@@ -99,6 +99,45 @@ def test_completion_keeps_the_terminal_cost_when_another_branch_continues():
     torch.testing.assert_close(costs, torch.tensor([6., 10.]))
 
 
+@pytest.mark.parametrize(("alternate_demand", "alternate_opening", "expected"), [
+    (.50, 0., 7.),   # Alternate can start at t=11 after reloading.
+    (.25, 0., 13.),  # Alternate can start directly at t=5.
+    (.50, 19., 0.),  # Alternate cannot start before the planned departure at t=18.
+])
+def test_avoidable_wait_considers_direct_and_reload_service(alternate_demand, alternate_opening, expected):
+    data = input_data()
+    data["demand"][0, 3] = alternate_demand
+    data["window_starts"][0, 3] = alternate_opening
+    model = make_model(PDCTRPTW)
+    live = PDCTRPTW.make_state(data).update(torch.tensor([4]))
+    known = ~live.not_arrived_[:, 0]
+    planning = revealed_state(PDCTRPTW, live, model._mask_input(data, known), known[0].nonzero().flatten())
+    # A revealed, already served customer and a hidden customer could otherwise
+    # make it look as though an early service was available.
+    torch.testing.assert_close(avoidable_wait_minutes(planning, torch.tensor([1, 0])),
+                               torch.tensor([expected, 0.]))
+
+
+def test_wait_penalty_changes_only_first_action_ranking(monkeypatch):
+    data = input_data()
+    model = make_model(PDCTRPTW)
+    live = PDCTRPTW.make_state(data).update(torch.tensor([4]))
+    known = ~live.not_arrived_[:, 0]
+    known_nodes = known[0].nonzero().flatten()
+    revealed_input = model._mask_input(data, known)
+    mask = live.get_mask().index_select(-1, known_nodes)
+    # Suppose the completion starting with a wait costs just 0.1 less than reloading.
+    monkeypatch.setattr("nets.dynamic_attention_model.completion_costs",
+                        lambda *args, **kwargs: torch.tensor([1., 1.1]))
+    scores = torch.tensor([[[-10., 0., -100., -100.]]])
+    with torch.inference_mode():
+        fixed = model._precompute(model._encode(revealed_input))
+        baseline = model._select_rollout_action(live, revealed_input, known_nodes, fixed, scores, mask, width=1)
+        penalized = model._select_rollout_action(live, revealed_input, known_nodes, fixed, scores, mask,
+                                                 width=1, wait_penalty=.02)
+    assert baseline.item() == 1 and penalized.item() == 0
+
+
 @pytest.mark.parametrize("problem", (PDTRP, PDCTRP, PDTRPTW, PDCTRPTW))
 def test_rollout_executes_valid_dynamic_routes_for_all_variants(problem):
     torch.manual_seed(123)
@@ -130,13 +169,28 @@ def test_evaluation_writes_rollout_and_decision_metrics(tmp_path, monkeypatch):
     manifest = evaluate_trained_policy.main([
         "--problem", "pdctrptw", "--checkpoint", str(checkpoint), "--datasets", str(data),
         "--output-dir", str(output), "--device", "cpu", "--num-samples", "1",
-        "--rollout-candidates", "2", "--record-decision-times",
+        "--rollout-candidates", "2", "--rollout-wait-penalty", "0.02", "--record-decision-times",
     ])
     assert manifest["rollout_candidates"] == 2
+    assert manifest["rollout_wait_penalty"] == 0.02
     summary, = manifest["datasets"]
+    assert summary["rollout_wait_penalty"] == 0.02
     with (output / "data.decisions.csv").open() as file:
         decisions = list(csv.DictReader(file))
     assert len(decisions) == summary["decisions"] >= 2
     assert [int(row["decision"]) for row in decisions] == list(range(len(decisions)))
     assert summary["p95_decision_seconds"] > 0
     assert summary["max_lateness_penalty"] == 0
+    assert summary["mean_objective"] == summary["mean_distance_penalty"]
+
+
+@pytest.mark.parametrize(("problem", "width", "penalty"), [
+    ("pdctrptw", "4", "-0.02"), ("pdctrptw", "4", "nan"), ("pdctrptw", "4", "inf"),
+    ("pdctrptw", "0", "0.02"), ("pdctrp", "4", "0.02"),
+])
+def test_cli_rejects_invalid_wait_penalty(problem, width, penalty):
+    with pytest.raises(SystemExit, match="2"):
+        evaluate_trained_policy.parse_args([
+            "--problem", problem, "--checkpoint", "model.pt", "--datasets", "data.txt", "--output-dir", "out",
+            "--rollout-candidates", width, "--rollout-wait-penalty", penalty,
+        ])

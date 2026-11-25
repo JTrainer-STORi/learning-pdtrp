@@ -2,6 +2,7 @@
 
 import torch
 
+from problems.request_events import travel_time
 from utils.service_times import DEFAULT_SERVICE_TIME_MEAN
 
 
@@ -22,6 +23,27 @@ def revealed_state(problem, state, revealed_input, known_nodes):
     if hasattr(state, "used_cap"):
         changes["used_cap"] = state.used_cap
     return planning._replace(**changes)
+
+
+def avoidable_wait_minutes(state, actions):
+    """Measure pre-departure waiting after a revealed customer could start service."""
+    distances = state.distance_matrix[0]
+    travel = travel_time(state, distances[state.prev_a[:, 0]])[0]
+    now = state.cur_times[0, 0]
+    opens = state.window_starts[0]
+    mask = state.get_mask()[0, 0]
+    earliest = torch.maximum(now + travel[1:], opens[1:]).masked_fill(mask[1:], torch.inf)
+    if hasattr(state, "used_cap"):
+        # A reload resets the load and takes zero service time in the planning copy.
+        depot_ready = torch.maximum(now + travel[0], opens[0])
+        depot_travel = travel_time(state, distances[:1, 1:])[0]
+        via_depot = torch.maximum(depot_ready + depot_travel, opens[1:])
+        unserved = ~(state.visited_ | state.not_arrived_)[0, 0, 1:]
+        reload_feasible = (~mask[0] & unserved
+                           & (state.demands[0, 1:] <= state.vehicle_capacity.reshape(-1)[0]))
+        earliest = torch.minimum(earliest, via_depot.masked_fill(~reload_feasible, torch.inf))
+    planned_departure = opens[actions] - travel[actions]
+    return (planned_departure - earliest.min()).clamp_min(0).masked_fill(actions == 0, 0)
 
 
 def completion_costs(state, first_actions, choose_next, *, gamma=None, theta=None):

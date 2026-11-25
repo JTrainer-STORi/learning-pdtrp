@@ -5,6 +5,7 @@ import argparse
 from contextlib import redirect_stdout
 import csv
 import json
+import math
 import os
 import sys
 import time
@@ -48,6 +49,10 @@ def parse_args(argv=None):
         help="Roll out this many highest-ranked feasible customers plus the legal depot action. Zero uses greedy.",
     )
     parser.add_argument(
+        "--rollout-wait-penalty", type=float, default=0.0,
+        help="Ranking cost per minute of avoidable pre-departure waiting for a time-window rollout's first action.",
+    )
+    parser.add_argument(
         "--record-decision-times", action="store_true",
         help="Record time between action selections and include objective components in the samples CSV.",
     )
@@ -60,6 +65,10 @@ def parse_args(argv=None):
         parser.error("offset must be nonnegative")
     if args.rollout_candidates < 0:
         parser.error("rollout-candidates must be nonnegative")
+    if not math.isfinite(args.rollout_wait_penalty) or args.rollout_wait_penalty < 0:
+        parser.error("rollout-wait-penalty must be finite and nonnegative")
+    if args.rollout_wait_penalty and (not args.rollout_candidates or args.problem not in ("pdtrptw", "pdctrptw")):
+        parser.error("rollout-wait-penalty requires rollout candidates and a time-window problem")
     return args
 
 
@@ -104,6 +113,8 @@ def evaluate_dataset(model, problem, dataset_path, device, args, decision_record
             options = {"mode": "recursive"}
             if args.rollout_candidates:
                 options["rollout_candidates"] = args.rollout_candidates
+            if args.rollout_wait_penalty:
+                options["rollout_wait_penalty"] = args.rollout_wait_penalty
             if decision_records is not None:
                 decision_times = []
                 options["decision_times"] = decision_times
@@ -163,6 +174,7 @@ def main(argv=None):
         "ortec_source": args.use_ortec,
         "training_seed": model_args.get("seed"),
         "rollout_candidates": args.rollout_candidates,
+        "rollout_wait_penalty": args.rollout_wait_penalty,
         "service_times_mean": args.service_times_mean,
         "service_times_var": args.service_times_var,
         "record_decision_times": args.record_decision_times,
@@ -197,6 +209,7 @@ def main(argv=None):
             "num_samples_requested": args.num_samples,
             "offset": args.offset,
             "rollout_candidates": args.rollout_candidates,
+            "rollout_wait_penalty": args.rollout_wait_penalty,
             "mean_objective": float(objectives.mean()),
             "std_objective": float(objectives.std()),
             "mean_runtime_seconds": float(runtimes.mean()),
