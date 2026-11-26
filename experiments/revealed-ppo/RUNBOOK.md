@@ -4,52 +4,67 @@ The primary comparison is the difference in online greedy route cost between two
 
 Both arms use 50 customers, uniform training locations, DoD 0.2–0.8, a 10-hour call horizon, wide windows, 200 epochs of 12,800 instances, batch size 256, Adam at 0.0001, and four PPO passes. The objective is distance plus total service-start lateness. Both use the existing batched full-graph greedy **training baseline** for their advantage estimates. This holds the baseline procedure fixed while changing the information available to the actor. Recursive greedy validation selects the lowest equally weighted mean on fixed validation sets at DoD 0.2, 0.5 and 0.8, every two epochs and at the final epoch.
 
-## HEC submission
+## One-time setup
 
-Sync the repository changes, including this directory and the tests, to the checkout containing the activated project environment on HEC. From your HEC home directory set:
+Sync the updated checkout, including `experiments/revealed-ppo/` and `tests/`, to `$global_storage/learning-pdtrp` on the HEC.
 
-```bash
-repo="$global_storage/learning-pdtrp"
-experiment="$repo/experiments/revealed-ppo"
-results="$repo/artifacts/revealed-ppo"
-```
-
-Run one production-sized epoch of the revealed arm and generate the independent test data:
+From the **local checkout**, upload the prepared test data to your HEC home directory. Substitute your HEC username in the transfer command. [HEC login details](https://lancaster-hec.readthedocs.io/en/latest/login.html)
 
 ```bash
-pilot=$(sbatch --parsable --array=4 --time=02:00:00 "$experiment/train.sh" pilot)
-data=$(sbatch --parsable "$experiment/data.sh")
-echo "Pilot $pilot, data $data"
+scp -r artifacts/revealed-ppo/data/26412 username@wayland-2022.hec.lancaster.ac.uk:
 ```
 
-The default ORTEC source is `new_data/ortec_rl/ORTEC-VRPTW-ASYM-00c5356f-d1-n258-k12.txt` under the repository. Supply an absolute source path as the first argument to `data.sh` if stored elsewhere. The job generates 300 instances in each of six location/DoD cells with seed 26412, records their hashes, and publishes them under `data/DATA_JOB_ID`. ORTEC contributes coordinates. Calls, demands, service durations, and windows use the synthetic benchmark rules.
-
-The pilot runs the replay and visibility regression on CUDA and writes a normal training history. Inspect it before choosing the production time request:
+From **`$HOME` on the HEC**, install the launchers, stage the data, and verify the six test files. Each checksum should report `OK`.
 
 ```bash
-cat "$results/training/$pilot/revealed/seed-0"/models/*/*/history.csv
+cp "$global_storage/learning-pdtrp"/experiments/revealed-ppo/revealed-ppo-*.sh .
+mkdir -p "$global_storage/learning-pdtrp/artifacts/revealed-ppo/data"
+cp -R 26412 "$global_storage/learning-pdtrp/artifacts/revealed-ppo/data/"
+(cd "$global_storage/learning-pdtrp/artifacts/revealed-ppo/data/26412" && sha256sum -c evaluation-inputs.sha256)
 ```
 
-The pilot, training and evaluation each request one GPU on `astro`. Slurm can allocate either an L40 or an L40S. Check the recorded GPU model when comparing pilot and production timings. Inspect `ppo_first_replay_max_abs_error`, `peak_gpu_allocated_bytes`, and `epoch_seconds` in the pilot history. The default 24-hour training request gives each 200-epoch run an average of 7 minutes 12 seconds per epoch, before job startup. Use the pilot timing to estimate the total, allowing for variation in validation and baseline updates. If the run fits comfortably, you can shorten the production request with `sbatch --time`. If the estimate exceeds 24 hours, choose a longer queue and a GPU type available there when submitting. [Lancaster HEC GPU queues and model requests](https://lancaster-hec.readthedocs.io/en/latest/gpu.html)
+Training generates fresh instances each epoch. The uploaded directory is used only for evaluation. It contains 300 instances per combination of location family (uniform or ORTEC coordinates) and DoD (0.2, 0.5 or 0.8), for 1,800 instances in total. The directory name `26412` is the dataset seed.
 
-Submit the six fresh training tasks and schedule the nine evaluation tasks:
+## Submit from your HEC home directory
+
+**1. Run the pilot.** This checks the PPO tests and trains the revealed policy for one epoch at seed 0.
 
 ```bash
-training=$(sbatch --parsable "$experiment/train.sh")
-evaluation=$(sbatch --parsable --dependency="afterok:$training:$data" \
-    "$experiment/evaluate.sh" "$training" "$data")
-echo "Training $training, evaluation $evaluation"
+sbatch revealed-ppo-pilot.sh
 ```
 
-Training tasks 1–3 are full-graph seeds 0–2 and tasks 4–6 are revealed seeds 0–2. Evaluation uses the same mapping and adds reference tasks 7–9 for the earlier capacity-aware checkpoints from arrays 26338569 and 26342957. Every task evaluates one frozen checkpoint twice on the same dataset bytes and sample indices, first with greedy dispatch and then with unweighted top-two customer rollout plus the legal depot return. All inference modes see revealed customers only. If the archived checkpoints are unavailable, use `--array=1-6` on the **evaluation** submission and `--without-reference` when summarizing.
+The pilot prints its training history to `~/revealed-pilot.JOB_ID.out`. Check `ppo_first_replay_max_abs_error`, `peak_gpu_allocated_bytes`, and `epoch_seconds`. Each production run has 24 hours for 200 epochs, an average budget of 432 seconds per epoch including startup and validation. Allow timing margin for either an L40 or an L40S. All three launchers request one GPU by count on `astro`. [HEC GPU queues and limits](https://lancaster-hec.readthedocs.io/en/latest/gpu.html)
+
+**2. Train the six policies.** Submit after checking the pilot timing.
+
+```bash
+sbatch revealed-ppo-train.sh
+```
+
+Tasks 1–3 train full-graph seeds 0–2. Tasks 4–6 train revealed-customer seeds 0–2. Logs are in `~/revealed-train.ARRAY_ID_TASK.out`, with the array job number and task number filled in by Slurm. Checkpoints and histories are under `$global_storage/learning-pdtrp/artifacts/revealed-ppo/training/ARRAY_ID/`. The pilot has its own output directory.
+
+**3. Evaluate after all six training tasks finish successfully.**
+
+```bash
+sbatch revealed-ppo-evaluate.sh
+```
+
+Evaluation uses the training array recorded at `training/production` and pins that array for all nine tasks. Tasks 1–6 use the six new best-validation checkpoints. Tasks 7–9 use the existing capacity-aware checkpoints from arrays 26338569 (seed 0) and 26342957 (seeds 1 and 2) under `artifacts/training-finetune/`. Each task verifies the uploaded files, then evaluates the same checkpoint and sample indices with greedy dispatch and with unweighted top-two rollout plus a legal depot return. Both modes see only revealed customers.
+
+Evaluation logs are in `~/revealed-eval.ARRAY_ID_TASK.out`. Per-route results and decision timings are under `$global_storage/learning-pdtrp/artifacts/revealed-ppo/evaluation/ARRAY_ID/`.
 
 ## Reading the results
 
-After evaluation completes:
+After evaluation completes, replace `EVAL_JOB_ID` with the evaluation array job number. The command writes both CSVs in that array’s results directory.
 
 ```bash
-"$repo/.venv/bin/python" "$experiment/summarize.py" "$results/evaluation/$evaluation"
+module add miniforge
+"$global_storage/learning-pdtrp/.venv/bin/python" \
+    "$global_storage/learning-pdtrp/experiments/revealed-ppo/summarize.py" \
+    "$global_storage/learning-pdtrp/artifacts/revealed-ppo/evaluation/EVAL_JOB_ID"
 ```
+
+If the archived reference checkpoints are unavailable but tasks 1–6 succeeded, append `--without-reference` to the summary command to report the from-scratch comparison.
 
 `metrics.csv` reports mean objective and distance, mean total lateness, routes over 10 minutes of summed lateness, p95 objective, route wall time, and pooled p95 decision latency, by seed, method, width, and location/DoD. Rows with location `all` pool all six cells for one seed.
 

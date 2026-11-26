@@ -1,4 +1,4 @@
-"""Report matched PDCTRPTW results from evaluate.sh, pooling actual decision times."""
+"""Report matched PDCTRPTW results from revealed-ppo-evaluate.sh, pooling actual decision times."""
 
 import argparse
 import csv
