@@ -446,7 +446,8 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
             for batch in islice(batches, opts.ppo_rollout_batches):
                 data, baseline_cost = baseline.unwrap_batch(batch)
                 inputs = dataset_to_input(data, opts.problem, opts.device)
-                rollout = model(inputs, record_decisions=True, return_baseline_features=learned)
+                mode = 'revealed' if getattr(opts, 'ppo_encoding', 'full') == 'revealed' else 'masked'
+                rollout = model(inputs, mode=mode, record_decisions=True, return_baseline_features=learned)
                 cost, old_log_p, trace = rollout[:3]
                 if learned:
                     baseline_cost, _ = baseline.eval(rollout[3], cost, inputs['all_nodes'].size(1) - 1)
@@ -467,6 +468,9 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
                 inputs, old_log_p, advantage, trace, cost = rollout_group[index]
                 replay = model.score_decisions(inputs, trace, return_baseline_features=learned)
                 new_log_p, features = replay if learned else (replay, None)
+                if optimizer_updates == 0:
+                    # Same behavior weights, before the first optimizer step of this epoch.
+                    first_replay_error = (new_log_p.detach() - old_log_p)[trace.active].abs().max().item()
                 loss, stats = ppo_policy_loss(new_log_p, old_log_p, advantage, trace.active, opts.ppo_clip)
                 if learned:
                     baseline_loss = baseline.loss(features, cost, inputs['all_nodes'].size(1) - 1)
@@ -485,6 +489,7 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
     approx_kl, clipped_count, decisions = diagnostics.tolist()
     metrics = {
         'optimizer_updates': optimizer_updates,
+        'ppo_first_replay_max_abs_error': first_replay_error,
         'ppo_collection_seconds': collection_seconds,
         'ppo_update_seconds': update_seconds,
         'ppo_approx_kl': approx_kl / decisions,

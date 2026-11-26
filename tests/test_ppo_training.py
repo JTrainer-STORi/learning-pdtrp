@@ -72,8 +72,11 @@ def test_replaying_decisions_matches_rollout_and_reinforce_gradient(problem, enc
             torch.testing.assert_close(actual, expected, atol=2e-5, rtol=3e-4)
 
 
-@pytest.mark.parametrize('lookahead_flag', [None, '--use-action-lookahead', '--use-capacity-aware-lookahead'])
-def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag):
+@pytest.mark.parametrize(('lookahead_flag', 'encoding'), [
+    (None, 'full'), ('--use-action-lookahead', 'full'),
+    ('--use-capacity-aware-lookahead', 'full'), ('--use-capacity-aware-lookahead', 'revealed'),
+])
+def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag, encoding):
     opts = get_options([
         '--problem', 'pdctrptw', '--encoder', 'transformer', '--use-time-window-slack',
         '--use_time_feature', '--use_arrival_times', '--scale_times',
@@ -83,7 +86,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
         '--rollout_size', '2', '--rollout_batch_size', '2', '--val_size', '2', '--val_batch_size', '1',
         '--embedding_dim', '16', '--n_encode_layers', '1', '--n_heads', '2',
         '--no_cuda', '--no_wandb', '--no_tensorboard', '--no_progress_bar', '--save-best-validation',
-        '--output_dir', str(tmp_path),
+        '--output_dir', str(tmp_path), '--ppo-encoding', encoding,
     ] + ([lookahead_flag] if lookahead_flag else []))
     run_rl(opts)
     save_dir = Path(opts.save_dir)
@@ -93,6 +96,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
     for row in history:
         assert int(row['training_instances']) == 6
         assert int(row['optimizer_updates']) == 6
+        assert float(row['ppo_first_replay_max_abs_error']) < 2e-5
         assert float(row['ppo_collection_seconds']) > 0 and float(row['ppo_update_seconds']) > 0
         assert float(row['ppo_approx_kl']) > 0
         assert 0 <= float(row['ppo_clip_fraction']) <= 1
@@ -107,6 +111,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
     assert torch.isfinite(cost).all()
 
     resumed = get_options(['--resume', str(save_dir / 'epoch-1.pt'), '--problem', 'pdctrptw'])
+    assert resumed.ppo_encoding == encoding
     assert resumed.training_algorithm == 'ppo' and resumed.ppo_rollout_batches == 2
     assert resumed.use_action_lookahead == model.use_action_lookahead
     assert resumed.use_capacity_aware_lookahead == model.use_capacity_aware_lookahead

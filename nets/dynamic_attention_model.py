@@ -52,6 +52,7 @@ class DecisionTrace(NamedTuple):
     capacity: torch.Tensor | None
     slack: torch.Tensor | None
     lookahead: torch.Tensor | None = None
+    visible: torch.Tensor | None = None
 
 
 class DynamicAttentionModel(nn.Module):
@@ -90,9 +91,9 @@ class DynamicAttentionModel(nn.Module):
                  *args, use_action_lookahead=False, use_capacity_aware_lookahead=False, **kwargs):
         """A node encoder followed by an autoregressive attention decoder.
 
-        During training, the model encodes the entire graph of the partially dynamic routing problem
-        and nodes which have been visited or have not yet arrived are masked. The decoder then decodes 
-        the solution by attending over nodes in the graph. 
+        Full-graph training encodes the entire instance once. Revealed PPO
+        refreshes each row's encoding on request arrivals. Both modes apply
+        the live simulator's action mask.
 
         During inference, because the entire graph is not known, the model must update the encoder when 
         new nodes arrive. The model then decodes the solution by attending over nodes in the graph.
@@ -258,7 +259,14 @@ class DynamicAttentionModel(nn.Module):
                     rollout per call. Evaluate datasets sequentially in these modes.
         """
 
-        assert mode in ['masked', 'recursive', 'recursive_plus_removal', 'MSA'], "Mode must be either 'masked' or 'recursive' or 'recursive_plus_removal' or 'MSA'"
+        if mode not in ('masked', 'revealed', 'recursive', 'recursive_plus_removal', 'MSA'):
+            raise ValueError(f'Unknown decoding mode: {mode}')
+
+        if mode == 'revealed' and (
+            self.uses_edge_features or self.use_arrival_lstm or self.mask_graph or pomo_batch_size != 1
+            or not self.mask_inner or not self.mask_logits
+        ):
+            raise ValueError('Revealed decoding requires a masked transformer without LSTM or POMO')
 
         if mode in ('recursive', 'recursive_plus_removal'):
             if input['all_nodes'].size(0) != 1 or pomo_batch_size != 1:
@@ -291,7 +299,7 @@ class DynamicAttentionModel(nn.Module):
         baseline_output = ()
         decisions = None
         if record_decisions:
-            if (mode != 'masked' or pomo_batch_size != 1 or self.use_arrival_lstm or self.mask_graph
+            if (mode not in ('masked', 'revealed') or pomo_batch_size != 1 or self.use_arrival_lstm or self.mask_graph
                     or isinstance(self.embedder, IncrementalUpdateEncoder)):
                 raise ValueError('Decision recording requires masked decoding without POMO, LSTM, incremental encoding or graph masking')
             decisions = []
@@ -314,9 +322,9 @@ class DynamicAttentionModel(nn.Module):
 
             pi, visit_times = self._inner_msa(input, print_query_times=print_query_times, num_scenarios=num_scenarios)
 
-        elif self.mode == 'masked':
+        elif self.mode in ('masked', 'revealed'):
             
-            embeddings = self._encode(input)
+            embeddings = self._encode(input) if mode == 'masked' else None
             if return_baseline_features:
                 baseline_output = (embeddings.detach().mean(dim=1),)
 
@@ -388,6 +396,11 @@ class DynamicAttentionModel(nn.Module):
         if embeddings is not None:
             fixed = self._precompute(embeddings)
 
+        revealed = self.mode == 'revealed'
+        if revealed:
+            tokens = self._init_embed(input)
+            previous_visible = None
+
         batch_size = int(input['all_nodes'].size(0) / pomo_batch_size)
 
         if self.use_arrival_lstm:
@@ -417,6 +430,18 @@ class DynamicAttentionModel(nn.Module):
                 log_p = torch.zeros((batch_size * pomo_batch_size, 1, input['all_nodes'].size(1)), device=input['all_nodes'].device)
             else:
                 mask = state.get_mask()
+
+                if revealed:
+                    visible = ~state.not_arrived_[:, 0]
+                    if previous_visible is None:
+                        embeddings = self.embedder(tokens, node_mask=visible)
+                    else:
+                        changed = (visible != previous_visible).any(dim=1).nonzero().flatten()
+                        if changed.numel():
+                            refreshed = self.embedder(tokens[changed], node_mask=visible[changed])
+                            embeddings = embeddings.index_copy(0, changed, refreshed)
+                    fixed = self._precompute(embeddings, visible=visible)
+                    previous_visible = visible
 
                 if isinstance(self.embedder, IncrementalUpdateEncoder):
                     temporal_mask = ~(state.not_arrived_[:, 0, :])
@@ -450,7 +475,8 @@ class DynamicAttentionModel(nn.Module):
                 # A choice interrupted during waiting still counts. Depot
                 # padding after finishing a batch row does not.
                 decisions.append(DecisionTrace(selected[:, None], ~state.visited_.all(dim=-1),
-                                               mask, current_node, current_time, capacity, slack, lookahead))
+                                               mask, current_node, current_time, capacity, slack, lookahead,
+                                               visible[:, None] if revealed else None))
 
             # Track request revelation independently of action feasibility/capacity.
             if self.use_arrival_lstm:
@@ -481,6 +507,10 @@ class DynamicAttentionModel(nn.Module):
 
     def score_decisions(self, input, trace, return_baseline_features=False):
         """Score recorded actions with current weights and no simulator steps."""
+        if trace.visible is not None:
+            if return_baseline_features:
+                raise ValueError('Learned baseline features require full-graph training')
+            return self._score_revealed_decisions(input, trace)
         fixed = self._precompute(self._encode(input))
         scores = []
         # Chunking bounds the size of the per-step attention tensors.
@@ -492,6 +522,38 @@ class DynamicAttentionModel(nn.Module):
         if return_baseline_features:
             return log_p, fixed.node_embeddings.detach().mean(dim=1)
         return log_p
+
+    def _score_revealed_decisions(self, input, trace):
+        # Each segment shares one revealed graph. Limit segment length and the
+        # number of segments per checkpoint to bound encoder/decoder activations.
+        visible = trace.visible
+        batch, steps = trace.actions.shape
+        clock = torch.arange(steps, device=visible.device)
+        starts = torch.ones_like(trace.actions, dtype=torch.bool)
+        starts[:, 1:] = (visible[:, 1:] != visible[:, :-1]).any(dim=-1)
+        last_change = torch.where(starts, clock, 0).cummax(dim=1).values
+        rows, first = ((clock - last_change) % 8 == 0).nonzero(as_tuple=True)
+        flat = rows * steps + first
+        lengths = torch.diff(flat, append=flat.new_tensor([batch * steps]))
+        offsets = clock[:8]
+        tokens = self._init_embed(input)
+        scores = []
+        for row, start, length in zip(rows.split(128), first.split(128), lengths.split(128)):
+            times = start[:, None] + offsets
+            valid = offsets < length[:, None]
+            times = torch.minimum(times, (start + length - 1)[:, None])
+            values = checkpoint(self._score_revealed_chunk, tokens, trace, row, times,
+                                use_reentrant=False)
+            scores.append(values[valid])
+        # nonzero enumerates segments in row-major order.
+        return torch.cat(scores).view(batch, steps)
+
+    def _score_revealed_chunk(self, tokens, trace, rows, times):
+        visible = trace.visible[rows, times[:, 0]]
+        embeddings = self.embedder(tokens[rows], node_mask=visible)
+        fixed = self._precompute(embeddings, visible=visible)
+        chunk = DecisionTrace(*(v[rows[:, None], times] if v is not None else None for v in trace))
+        return self._score_decision_chunk(fixed, chunk)
 
     def _score_decision_chunk(self, fixed, trace):
         context = self._step_context(fixed.node_embeddings, trace.current_node, trace.time, trace.capacity)
@@ -801,14 +863,16 @@ class DynamicAttentionModel(nn.Module):
         unavailable = mask.bool() | (candidate_indices == 0)[None, None, :]
         return slack.masked_fill(unavailable, 0).unsqueeze(-1)
 
-    def _precompute(self, embeddings, num_steps=1):
+    def _precompute(self, embeddings, num_steps=1, visible=None):
         # The fixed context projection of the graph embedding is calculated only once for efficiency
         if self.aggregation_graph == "sum":
             graph_embed = embeddings.sum(1)
         elif self.aggregation_graph == "max":
-            graph_embed = embeddings.max(1)[0]
+            pooled = embeddings if visible is None else embeddings.masked_fill(~visible[..., None], -torch.inf)
+            graph_embed = pooled.max(1)[0]
         elif self.aggregation_graph == "mean":
-            graph_embed = embeddings.mean(1)
+            graph_embed = (embeddings.mean(1) if visible is None else
+                           embeddings.sum(1) / visible.sum(1, keepdim=True))
         else:  # Default: disable graph embedding
             graph_embed = embeddings.sum(1) * 0.0
         

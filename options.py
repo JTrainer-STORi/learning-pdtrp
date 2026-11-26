@@ -161,6 +161,8 @@ def get_options(args=None):
     # Training
     parser.add_argument('--training-algorithm', choices=['reinforce', 'ppo'], default=None,
                         help='Policy optimizer (default: reinforce, inherited on resume)')
+    parser.add_argument('--ppo-encoding', choices=('full', 'revealed'), default=None,
+                        help='Encode all customers or only currently revealed customers during PPO.')
     parser.add_argument('--ppo-update-epochs', type=int, default=None,
                         help='Optimization passes over each collected PPO rollout group (default: 2)')
     parser.add_argument('--ppo-rollout-batches', type=int, default=None,
@@ -350,10 +352,16 @@ def get_options(args=None):
     if opts.baseline_update_every < 1:
         parser.error("--baseline_update_every must be at least 1")
 
-    for name, default in (('training_algorithm', 'reinforce'), ('ppo_update_epochs', 2),
+    for name, default in (('training_algorithm', 'reinforce'), ('ppo_encoding', 'full'), ('ppo_update_epochs', 2),
                           ('ppo_rollout_batches', 4), ('ppo_clip', 0.2)):
         if getattr(opts, name) is None:
             setattr(opts, name, saved.get(name, default))
+    if opts.resume and opts.ppo_encoding != saved.get('ppo_encoding', 'full'):
+        parser.error('Resuming requires the original PPO encoding')
+    if opts.ppo_encoding == 'revealed' and (
+        opts.training_algorithm != 'ppo' or opts.encoder != 'transformer' or opts.baseline == 'learned'
+    ):
+        parser.error('--ppo-encoding revealed requires transformer PPO with a non-learned baseline')
     if opts.training_algorithm == 'ppo':
         if opts.ppo_update_epochs < 1 or opts.ppo_rollout_batches < 1 or not 0 < opts.ppo_clip < 1:
             parser.error('PPO requires positive update epochs and rollout batches, and 0 < --ppo-clip < 1')

@@ -47,9 +47,9 @@ class GlobalSelfAttentionBlock(nn.Module):
 class TransformerEncoder(nn.Module):
     """Global customer attention with the same output interface as GNNEncoder.
 
-    ``node_mask`` marks real tokens (True) versus padding (False). It is not a
-    request-visibility mask. The routing model keeps its existing cached full
-    graph during training and encodes the revealed subgraph during inference.
+    ``node_mask`` marks tokens participating in attention. Revealed PPO uses
+    the current request visibility here. Full-graph training includes every
+    token and recursive inference passes an already restricted subgraph.
     Edge embeddings and KNN adjacency are unused.
     """
 
