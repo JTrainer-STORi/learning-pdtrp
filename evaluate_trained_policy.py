@@ -173,6 +173,7 @@ def main(argv=None):
         "dataset_parameters": dataset_time_options(args),
         "ortec_source": args.use_ortec,
         "training_seed": model_args.get("seed"),
+        "tanh_clipping": model_args.get("tanh_clipping"),
         "rollout_candidates": args.rollout_candidates,
         "rollout_wait_penalty": args.rollout_wait_penalty,
         "service_times_mean": args.service_times_mean,

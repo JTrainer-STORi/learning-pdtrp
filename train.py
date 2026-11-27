@@ -449,6 +449,14 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
                 mode = 'revealed' if getattr(opts, 'ppo_encoding', 'full') == 'revealed' else 'masked'
                 rollout = model(inputs, mode=mode, record_decisions=True, return_baseline_features=learned)
                 cost, old_log_p, trace = rollout[:3]
+                if group_start == 0 and not rollout_group:
+                    # Estimate entropy from the sampled actions before any updates this epoch.
+                    legal = (~trace.mask).sum(dim=-1)
+                    choices = trace.active & (legal > 1)
+                    entropy_decisions = choices.sum().item()
+                    relative_entropy = None
+                    if entropy_decisions:
+                        relative_entropy = (-old_log_p[choices] / legal[choices].log()).mean().item()
                 if learned:
                     baseline_cost, _ = baseline.eval(rollout[3], cost, inputs['all_nodes'].size(1) - 1)
                 elif baseline_cost is None:
@@ -490,6 +498,8 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
     metrics = {
         'optimizer_updates': optimizer_updates,
         'ppo_first_replay_max_abs_error': first_replay_error,
+        'ppo_sampled_relative_entropy': relative_entropy,
+        'ppo_entropy_decisions': entropy_decisions,
         'ppo_collection_seconds': collection_seconds,
         'ppo_update_seconds': update_seconds,
         'ppo_approx_kl': approx_kl / decisions,

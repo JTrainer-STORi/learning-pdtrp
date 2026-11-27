@@ -134,8 +134,8 @@ def get_options(args=None):
                         help="Enable edge gating during neighborhood aggregation")
     parser.add_argument('--n_heads', type=int, default=8, 
                         help='Decoder attention heads (transformer encoder uses --transformer-heads)')
-    parser.add_argument('--tanh_clipping', type=float, default=10., 
-                        help='Clip the parameters to within +- this value using tanh. Set to 0 to not do clipping.')
+    parser.add_argument('--tanh_clipping', type=float, default=None,
+                        help='Scale tanh of decoder scores (default: 10, inherited on resume). Use 0 for raw scores.')
     parser.add_argument('--edge_features', type=str, default='distance',
                         help='Edge features to use: distance or adjacency')
     parser.add_argument('--use_time_feature', action='store_true',
@@ -243,6 +243,8 @@ def get_options(args=None):
         if os.path.isfile(saved_args):
             with open(saved_args) as handle:
                 saved = json.load(handle)
+    if opts.tanh_clipping is None:
+        opts.tanh_clipping = saved.get('tanh_clipping', 10.)
     if opts.baseline is None:
         opts.baseline = saved.get('baseline', 'rollout')
     if opts.bl_warmup_epochs is None:

@@ -36,6 +36,19 @@ def read_cell(directory, stem, width, samples, manifest):
     return routes, decisions[:, 2]
 
 
+def load_manifest(folder, seed, width, samples, checkpoint):
+    manifest = json.loads((folder / "manifest.json").read_text())
+    expected = dict(training_seed=seed, evaluation_seed=12346, problem="pdctrptw",
+                    offset=0, rollout_candidates=width, rollout_wait_penalty=0,
+                    num_samples_requested=samples, record_decision_times=True,
+                    dataset_parameters=dict(speed=4, time_horizon=10, latest_end=2))
+    # sha256sum and Python may record different mount prefixes on HEC.
+    if (any(manifest.get(k) != v for k, v in expected.items()) or
+            Path(checkpoint).parts[-4:] != Path(manifest["checkpoint"]).parts[-4:]):
+        raise ValueError(f"Unexpected evaluation settings in {folder}")
+    return manifest
+
+
 def metrics(routes, timings):
     return {
         "routes": len(routes), "mean_cost": routes["objective"].mean(),
@@ -73,15 +86,7 @@ def summarize(root, seeds=(0, 1, 2), samples=300, arms=ARMS):
                 blocks, times = [], []
                 for loc in LOCATIONS:
                     folder = case / f"candidates-{width}" / loc
-                    manifest = json.loads((folder / "manifest.json").read_text())
-                    expected = dict(training_seed=seed, evaluation_seed=12346, problem="pdctrptw",
-                                    offset=0, rollout_candidates=width, rollout_wait_penalty=0,
-                                    num_samples_requested=samples, record_decision_times=True,
-                                    dataset_parameters=dict(speed=4, time_horizon=10, latest_end=2))
-                    # sha256sum and Python may record different mount prefixes on HEC.
-                    if (any(manifest.get(k) != v for k, v in expected.items()) or
-                            Path(checkpoint).parts[-4:] != Path(manifest["checkpoint"]).parts[-4:]):
-                        raise ValueError(f"Unexpected evaluation settings in {folder}")
+                    manifest = load_manifest(folder, seed, width, samples, checkpoint)
                     for dod in DODS:
                         stem = f"pdctrptw50-dod{dod}-th10-seed26412"
                         rows, t = read_cell(folder, stem, width, samples, manifest)

@@ -72,11 +72,12 @@ def test_replaying_decisions_matches_rollout_and_reinforce_gradient(problem, enc
             torch.testing.assert_close(actual, expected, atol=2e-5, rtol=3e-4)
 
 
-@pytest.mark.parametrize(('lookahead_flag', 'encoding'), [
-    (None, 'full'), ('--use-action-lookahead', 'full'),
-    ('--use-capacity-aware-lookahead', 'full'), ('--use-capacity-aware-lookahead', 'revealed'),
+@pytest.mark.parametrize(('lookahead_flag', 'encoding', 'clipping'), [
+    (None, 'full', 10), ('--use-action-lookahead', 'full', 10),
+    ('--use-capacity-aware-lookahead', 'full', 10), ('--use-capacity-aware-lookahead', 'revealed', 10),
+    ('--use-capacity-aware-lookahead', 'revealed', 0),
 ])
-def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag, encoding):
+def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag, encoding, clipping):
     opts = get_options([
         '--problem', 'pdctrptw', '--encoder', 'transformer', '--use-time-window-slack',
         '--use_time_feature', '--use_arrival_times', '--scale_times',
@@ -87,7 +88,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
         '--embedding_dim', '16', '--n_encode_layers', '1', '--n_heads', '2',
         '--no_cuda', '--no_wandb', '--no_tensorboard', '--no_progress_bar', '--save-best-validation',
         '--output_dir', str(tmp_path), '--ppo-encoding', encoding,
-    ] + ([lookahead_flag] if lookahead_flag else []))
+    ] + ([lookahead_flag] if lookahead_flag else []) + (['--tanh_clipping', '0'] if clipping == 0 else []))
     run_rl(opts)
     save_dir = Path(opts.save_dir)
     with (save_dir / 'history.csv').open() as handle:
@@ -97,10 +98,15 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
         assert int(row['training_instances']) == 6
         assert int(row['optimizer_updates']) == 6
         assert float(row['ppo_first_replay_max_abs_error']) < 2e-5
+        if int(row['ppo_entropy_decisions']):
+            assert float(row['ppo_sampled_relative_entropy']) >= 0
+        else:
+            assert row['ppo_sampled_relative_entropy'] == ''
         assert float(row['ppo_collection_seconds']) > 0 and float(row['ppo_update_seconds']) > 0
         assert float(row['ppo_approx_kl']) > 0
         assert 0 <= float(row['ppo_clip_fraction']) <= 1
     model, args = load_model(str(save_dir / 'best-validation.pth'))
+    assert args['tanh_clipping'] == model.tanh_clipping == clipping
     assert args['training_algorithm'] == 'ppo' and args['ppo_update_epochs'] == 2
     assert model.use_action_lookahead == bool(lookahead_flag)
     assert model.use_capacity_aware_lookahead == (lookahead_flag == '--use-capacity-aware-lookahead')
@@ -112,6 +118,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
 
     resumed = get_options(['--resume', str(save_dir / 'epoch-1.pt'), '--problem', 'pdctrptw'])
     assert resumed.ppo_encoding == encoding
+    assert resumed.tanh_clipping == clipping
     assert resumed.training_algorithm == 'ppo' and resumed.ppo_rollout_batches == 2
     assert resumed.use_action_lookahead == model.use_action_lookahead
     assert resumed.use_capacity_aware_lookahead == model.use_capacity_aware_lookahead

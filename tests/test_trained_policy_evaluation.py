@@ -37,7 +37,7 @@ def run_evaluation(tmp_path, monkeypatch, problem, datasets, count, offset=0):
     checkpoint = tmp_path / "model.pt"
     checkpoint.touch()
     model = RecordingPolicy()
-    monkeypatch.setattr(policy, "load_model", lambda path: (model, {"seed": 0}))
+    monkeypatch.setattr(policy, "load_model", lambda path: (model, {"seed": 0, "tanh_clipping": 0.0}))
     output = tmp_path / "results"
     policy.main([
         "--problem", problem, "--checkpoint", str(checkpoint),
@@ -65,6 +65,7 @@ def test_sample_selection_in_each_dataset(tmp_path, monkeypatch, problem, offset
     assert model.decode_type == "greedy"
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["num_samples_requested"] == 1
+    assert manifest["tanh_clipping"] == 0.0
     assert manifest["offset"] == offset
     assert len(manifest["datasets"]) == 2
     for marker, dataset in enumerate(datasets, start=1):

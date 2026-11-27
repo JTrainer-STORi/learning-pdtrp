@@ -4,7 +4,28 @@ The primary comparison is the difference in online greedy route cost between two
 
 Both arms use 50 customers, uniform training locations, DoD 0.2–0.8, a 10-hour call horizon, wide windows, 200 epochs of 12,800 instances, batch size 256, Adam at 0.0001, and four PPO passes. The objective is distance plus total service-start lateness. Both use the existing batched full-graph greedy **training baseline** for their advantage estimates. This holds the baseline procedure fixed while changing the information available to the actor. Recursive greedy validation selects the lowest equally weighted mean on fixed validation sets at DoD 0.2, 0.5 and 0.8, every two epochs and at the final epoch.
 
-## One-time setup
+## Raw decoder scores for greedy revealed PPO
+
+After syncing this checkout to the HEC, run these two commands from your HEC home directory.
+
+```bash
+cp "$global_storage/learning-pdtrp/experiments/revealed-ppo/revealed-ppo-raw.sh" .
+sbatch revealed-ppo-raw.sh
+```
+
+Array tasks 0–2 each train one revealed PPO policy from scratch with `--tanh_clipping 0`. The decoder feeds its raw scores to the masked softmax. This tests removal of the entire `10 × tanh` transform, including its factor of ten near zero. PPO still samples actions during training and uses the same clipped probability-ratio objective as before. Each seed gets the same initialization procedure, epoch data seeds, 200 × 12,800 instances, four update passes, and recursive greedy validation rule as its clipped counterpart in training array `26442619`.
+
+Each task then evaluates its best-validation checkpoint with greedy dispatch on all 1,800 instances in the existing `data/26412` directory. It compares these routes with the same seed and sample IDs from the clipped revealed policies in `evaluation/26469992`. Both directories are under `$global_storage/learning-pdtrp/artifacts/revealed-ppo/`. The script verifies the test set against the archived checksums before training. The three tasks each request one GPU by count on `astro`. [HEC GPU guide](https://lancaster-hec.readthedocs.io/en/latest/gpu.html)
+
+Logs are in `~/revealed-raw.ARRAY_ID_SEED.out`. Results are in `$global_storage/learning-pdtrp/artifacts/revealed-ppo/raw/ARRAY_ID/seed-SEED/`. Each log ends with the paired mean greedy costs. Each seed directory contains the following files.
+
+- `paired.csv` gives raw minus clipped cost, percentage change, and wins/ties/losses for each location/DoD and for all 1,800 routes. Negative change favors raw scores. Treat the three seeds as three training replicates.
+- `metrics.csv` gives mean and p95 cost, distance, mean lateness, number of routes over ten minutes late, and route and decision timing for both decoders. GPU models are recorded in the evaluation manifests.
+- `models/*/*/history.csv` records validation cost, PPO approximate KL, clip fraction and replay error through the final epoch. Inspect these alongside the selected epoch in `best-validation.json` to see whether late training remained stable. Each epoch also records `ppo_sampled_relative_entropy`, the mean sampled negative log probability divided by the log of the number of legal actions at that decision. It uses the first collection batch and counts only active decisions with a choice (`ppo_entropy_decisions`). Values near one suggest roughly uniform sampling, and values near zero suggest nearly deterministic choices. Sampling noise can take the estimate above one. `candidates-0/` contains the per-route results. The evaluation manifest now records the loaded decoder's `tanh_clipping` value.
+
+On this benchmark the prior three-seed mean greedy costs were 54.27 for clipped revealed PPO, 18.05 for full-graph PPO and 17.25 for the capacity-aware reference. The comparison reuses a previously inspected benchmark so the route-level differences are directly comparable. Confirm any chosen configuration on a fresh dataset seed before treating the gain as a final performance estimate.
+
+## Original clipped experiment — one-time setup
 
 Sync the updated checkout, including `experiments/revealed-ppo/` and `tests/`, to `$global_storage/learning-pdtrp` on the HEC.
 

@@ -21,5 +21,5 @@ CASE="$PWD/artifacts/revealed-ppo/pilot/$SLURM_JOB_ID"
 
 mkdir -p "$CASE"
 python -m pytest -q tests/test_revealed_ppo.py
-source experiments/revealed-ppo/run-training.sh
+source experiments/revealed-ppo/run-training.sh 10
 cat "$CASE"/models/*/*/history.csv

@@ -28,5 +28,5 @@ mkdir -p "$CASE"
 if [[ $SLURM_ARRAY_TASK_ID == 1 ]]; then
     ln -sfnT "$SLURM_ARRAY_JOB_ID" "$TRAINING/production"
 fi
-source experiments/revealed-ppo/run-training.sh
+source experiments/revealed-ppo/run-training.sh 10
 touch "$CASE/complete"

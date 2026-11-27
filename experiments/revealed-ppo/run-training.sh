@@ -1,4 +1,4 @@
-# Shared PPO settings for the pilot and the six production runs.
+# Shared PPO settings. The argument is the decoder tanh clipping value (0 = raw).
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:?}" NUM_WORKERS=2
 export ENCODER=transformer NORMALIZATION=layer NEIGHBORS=-1 KNN_STRAT=fixed
 export MIN_CUSTOMERS=50 HOURS_PER_CUSTOMER=0.2 MIN_DOD=0.2 MAX_DOD=0.8
@@ -13,7 +13,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv > "$CASE/gpu.csv"
 python -c 'import torch; assert torch.cuda.is_available(), "CUDA unavailable"'
 
 srun --export=ALL --cpu-bind=cores bash scripts/train-policy.sh pdctrptw 50 "$SEED" -- \
-    --training-algorithm ppo --ppo-update-epochs 4 --ppo-encoding "$ARM" \
+    --training-algorithm ppo --ppo-update-epochs 4 --ppo-encoding "$ARM" --tanh_clipping "${1:-10}" \
     --use-capacity-aware-lookahead --baseline rollout --bl_warmup_epochs 0 \
     --training-data-seed "$((91230 + SEED))" --lr_model 0.0001 \
     --validation-dods 0.2 0.5 0.8 --val_every 2 --save-best-validation --no_progress_bar
