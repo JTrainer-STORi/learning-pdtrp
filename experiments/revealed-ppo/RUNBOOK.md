@@ -4,6 +4,52 @@ The primary comparison is the difference in online greedy route cost between two
 
 Both arms use 50 customers, uniform training locations, DoD 0.2–0.8, a 10-hour call horizon, wide windows, 200 epochs of 12,800 instances, batch size 256, Adam at 0.0001, and four PPO passes. The objective is distance plus total service-start lateness. Both use the existing batched full-graph greedy **training baseline** for their advantage estimates. This holds the baseline procedure fixed while changing the information available to the actor. Recursive greedy validation selects the lowest equally weighted mean on fixed validation sets at DoD 0.2, 0.5 and 0.8, every two epochs and at the final epoch.
 
+## Continue current-revealed PPO and test decoder clipping
+
+The two job arrays use seeds 0–2, the same 100-epoch training budget per seed and the same generated validation sets. Both use revealed encoding for the actor and its current greedy baseline, 50 customers, 12,800 training instances per epoch, batch size 256, four PPO passes and Adam at 0.0001.
+
+- `revealed-ppo-continue.sh` resumes the three raw-score seeds from `baseline/26513824` at `epoch-39.pt`, restoring the optimizer as well as the actor. It trains epochs 40–99. For `raw-100`, it selects the best checkpoint across both parts of training by mean validation objective. It also evaluates the original `raw-40` winners and the two greedy benchmarks.
+- `revealed-ppo-clipped.sh` trains three policies from scratch with `10 × tanh(score)` for all 100 epochs. It uses the same initialization seeds, per-epoch data seeds and validation rule as the raw arm.
+
+Both arrays score their selected checkpoints using recursive greedy dispatch on the fresh dataset seed **26413**, with 300 routes in each of the six location/DoD cells. Test cost is distance plus summed service-start lateness. The new files were generated locally and use the same distributions as seed 26412.
+
+Sync the checkout, then upload the prepared data from the local repository. [HEC login details](https://lancaster-hec.readthedocs.io/en/latest/login.html)
+
+```bash
+scp -r artifacts/revealed-ppo/data/26413 trainer1@wayland-2022.hec.lancaster.ac.uk:
+```
+
+From your **HEC home directory**, stage the data and submit both arrays. Each task requests one GPU by count on `astro`. [HEC GPU guide](https://lancaster-hec.readthedocs.io/en/latest/gpu.html)
+
+```bash
+cp -R 26413 "$global_storage/learning-pdtrp/artifacts/revealed-ppo/data/"
+cp "$global_storage/learning-pdtrp/experiments/revealed-ppo/revealed-ppo-continue.sh" .
+cp "$global_storage/learning-pdtrp/experiments/revealed-ppo/revealed-ppo-clipped.sh" .
+sbatch revealed-ppo-continue.sh
+sbatch revealed-ppo-clipped.sh
+```
+
+Logs are in `~/revealed-continue.ARRAY_ID_SEED.out` and `~/revealed-clipped.ARRAY_ID_SEED.out`. Results are under `artifacts/revealed-ppo/continuation/ARRAY_ID/` and `artifacts/revealed-ppo/clipped/ARRAY_ID/` in the HEC checkout. After both arrays finish, replace the two job-ID placeholders to write `metrics.csv` and `paired.csv` in the continuation directory.
+
+```bash
+module add miniforge
+cd "$global_storage/learning-pdtrp"
+.venv/bin/python experiments/revealed-ppo/summarize_continuation.py \
+    artifacts/revealed-ppo/continuation/CONTINUATION_JOB_ID \
+    artifacts/revealed-ppo/clipped/CLIPPED_JOB_ID
+```
+
+In `paired.csv`, compare `raw-100` with `raw-40` for the gain from extending training, then compare `clipped-100` with `raw-100` for the decoder effect at the matched budget. Negative mean change favors the candidate. `selection.json` identifies the epoch behind each evaluation.
+
+### Greedy benchmark settings
+
+Both benchmarks use the 128-dimensional, three-layer, fully connected Transformer, time-window slack, capacity-aware action lookahead and `10 × tanh(score)`. They train with full-graph PPO and a snapshot greedy rollout baseline, then dispatch greedily with only revealed information at evaluation.
+
+| Benchmark | Training schedule | Mean greedy cost on seed 26412 |
+|---|---|---:|
+| Full-graph PPO, array `26442619` | 200 epochs from scratch on 50 customers, Adam at 0.0001 | 18.05 |
+| Capacity-aware reference, arrays `26338569` and `26342957` | Warm-started from the best checkpoints of 300-epoch mixed-size (20–50 customers) full-graph PPO runs in array `26218688`. Fine-tuned for 100 epochs on 50 customers with capacity-aware lookahead and Adam at 0.00005. | 17.25 |
+
 ## Current actor as the greedy PPO baseline
 
 After syncing the updated checkout, run these commands from your HEC home directory. The job reuses the six uploaded datasets in `data/26412` and the raw-score checkpoints in `raw/26479898`, both under `$global_storage/learning-pdtrp/artifacts/revealed-ppo/`.

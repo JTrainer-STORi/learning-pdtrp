@@ -16,9 +16,9 @@ def comparison(raw_cost, clipped_cost):
                 losses=int((change > 1e-5).sum()))
 
 
-def greedy_results(case, seed, clipping, baseline=None):
+def greedy_results(case, seed, clipping, baseline=None, *, dataset_seed=26412):
     hashes = (case / "evaluation-inputs.sha256").read_text()
-    expected = {f"{loc}/pdctrptw50-dod{dod}-th10-seed26412.txt" for loc in LOCATIONS for dod in DODS}
+    expected = {f"{loc}/pdctrptw50-dod{dod}-th10-seed{dataset_seed}.txt" for loc in LOCATIONS for dod in DODS}
     if {line.split()[1] for line in hashes.splitlines()} != expected:
         raise ValueError("Expected checksums for all six evaluation datasets")
 
@@ -35,7 +35,7 @@ def greedy_results(case, seed, clipping, baseline=None):
         if manifest.get("tanh_clipping", 10) != clipping:
             raise ValueError(f"Unexpected decoder clipping in {folder}")
         for dod in DODS:
-            stem = f"pdctrptw50-dod{dod}-th10-seed26412"
+            stem = f"pdctrptw50-dod{dod}-th10-seed{dataset_seed}"
             rows, timing = read_cell(folder, stem, 0, 300, manifest)
             costs[loc, dod] = rows["objective"]
             records.append(dict(location=loc, dod=dod, **metrics(rows, timing)))

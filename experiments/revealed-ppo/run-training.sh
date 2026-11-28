@@ -1,4 +1,4 @@
-# Shared PPO settings. Arguments: decoder tanh clipping (0 = raw), then training baseline.
+# Shared PPO settings. Arguments: tanh clipping (0 = raw), baseline, then extra training flags.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:?}" NUM_WORKERS=2
 export ENCODER=transformer NORMALIZATION=layer NEIGHBORS=-1 KNN_STRAT=fixed
 export MIN_CUSTOMERS=50 HOURS_PER_CUSTOMER=0.2 MIN_DOD=0.2 MAX_DOD=0.8
@@ -16,4 +16,4 @@ srun --ntasks=1 --export=ALL --cpu-bind=cores bash scripts/train-policy.sh pdctr
     --training-algorithm ppo --ppo-update-epochs 4 --ppo-encoding "$ARM" --tanh_clipping "${1:-10}" \
     --use-capacity-aware-lookahead --baseline "${2:-rollout}" --bl_warmup_epochs 0 \
     --training-data-seed "$((91230 + SEED))" --lr_model 0.0001 \
-    --validation-dods 0.2 0.5 0.8 --val_every 2 --save-best-validation --no_progress_bar
+    --validation-dods 0.2 0.5 0.8 --val_every 2 --save-best-validation --no_progress_bar "${@:3}"
