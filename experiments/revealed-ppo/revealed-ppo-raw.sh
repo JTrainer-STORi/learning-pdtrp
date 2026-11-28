@@ -26,8 +26,6 @@ if (( ${SLURM_RESTART_COUNT:-0} > 0 )); then
 fi
 DATA="$ROOT/data/26412"
 CONTROL="$ROOT/evaluation/26469992/revealed/seed-$SEED"
-LOCATIONS=(uniform-uniform ortec-locations)
-DODS=(0.2 0.5 0.8)
 
 mkdir -p "$CASE"
 (cd "$DATA" && sha256sum -c evaluation-inputs.sha256)
@@ -43,15 +41,6 @@ if (( ${#CHECKPOINTS[@]} != 1 )); then
 fi
 sha256sum "${CHECKPOINTS[0]}" > "$CASE/checkpoint.sha256"
 
-export OMP_NUM_THREADS=2  # Match the archived greedy evaluation.
-for LOCATION in "${LOCATIONS[@]}"; do
-    DATASETS=()
-    for DOD in "${DODS[@]}"; do
-        DATASETS+=("$DATA/$LOCATION/pdctrptw50-dod$DOD-th10-seed26412.txt")
-    done
-    srun --cpus-per-task=2 --export=ALL --cpu-bind=cores python -u evaluate_trained_policy.py --problem pdctrptw \
-        --checkpoint "${CHECKPOINTS[0]}" --datasets "${DATASETS[@]}" --num-samples 300 \
-        --speed 4 --time-horizon 10 --latest-end 2 --evaluation-seed 12346 --device cuda \
-        --record-decision-times --rollout-candidates 0 --output-dir "$CASE/candidates-0/$LOCATION"
-done
+source experiments/revealed-ppo/evaluate-greedy.sh
+evaluate_greedy "${CHECKPOINTS[0]}" "$DATA" "$CASE"
 python experiments/revealed-ppo/compare_raw.py "$CASE" "$CONTROL" "$SEED"

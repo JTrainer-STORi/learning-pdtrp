@@ -4,6 +4,33 @@ The primary comparison is the difference in online greedy route cost between two
 
 Both arms use 50 customers, uniform training locations, DoD 0.2–0.8, a 10-hour call horizon, wide windows, 200 epochs of 12,800 instances, batch size 256, Adam at 0.0001, and four PPO passes. The objective is distance plus total service-start lateness. Both use the existing batched full-graph greedy **training baseline** for their advantage estimates. This holds the baseline procedure fixed while changing the information available to the actor. Recursive greedy validation selects the lowest equally weighted mean on fixed validation sets at DoD 0.2, 0.5 and 0.8, every two epochs and at the final epoch.
 
+## Current actor as the greedy PPO baseline
+
+After syncing the updated checkout, run these commands from your HEC home directory. The job reuses the six uploaded datasets in `data/26412` and the raw-score checkpoints in `raw/26479898`, both under `$global_storage/learning-pdtrp/artifacts/revealed-ppo/`.
+
+```bash
+cp "$global_storage/learning-pdtrp/experiments/revealed-ppo/revealed-ppo-baseline.sh" .
+sbatch revealed-ppo-baseline.sh
+```
+
+Each array task handles one seed (0, 1 or 2) on one GPU on `astro`. The actor uses revealed-customer encoding and raw decoder scores in every arm. Only the way PPO obtains the greedy route cost for its advantage changes.
+
+| Training baseline | Weights used for the greedy route | Customers visible to its encoder |
+|---|---|---|
+| `rollout` (archived control) | Snapshot promoted after a paired test on separate baseline instances | Full graph |
+| `current-full` | Actor that sampled this PPO collection group | Full graph |
+| `current-revealed` | Actor that sampled this PPO collection group | Revealed customers |
+
+For both new arms, PPO samples a route and greedily decodes the same training instance, including the same realized service times. It computes `greedy cost − sampled cost` once before the first optimizer step for the group. All four PPO passes reuse that advantage. A sampled route gets positive advantage when it improves on the greedy route. The revealed greedy baseline updates its encoder inputs as calls arrive. The full baseline can use unannounced customers in its embeddings, although its dispatcher can only select available actions.
+
+Both new arms train from scratch for 40 epochs of 12,800 routes per seed (512,000 total per run). They share model initialization seeds, per-epoch training instances, optimizer settings and the original validation rule. Recursive greedy validation every two epochs selects the checkpoint. The archived control ran for 200 epochs, but its winning checkpoints occurred at zero-based epochs 15, 15 and 3. These are also the checkpoints that won within the first 40 epochs. The launcher verifies the archived digest and selection window, then evaluates the control and both new checkpoints afresh on all 1,800 routes using greedy dispatch, zero search candidates and one evaluator process.
+
+Logs appear in `~/revealed-baseline.ARRAY_ID_SEED.out`. Results appear in `$global_storage/learning-pdtrp/artifacts/revealed-ppo/baseline/ARRAY_ID/seed-SEED/`. Each seed writes the following results.
+
+- `paired.csv` reports candidate minus control cost for each location and DoD, and across all 1,800 routes. Negative values favor the candidate. Compare `current-full` against `rollout` for the effect of refreshing the weights, then `current-revealed` against `current-full` for the effect of hiding future customers. The third comparison gives the combined effect.
+- `metrics.csv` includes mean and p95 cost, distance, lateness and decision latency. Each new model's `history.csv` records sampled cost, baseline cost, the fraction of routes with positive advantage, sampled relative entropy and validation costs. A falling fraction of positive advantages together with near-zero entropy can indicate that sampled and greedy routes have converged. Inspect validation and test cost to judge whether that convergence helped.
+- Use the three per-seed overall cost changes as the training replicates. If the revealed baseline improves on the control consistently, compare its absolute greedy cost with the prior clipped revealed PPO result (54.27) before extending training. The clipped result sets the performance threshold for this decoder experiment.
+
 ## Raw decoder scores for greedy revealed PPO
 
 After syncing this checkout to the HEC, run these two commands from your HEC home directory.

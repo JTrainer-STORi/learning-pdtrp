@@ -9,6 +9,7 @@ from nets.encoders.gnn_encoder import GNNEncoder
 from nets.encoders.transformer_encoder import TransformerEncoder
 from options import get_options
 from problems import PDCTRPTW, PDTRPTW
+from reinforce_baselines import CurrentActorBaseline
 from run import run_rl
 from tests.test_time_window_slack import inputs
 from train import ppo_policy_loss
@@ -72,12 +73,48 @@ def test_replaying_decisions_matches_rollout_and_reinforce_gradient(problem, enc
             torch.testing.assert_close(actual, expected, atol=2e-5, rtol=3e-4)
 
 
-@pytest.mark.parametrize(('lookahead_flag', 'encoding', 'clipping'), [
-    (None, 'full', 10), ('--use-action-lookahead', 'full', 10),
-    ('--use-capacity-aware-lookahead', 'full', 10), ('--use-capacity-aware-lookahead', 'revealed', 10),
-    ('--use-capacity-aware-lookahead', 'revealed', 0),
+@pytest.mark.parametrize('mode', ['masked', 'revealed'])
+def test_current_baseline_decodes_greedily_with_live_weights_and_restores_sampling(mode):
+    actor = DynamicAttentionModel(PDCTRPTW, 16, TransformerEncoder, 1, n_heads=2)
+    baseline = CurrentActorBaseline(actor, mode)
+    data = inputs(PDCTRPTW, full=True, batch_size=2)
+    actor.set_decode_type('sampling')
+    with torch.no_grad():
+        sampled, _, _ = actor(data, mode='revealed')
+    seen_weights = []
+
+    def observe(module, args, kwargs):
+        assert module.decode_type == 'greedy' and not module.training
+        assert not torch.is_grad_enabled() and kwargs['mode'] == mode
+        seen_weights.append(module.project_out.weight.detach().clone())
+
+    for _ in range(2):
+        hook = actor.register_forward_pre_hook(observe, with_kwargs=True)
+        cost, loss = baseline.eval(data, sampled)
+        hook.remove()
+        assert cost.shape == sampled.shape and not cost.requires_grad and loss == 0
+        assert actor.training and actor.decode_type == 'sampling' and actor.mode == 'revealed'
+        with torch.no_grad():
+            actor.eval()
+            actor.set_decode_type('greedy')
+            expected, _, _ = actor(data, mode=mode)
+            torch.testing.assert_close(cost, expected)
+            actor.project_out.weight.add_(0.1)
+            actor.train()
+            actor.set_decode_type('sampling')
+            actor(data, mode='revealed')
+    torch.testing.assert_close(seen_weights[1], seen_weights[0] + 0.1)
+    assert baseline.state_dict() == {}
+
+
+@pytest.mark.parametrize(('lookahead_flag', 'encoding', 'clipping', 'baseline'), [
+    (None, 'full', 10, 'rollout'), ('--use-action-lookahead', 'full', 10, 'rollout'),
+    ('--use-capacity-aware-lookahead', 'full', 10, 'rollout'), ('--use-capacity-aware-lookahead', 'revealed', 10, 'rollout'),
+    ('--use-capacity-aware-lookahead', 'revealed', 0, 'rollout'),
+    ('--use-capacity-aware-lookahead', 'revealed', 0, 'current-full'),
+    ('--use-capacity-aware-lookahead', 'revealed', 0, 'current-revealed'),
 ])
-def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag, encoding, clipping):
+def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lookahead_flag, encoding, clipping, baseline):
     opts = get_options([
         '--problem', 'pdctrptw', '--encoder', 'transformer', '--use-time-window-slack',
         '--use_time_feature', '--use_arrival_times', '--scale_times',
@@ -87,7 +124,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
         '--rollout_size', '2', '--rollout_batch_size', '2', '--val_size', '2', '--val_batch_size', '1',
         '--embedding_dim', '16', '--n_encode_layers', '1', '--n_heads', '2',
         '--no_cuda', '--no_wandb', '--no_tensorboard', '--no_progress_bar', '--save-best-validation',
-        '--output_dir', str(tmp_path), '--ppo-encoding', encoding,
+        '--output_dir', str(tmp_path), '--ppo-encoding', encoding, '--baseline', baseline,
     ] + ([lookahead_flag] if lookahead_flag else []) + (['--tanh_clipping', '0'] if clipping == 0 else []))
     run_rl(opts)
     save_dir = Path(opts.save_dir)
@@ -97,6 +134,8 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
     for row in history:
         assert int(row['training_instances']) == 6
         assert int(row['optimizer_updates']) == 6
+        assert float(row['ppo_mean_baseline_cost']) >= 0 and float(row['ppo_mean_sampled_cost']) >= 0
+        assert 0 <= float(row['ppo_positive_advantage_fraction']) <= 1
         assert float(row['ppo_first_replay_max_abs_error']) < 2e-5
         if int(row['ppo_entropy_decisions']):
             assert float(row['ppo_sampled_relative_entropy']) >= 0
@@ -117,6 +156,7 @@ def test_ppo_trains_multiple_passes_and_saves_a_loadable_checkpoint(tmp_path, lo
     assert torch.isfinite(cost).all()
 
     resumed = get_options(['--resume', str(save_dir / 'epoch-1.pt'), '--problem', 'pdctrptw'])
+    assert resumed.baseline == baseline
     assert resumed.ppo_encoding == encoding
     assert resumed.tanh_clipping == clipping
     assert resumed.training_algorithm == 'ppo' and resumed.ppo_rollout_batches == 2

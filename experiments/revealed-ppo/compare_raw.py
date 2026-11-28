@@ -16,37 +16,47 @@ def comparison(raw_cost, clipped_cost):
                 losses=int((change > 1e-5).sum()))
 
 
-def compare(raw, clipped, seed):
-    hashes = (raw / "evaluation-inputs.sha256").read_text()
-    if hashes != (clipped / "evaluation-inputs.sha256").read_text():
-        raise ValueError("Raw and clipped evaluations used different datasets")
+def greedy_results(case, seed, clipping, baseline=None):
+    hashes = (case / "evaluation-inputs.sha256").read_text()
     expected = {f"{loc}/pdctrptw50-dod{dod}-th10-seed26412.txt" for loc in LOCATIONS for dod in DODS}
     if {line.split()[1] for line in hashes.splitlines()} != expected:
         raise ValueError("Expected checksums for all six evaluation datasets")
 
+    _, checkpoint = (case / "checkpoint.sha256").read_text().strip().split(maxsplit=1)
+    blocks, times = [], []
+    costs = {}
+    records = []
+    for loc in LOCATIONS:
+        folder = case / "candidates-0" / loc
+        manifest = load_manifest(folder, seed, 0, 300, checkpoint)
+        if baseline and manifest.get("training_baseline") != baseline:
+            raise ValueError(f"Unexpected training baseline in {folder}")
+        # The archived clipped manifests predate the tanh_clipping field.
+        if manifest.get("tanh_clipping", 10) != clipping:
+            raise ValueError(f"Unexpected decoder clipping in {folder}")
+        for dod in DODS:
+            stem = f"pdctrptw50-dod{dod}-th10-seed26412"
+            rows, timing = read_cell(folder, stem, 0, 300, manifest)
+            costs[loc, dod] = rows["objective"]
+            records.append(dict(location=loc, dod=dod, **metrics(rows, timing)))
+            blocks.append(rows)
+            times.append(timing)
+    rows = np.concatenate(blocks)
+    costs["all", "all"] = rows["objective"]
+    records.append(dict(location="all", dod="all",
+                        **metrics(rows, np.concatenate(times))))
+    return records, costs
+
+
+def compare(raw, clipped, seed):
+    hashes = (raw / "evaluation-inputs.sha256").read_text()
+    if hashes != (clipped / "evaluation-inputs.sha256").read_text():
+        raise ValueError("Raw and clipped evaluations used different datasets")
     records, paired = [], []
     costs = {}
-    for mode, case in (("raw", raw), ("clipped", clipped)):
-        _, checkpoint = (case / "checkpoint.sha256").read_text().strip().split(maxsplit=1)
-        blocks, times = [], []
-        costs[mode] = {}
-        for loc in LOCATIONS:
-            folder = case / "candidates-0" / loc
-            manifest = load_manifest(folder, seed, 0, 300, checkpoint)
-            # The archived clipped manifests predate the tanh_clipping field.
-            if manifest.get("tanh_clipping", 10) != (0 if mode == "raw" else 10):
-                raise ValueError(f"Unexpected decoder clipping in {folder}")
-            for dod in DODS:
-                stem = f"pdctrptw50-dod{dod}-th10-seed26412"
-                rows, timing = read_cell(folder, stem, 0, 300, manifest)
-                costs[mode][loc, dod] = rows["objective"]
-                records.append(dict(seed=seed, decoder=mode, location=loc, dod=dod, **metrics(rows, timing)))
-                blocks.append(rows)
-                times.append(timing)
-        rows = np.concatenate(blocks)
-        costs[mode]["all", "all"] = rows["objective"]
-        records.append(dict(seed=seed, decoder=mode, location="all", dod="all",
-                            **metrics(rows, np.concatenate(times))))
+    for mode, case, clipping in (("raw", raw, 0), ("clipped", clipped, 10)):
+        rows, costs[mode] = greedy_results(case, seed, clipping)
+        records.extend(dict(seed=seed, decoder=mode, **row) for row in rows)
     for (loc, dod), raw_cost in costs["raw"].items():
         paired.append(dict(seed=seed, location=loc, dod=dod,
                            **comparison(raw_cost, costs["clipped"][loc, dod])))

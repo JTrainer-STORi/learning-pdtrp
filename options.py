@@ -181,8 +181,10 @@ def get_options(args=None):
                         help='Maximum L2 norm for gradient clipping (0 to disable clipping)')
     parser.add_argument('--exp_beta', type=float, default=0.8,
                         help='Exponential moving average baseline decay')
-    parser.add_argument('--baseline', choices=['rollout', 'learned', 'pomo', 'exponential'], default=None,
-                        help='Cost baseline (default: rollout, inherited on resume)')
+    parser.add_argument('--baseline', default=None,
+                        choices=['rollout', 'current-full', 'current-revealed', 'learned', 'pomo', 'exponential'],
+                        help='Cost baseline (default: rollout, inherited on resume). Current actor baselines use '
+                             'a greedy route on each PPO training instance with full or revealed encoder inputs.')
     parser.add_argument('--bl_alpha', type=float, default=0.05,
                         help='Significance in the t-test for updating rollout baseline')
     parser.add_argument('--bl_warmup_epochs', type=int, default=None,
@@ -360,6 +362,14 @@ def get_options(args=None):
             setattr(opts, name, saved.get(name, default))
     if opts.resume and opts.ppo_encoding != saved.get('ppo_encoding', 'full'):
         parser.error('Resuming requires the original PPO encoding')
+    current_baselines = ('current-full', 'current-revealed')
+    if opts.baseline in current_baselines and opts.training_algorithm != 'ppo':
+        parser.error('Current actor baselines require PPO')
+    if opts.baseline == 'current-revealed' and opts.encoder != 'transformer':
+        parser.error('The current-revealed baseline requires a transformer')
+    if saved and (opts.baseline in current_baselines or saved.get('baseline') in current_baselines):
+        if opts.baseline != saved.get('baseline', 'rollout'):
+            parser.error('Resuming requires the original baseline')
     if opts.ppo_encoding == 'revealed' and (
         opts.training_algorithm != 'ppo' or opts.encoder != 'transformer' or opts.baseline == 'learned'
     ):

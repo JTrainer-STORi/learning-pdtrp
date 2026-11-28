@@ -187,6 +187,30 @@ class CriticBaseline(Baseline):
         self.critic.load_state_dict({**self.critic.state_dict(), **critic_state_dict})
 
 
+class CurrentActorBaseline(Baseline):
+    """Greedy cost on each collection instance, using the live PPO behavior weights."""
+
+    def __init__(self, actor, mode):
+        self.actor = actor
+        self.mode = mode
+
+    @torch.no_grad()
+    def eval(self, inputs, cost):
+        # PPO has just sampled this batch and has yet to update its actor.
+        actor = get_inner_model(self.actor)
+        decode_type, training = actor.decode_type, self.actor.training
+        mode = getattr(actor, 'mode', 'masked')
+        try:
+            self.actor.eval()
+            actor.set_decode_type('greedy')
+            greedy_cost, _, _ = self.actor(inputs, mode=self.mode)
+            return greedy_cost, 0
+        finally:
+            actor.set_decode_type(decode_type)
+            actor.mode = mode
+            self.actor.train(training)
+
+
 class RolloutBaseline(Baseline):
 
     def __init__(self, model, problem, opts, epoch=0):

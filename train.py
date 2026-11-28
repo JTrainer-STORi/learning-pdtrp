@@ -436,6 +436,8 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
     optimizer_updates = 0
     diagnostics = torch.zeros(3, device=opts.device)
     learned = opts.baseline == 'learned'
+    route_totals = torch.zeros(3, device=opts.device, dtype=torch.float64)
+    route_count = 0
     baseline_losses = torch.zeros((), device=opts.device)
 
     for group_start in range(0, len(dataloader), opts.ppo_rollout_batches):
@@ -463,7 +465,10 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
                     baseline_cost, _ = baseline.eval(inputs, cost)
                 else:
                     baseline_cost = move_to(baseline_cost, opts.device)
-                rollout_group.append((inputs, old_log_p, baseline_cost - cost, trace, cost))
+                advantage = baseline_cost - cost
+                rollout_group.append((inputs, old_log_p, advantage, trace, cost))
+                route_totals += torch.stack((cost.sum(), advantage.sum(), (advantage > 0).sum()))
+                route_count += cost.numel()
         if opts.use_cuda:
             torch.cuda.synchronize(opts.device)
         collection_seconds += time.perf_counter() - started
@@ -494,9 +499,13 @@ def train_ppo_epoch(model, optimizer, baseline, dataloader, opts):
             torch.cuda.synchronize(opts.device)
         update_seconds += time.perf_counter() - started
 
+    sampled_cost, advantage_sum, wins = route_totals.tolist()
     approx_kl, clipped_count, decisions = diagnostics.tolist()
     metrics = {
         'optimizer_updates': optimizer_updates,
+        'ppo_mean_sampled_cost': sampled_cost / route_count,
+        'ppo_mean_baseline_cost': (sampled_cost + advantage_sum) / route_count,
+        'ppo_positive_advantage_fraction': wins / route_count,
         'ppo_first_replay_max_abs_error': first_replay_error,
         'ppo_sampled_relative_entropy': relative_entropy,
         'ppo_entropy_decisions': entropy_decisions,
